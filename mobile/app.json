@@ -1,0 +1,39 @@
+{
+  "expo": {
+    "name": "感恩日记",
+    "slug": "gratitude-diary",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.yourcompany.gratitudediary",
+      "infoPlist": {
+        "NSFaceIDUsageDescription": "使用Face ID快速登录"
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.yourcompany.gratitudediary"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "scheme": "myapp",
+    "plugins": [
+      "expo-apple-authentication",
+      "expo-secure-store",
+      "expo-localization",
+      "expo-font"
+    ]
+  }
+}
