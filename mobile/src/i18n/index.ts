@@ -101,9 +101,19 @@ detectAndSetLocale();
  * TypeScript会自动提示可用的key（如果配置了类型）
  */
 export const t = (key: string, options?: any): string => {
-  const result = i18n.t(key, options);
-  // 移除了调试日志，避免控制台输出过多
-  return result;
+  try {
+    const result = i18n.t(key, options);
+    // 如果 i18n-js 找不到键，会返回 "[missing xxx]" 格式
+    // 我们需要检查这种情况并返回空字符串或默认值
+    if (result && result.startsWith("[missing")) {
+      console.warn(`⚠️ 翻译键未找到: ${key}`, result);
+      return "";
+    }
+    return result;
+  } catch (error) {
+    console.error(`❌ 翻译失败: ${key}`, error);
+    return "";
+  }
 };
 
 /**

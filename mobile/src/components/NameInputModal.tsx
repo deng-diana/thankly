@@ -84,6 +84,9 @@ export default function NameInputModal({
             maxLength={20}
             returnKeyType="done"
             onSubmitEditing={handleConfirm}
+            accessibilityLabel={placeholder || t("login.namePrompt.placeholder")}
+            accessibilityHint={t("accessibility.input.nameHint")}
+            accessibilityRole="text"
           />
 
           {/* 按钮 */}
@@ -91,6 +94,9 @@ export default function NameInputModal({
             <TouchableOpacity
               style={[styles.button, styles.cancelButton]}
               onPress={handleCancel}
+              accessibilityLabel={t("common.cancel")}
+              accessibilityHint={t("accessibility.button.cancelHint")}
+              accessibilityRole="button"
             >
               <Text style={[styles.cancelButtonText, typography.body]}>
                 {t("common.cancel")}
@@ -104,6 +110,10 @@ export default function NameInputModal({
               ]}
               onPress={handleConfirm}
               disabled={name.trim().length === 0}
+              accessibilityLabel={t("common.confirm")}
+              accessibilityHint={t("accessibility.button.confirmHint")}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: name.trim().length === 0 }}
             >
               <Text
                 style={[
@@ -200,7 +210,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   confirmButton: {
-    backgroundColor: "#D96F4C",
+    backgroundColor: "#E56C45",
   },
   confirmButtonDisabled: {
     backgroundColor: "#E0E0E0",

@@ -83,7 +83,7 @@ const styles = StyleSheet.create({
   },
   paginationContainer: {
     position: "absolute",
-    bottom: 40,
+    bottom: 64,
     left: 0,
     right: 0,
     alignItems: "center",

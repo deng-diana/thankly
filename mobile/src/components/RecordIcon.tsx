@@ -55,7 +55,7 @@ export default function RecordIcon({
         strokeLinecap="round"
       />
       {/* 橙色圆点装饰 */}
-      <Circle cx="95" cy="30" r="8" fill="#D96F4C" />
+      <Circle cx="95" cy="30" r="8" fill="#E56C45" />
     </Svg>
   );
 }

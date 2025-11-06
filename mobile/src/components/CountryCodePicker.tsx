@@ -207,7 +207,7 @@ export default function CountryCodePicker({
                     {getCountryName(item)} {item.code}
                   </Text>
                   {item.code === value && (
-                    <Ionicons name="checkmark" size={20} color="#D96F4C" />
+                    <Ionicons name="checkmark" size={20} color="#E56C45" />
                   )}
                 </TouchableOpacity>
               )}

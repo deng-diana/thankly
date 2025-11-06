@@ -5,7 +5,7 @@ import React from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { t } from "../i18n";
 import { getTypography } from "../styles/typography";
-import RecordIcon from "../components/RecordIcon";
+import Onboarding2Icon from "../assets/icons/onboarding2.svg";
 
 export default function OnboardingScreen2() {
   const typography = getTypography();
@@ -14,7 +14,7 @@ export default function OnboardingScreen2() {
     <View style={styles.container}>
       <View style={styles.content}>
         <View style={styles.illustrationContainer}>
-          <RecordIcon width={160} height={160} />
+          <Onboarding2Icon width={160} height={160} />
         </View>
 
         <View style={styles.textContainer}>
@@ -42,7 +42,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
   },
   illustrationContainer: {
-    marginBottom: 60,
+    marginBottom: 16,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -63,4 +63,3 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
 });
-

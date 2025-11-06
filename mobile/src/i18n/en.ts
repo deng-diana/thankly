@@ -22,14 +22,14 @@ export default {
     done: "Done",
     rerecord: "Record Again",
     useTextInput: "Use Text Input",
+    show: "Show",
   },
 
   // Onboarding流程
   onboarding: {
     welcome: {
-      title: "Welcome to Thankly",
-      subtitle:
-        "In this gentle space, voice or text preserving what matters to you",
+      title: "Welcome to thankly",
+      subtitle: "Your space to pause and capture life's moments",
       privacyNotice:
         "Read our {{privacyPolicy}}. Tap 'Agree & Continue' to accept the {{termsOfService}}.",
       privacyPolicy: "Privacy Policy",
@@ -56,7 +56,7 @@ export default {
   // 登录页面
   login: {
     title: "Log in or sign up",
-    subtitle: "Get started quickly with email or phone",
+    subtitle: "Get started quickly with email",
     emailTab: "Email",
     phoneTab: "Phone",
     emailPlaceholder: "Email address",
@@ -85,9 +85,10 @@ export default {
     resendCode: "Resend",
     verifyAndLogin: "Verify and Login",
     namePrompt: {
-      title: "What should we call you?",
-      subtitle: "We'll use this name to greet you on the home page",
-      placeholder: "Enter your name",
+      title: "How would you like to be called?",
+      subtitle:
+        "Please enter your first name or nickname (we'll use this to greet you on the home page)",
+      placeholder: "Name or nickname",
     },
     codeSent: "Code Sent",
     codeSentMessage: "Verification code has been sent to your phone",
@@ -114,11 +115,9 @@ export default {
   // 首页/日记列表
   home: {
     welcome: "Hi {name}",
-    subtitle:
-      "This is your gentle space, voice or text preserving what matters to you",
+    subtitle: "This is your gentle space for life's moments",
     myDiary: "Moments I've Kept",
-    noDiaries: "Nothing here yet",
-    noDiariesHint: "Tap below to capture\nyour first warm moment",
+    noDiaries: "Ready to pause and capture your day? Your story begins here",
     refreshing: "Refreshing...",
     signOut: "Sign out",
     copySuccess: "Copied",
@@ -128,6 +127,12 @@ export default {
     imageFeatureTitle: "Photo uploads",
     imageFeatureMessage: "Coming soon 📸",
     anonymousUser: "Friend",
+    // Accessibility labels
+    profileMenuButton: "Open profile menu",
+    diaryOptionsButton: "Diary options",
+    addImageButton: "Add photo diary",
+    recordVoiceButton: "Record voice diary",
+    writeTextButton: "Write text diary",
   },
 
   // 语音日记创建
@@ -304,5 +309,68 @@ export default {
     phoneSignUpMessage: "Verification code has been sent to your phone",
     phoneAlreadyRegistered:
       "This phone number is already registered, please login directly",
+  },
+
+  // 无障碍相关（Accessibility）
+  accessibility: {
+    // 音频播放器
+    audio: {
+      playing: "Playing audio, {remaining} remaining of {total}",
+      paused: "Audio paused, {total} total duration",
+      hint: "Double tap to play or pause audio",
+      noAudio: "No audio available",
+    },
+    // 输入框提示
+    input: {
+      emailHint: "Enter your email address",
+      passwordHint: "Enter your password",
+      nameHint: "Enter your name or nickname",
+      textHint: "Write your diary entry here",
+      codeHint: "Enter the verification code",
+    },
+    // 按钮提示
+    button: {
+      recordHint: "Double tap to start recording",
+      stopHint: "Double tap to stop recording",
+      saveHint: "Double tap to save your diary",
+      deleteHint: "Double tap to delete this diary",
+      editHint: "Double tap to edit this diary",
+      closeHint: "Double tap to close",
+      continueHint: "Double tap to continue",
+      cancelHint: "Double tap to cancel",
+      confirmHint: "Double tap to confirm",
+      signOutHint: "Double tap to sign out",
+      showPasswordHint: "Double tap to show or hide password",
+    },
+    // 列表和导航
+    list: {
+      diaryCard: "Diary entry",
+      of: "of",
+      cardHint: "Double tap to view diary details",
+      emptyList: "No diary entries yet",
+    },
+    // 状态提示
+    status: {
+      loading: "Loading",
+      processing: "Processing, step {step}",
+      saving: "Saving your diary",
+      saved: "Diary saved successfully",
+      error: "An error occurred",
+      recording: "Recording in progress",
+      paused: "Recording paused",
+    },
+    // 错误提示（包含解决方案）
+    error: {
+      recordingFailed: {
+        title: "Recording failed",
+        reason: "Microphone permission denied",
+        solution: "Please allow microphone access in Settings",
+      },
+      networkError: {
+        title: "Network error",
+        reason: "Unable to connect to server",
+        solution: "Please check your internet connection and try again",
+      },
+    },
   },
 };

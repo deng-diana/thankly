@@ -41,10 +41,10 @@ export default function TermsOfServiceScreen() {
           Last updated: {new Date().toLocaleDateString()}
         </Text>
         <Text style={[styles.text, typography.body]}>
-          {"\n"}By using Thankly, you agree to these Terms of Service. Please
+          {"\n"}By using thankly, you agree to these Terms of Service. Please
           read them carefully.
           {"\n\n"}
-          Thankly is a gratitude journaling app designed to help you capture and
+          thankly is a gratitude journaling app designed to help you capture and
           reflect on meaningful moments in your life. We provide the service "as
           is" and reserve the right to modify or discontinue the service at any
           time.

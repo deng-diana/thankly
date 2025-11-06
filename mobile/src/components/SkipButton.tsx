@@ -29,7 +29,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   text: {
-    color: "#D96F4C", // 主题色
+    color: "#E56C45", // 主题色
     fontSize: 16,
     fontWeight: "500",
   },

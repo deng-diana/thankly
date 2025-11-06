@@ -110,13 +110,26 @@ export async function createVoiceDiary(
       throw new Error("未登录");
     }
 
+    // ✅ 获取用户名字（从本地存储）
+    const { getCurrentUser } = await import("./authService");
+    const currentUser = await getCurrentUser();
+    const userName = currentUser?.name?.trim();
+    
     // 发送请求的封装（方便重试）
     const sendWithToken = async (token: string) => {
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${token}`,
+      };
+      
+      // ✅ 如果JWT token中没有名字，通过请求头传递（作为备用方案）
+      if (userName) {
+        headers["X-User-Name"] = userName;
+        console.log(`📤 通过请求头传递用户名字: ${userName}`);
+      }
+      
       const resp = await fetch(`${API_BASE_URL}/diary/voice`, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers,
         body: formData,
       });
       return resp;

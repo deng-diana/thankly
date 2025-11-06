@@ -32,7 +32,7 @@ export default function StartIcon({
         fill="#1A1A1A"
       />
       {/* 橙色圆点装饰 */}
-      <Circle cx="25" cy="25" r="8" fill="#D96F4C" />
+      <Circle cx="25" cy="25" r="8" fill="#E56C45" />
     </Svg>
   );
 }

@@ -11,7 +11,11 @@ class CognitoJWTVerifier:
     """Cognito JWT Token验证器"""
     
     def __init__(self):
+        # 🔥 每次初始化时重新获取配置，避免缓存问题
         self.settings = get_settings()
+        # 🔍 调试：检查配置是否正确加载
+        if not self.settings.cognito_user_pool_id:
+            print(f"⚠️ 警告: Cognito User Pool ID 为空，当前配置: {self.settings}")
         self._region = None
         self._user_pool_id = None
         self._app_client_id = None
@@ -21,11 +25,19 @@ class CognitoJWTVerifier:
     def _ensure_config(self):
         """延迟初始化配置，避免启动时就报错"""
         if self._keys_url is None:
+            # 🔥 每次都重新获取配置，确保是最新的
+            self.settings = get_settings()
+            
             self._region = self.settings.cognito_region
             self._user_pool_id = (self.settings.cognito_user_pool_id or "").strip()
             self._app_client_id = self.settings.cognito_client_id
             
+            # 🔍 调试：详细记录配置信息
+            print(f"🔍 配置检查: region={self._region}, pool_id长度={len(self._user_pool_id)}, client_id长度={len(self._app_client_id or '')}")
+            
             if not self._user_pool_id:
+                print(f"❌ 配置错误: settings.cognito_user_pool_id = '{self.settings.cognito_user_pool_id}'")
+                print(f"❌ 完整配置: {self.settings}")
                 raise HTTPException(
                     status_code=500,
                     detail="Cognito User Pool ID 未配置，请检查环境变量"
@@ -186,17 +198,41 @@ async def get_current_user(
     
     token = parts[1]
     
+    # 🔍 调试：记录token验证请求
+    print(f"🔍 验证token请求 - token长度: {len(token)}, 前20字符: {token[:20]}...")
+    
     # 验证token（延迟初始化实例）
-    payload = _get_jwt_verifier().verify_token(token)
+    try:
+        payload = _get_jwt_verifier().verify_token(token)
+        print(f"✅ Token验证成功 - user_id: {payload.get('sub')}")
+    except HTTPException as e:
+        print(f"❌ Token验证失败: {e.detail}")
+        raise
     
     # 提取用户信息
+    # 优先使用 name，如果没有则使用 given_name 或 nickname
+    name = payload.get('name', '') or payload.get('given_name', '') or payload.get('nickname', '')
+    
     user_info = {
         'user_id': payload.get('sub'),  # Cognito用户唯一ID
         'email': payload.get('email', ''),
-        'name': payload.get('name', ''),
+        'name': name,
         'email_verified': payload.get('email_verified', False),
         'username': payload.get('cognito:username', payload.get('sub')),
     }
+    
+    # 🔍 调试：打印用户名字信息（详细调试）
+    print(f"👤 用户信息提取 - user_id: {user_info['user_id']}, name: '{name}'")
+    print(f"   JWT payload中的name相关字段: name={payload.get('name')}, given_name={payload.get('given_name')}, nickname={payload.get('nickname')}")
+    print(f"   JWT payload中的所有字段: {list(payload.keys())}")
+    # 如果名字为空，尝试从其他字段获取
+    if not name:
+        print(f"   ⚠️ 警告：JWT token中没有找到name字段！")
+        print(f"   尝试从其他字段获取...")
+        # 检查是否有自定义属性
+        for key in payload.keys():
+            if 'name' in key.lower() or 'given' in key.lower():
+                print(f"   发现相关字段: {key} = {payload.get(key)}")
     
     # 如果是社交登录,可能有额外字段
     if 'identities' in payload:

@@ -193,7 +193,8 @@ class OpenAIService:
     
     async def polish_content_multilingual(
         self, 
-        text: str
+        text: str,
+        user_name: Optional[str] = None  # 用户名字，用于个性化反馈
     ) -> Dict[str, str]:
         """
         🔥 重大改动：从单一模型改为混合模型 + 并行执行
@@ -233,7 +234,7 @@ class OpenAIService:
             
             # 创建两个异步任务
             polish_task = self._call_claude_haiku_for_polish(text, detected_lang)
-            feedback_task = self._call_claude_sonnet_for_feedback(text, detected_lang)
+            feedback_task = self._call_claude_sonnet_for_feedback(text, detected_lang, user_name)
             
             # 并行执行并等待结果
             polish_result, feedback = await asyncio.gather(
@@ -310,25 +311,38 @@ Your responsibilities:
 1. Fix obvious grammar/typos
 2. Make the text flow naturally
 3. Keep it ≤115% of original length
-4. Create a short, warm, poetic, meaningful title (6-18 words)
+4. **CRITICAL: Preserve ALL original content. Do NOT delete or omit any part of the user's entry.**
+5. Create a short, warm, poetic, meaningful title (6-18 words)
 
 Style: Natural, warm, authentic. Don't over-edit.
 
 Response format (JSON only):
 {{
   "title": "6-18 words in {language}",
-  "polished_content": "fixed text, same language"
+  "polished_content": "fixed text, same language - MUST include all original content"
 }}
 
 Example:
 Input: "今天天气很好我去了公园看到了很多花"
 Output: {{"title": "公园里的花", "polished_content": "今天天气很好，我去了公园，看到了很多花。"}}"""
 
-            user_prompt = f"Please polish this diary entry:\n\n{text}"
+            user_prompt = f"Please polish this diary entry (preserve ALL content):\n\n{text}"
             
-            # 🔥 调用 OpenAI API (GPT-4o-mini)
+            # ✅ 动态计算 max_tokens：确保足够输出完整内容
+            # 原始文本长度 + 标题 + JSON 格式开销 + 安全边距
+            original_length = len(text)
+            # 估算：原始文本 * 1.15（115%限制） + 标题（50字符） + JSON格式（100字符） + 安全边距（500字符）
+            estimated_output_length = int(original_length * 1.15) + 50 + 100 + 500
+            # max_tokens 大约是字符数的 0.75（中文）到 1.5（英文），取中间值 1.0
+            max_tokens = max(2000, int(estimated_output_length * 1.0))
+            # 但不要超过 OpenAI 的限制（GPT-4o-mini 支持 16384 tokens）
+            max_tokens = min(max_tokens, 16000)
+            
             print(f"📤 GPT-4o-mini: 发送请求到 OpenAI...")
             print(f"   模型: {self.MODEL_CONFIG['haiku']}")
+            print(f"   原始文本长度: {original_length} 字符")
+            print(f"   估算输出长度: {estimated_output_length} 字符")
+            print(f"   设置 max_tokens: {max_tokens}")
             
             # 使用 OpenAI client（已经在 __init__ 中初始化）
             response = await asyncio.to_thread(
@@ -339,7 +353,7 @@ Output: {{"title": "公园里的花", "polished_content": "今天天气很好，
                     {"role": "user", "content": user_prompt}
                 ],
                 temperature=0.3,
-                max_tokens=2000,
+                max_tokens=max_tokens,
                 response_format={"type": "json_object"}  # 强制 JSON 格式
             )
             
@@ -354,10 +368,28 @@ Output: {{"title": "公园里的花", "polished_content": "今天天气很好，
             # 解析 JSON
             try:
                 result = json.loads(content)
+                polished_content = result.get("polished_content", text)
+                
+                # ✅ 添加长度对比日志，检查是否被截断
+                original_length = len(text)
+                polished_length = len(polished_content)
+                length_ratio = polished_length / original_length if original_length > 0 else 0
+                
                 print(f"✅ GPT-4o-mini: 润色完成")
+                print(f"📊 长度对比: 原始={original_length} 字符, 润色后={polished_length} 字符, 比例={length_ratio:.2%}")
+                
+                # ⚠️ 如果润色后内容明显少于原始内容（小于80%），可能是被截断了
+                if polished_length < original_length * 0.8:
+                    print(f"⚠️ 警告：润色后内容明显少于原始内容，可能被截断！")
+                    print(f"   原始内容前100字符: {text[:100]}...")
+                    print(f"   润色后内容前100字符: {polished_content[:100]}...")
+                    # 如果确实被截断，使用原始内容作为降级方案
+                    polished_content = text
+                    print(f"   使用原始内容作为降级方案")
+                
                 return {
                     "title": result.get("title", "Today's Reflection"),
-                    "polished_content": result.get("polished_content", text)
+                    "polished_content": polished_content
                 }
             except json.JSONDecodeError as e:
                 print(f"⚠️ GPT-4o-mini: JSON 解析失败: {e}")
@@ -415,7 +447,8 @@ Output: {{"title": "公园里的花", "polished_content": "今天天气很好，
     async def _call_claude_sonnet_for_feedback(
         self, 
         text: str,
-        language: str
+        language: str,
+        user_name: Optional[str] = None
     ) -> str:
         """
         🔥 新增方法：调用 Claude Sonnet 生成温暖的 AI 反馈
@@ -431,37 +464,102 @@ Output: {{"title": "公园里的花", "polished_content": "今天天气很好，
         - AI 回应"真实的你"
         
         返回:
-            温暖的反馈文字（2-3 句话）
+            温暖的反馈文字（简洁有力，不超过用户输入长度）
         """
         try:
             print(f"💬 Sonnet: 开始生成反馈（基于原始文本）...")
+            print(f"👤 用户名字: {user_name if user_name else '未提供'}")
+            
+            # 计算用户输入长度，用于动态调整反馈长度
+            user_text_length = len(text.strip())
+            # 反馈长度策略：不超过用户输入长度，但最短不少于20字（中文）或15词（英文）
+            max_feedback_length = max(user_text_length, 20 if language == "Chinese" else 15)
+            
+            # 构建个性化的名字称呼
+            name_greeting = ""
+            if user_name and user_name.strip():
+                # 提取名字（去掉可能的空格和特殊字符）
+                import re
+                first_name = re.split(r'\s+', user_name.strip())[0]
+                if language == "Chinese":
+                    name_greeting = f"，{first_name}"
+                else:
+                    name_greeting = f", {first_name}"
             
             # 构建 prompt
-            system_prompt = f"""You are a warm, empathetic listener responding to someone's diary entry.
+            if user_name and user_name.strip():
+                # 有用户名字时，明确规定必须使用名字
+                system_prompt = f"""You are a warm, empathetic listener responding to {user_name}'s diary entry.
+
+Language: Respond in {language} ONLY. NEVER translate.
+
+⚠️ CRITICAL RULE - YOU MUST FOLLOW THIS:
+Your response MUST start with "{user_name}" (followed by a comma in English or a Chinese comma in Chinese), then your message. 
+DO NOT use generic greetings like "Hi there", "Hello", or "Hi". 
+DO NOT skip the name. 
+ALWAYS start with "{user_name}".
+
+Your style:
+- Warm and genuine (like a close friend)
+- **Keep it SHORT and POWERFUL** - never longer than the user's input (unless their input is very short, <20 chars)
+- Maximum length: {max_feedback_length} characters (Chinese) or {max_feedback_length // 2} words (English)
+- 1-2 complete sentences (prefer 1 sentence if user's input is short)
+- **FIRST WORD MUST BE "{user_name}"** - No exceptions
+- Acknowledge their feelings with warmth
+- Offer gentle encouragement when appropriate
+- Natural, conversational, intimate tone
+
+Response format: Plain text only (NO JSON, NO quotes, NO markdown)
+
+Example responses (MUST follow this exact format):
+- Chinese (short input): "{user_name}，这份简单的快乐很珍贵。"
+- Chinese (longer input): "{user_name}，这份记录很温暖。生活中的小确幸，往往是最治愈的时刻。"
+- English (short input): "{user_name}, this simple joy is precious."
+- English (longer input): "{user_name}, this moment you captured is beautiful. Small joys like this are what make life meaningful."
+
+REMEMBER: 
+1. Your response MUST start with "{user_name}" (with comma or Chinese comma)
+2. DO NOT use "Hi there", "Hello", "Hi", or any other greeting
+3. DO NOT skip the name
+4. Be warm, be brief, be personal. Quality over quantity."""
+            else:
+                # 没有用户名字时，使用通用提示
+                system_prompt = f"""You are a warm, empathetic listener responding to someone's diary entry.
 
 Language: Respond in {language} ONLY. NEVER translate.
 
 Your style:
 - Warm and genuine (like a close friend)
-- 2-3 complete sentences
-- Acknowledge their feelings
+- **Keep it SHORT and POWERFUL** - never longer than the user's input (unless their input is very short, <20 chars)
+- Maximum length: {max_feedback_length} characters (Chinese) or {max_feedback_length // 2} words (English)
+- 1-2 complete sentences (prefer 1 sentence if user's input is short)
+- Acknowledge their feelings with warmth
 - Offer gentle encouragement when appropriate
-- Natural, conversational tone
+- Natural, conversational, intimate tone
 
-Response format: Plain text only (NO JSON, NO quotes)
+Response format: Plain text only (NO JSON, NO quotes, NO markdown)
 
-Example responses:
-- Chinese: "这份简单的快乐很珍贵。生活中的小确幸，往往是最治愈的时刻。"
-- English: "This simple joy is precious. The small moments of happiness in life are often the most healing."
+Example responses (short and warm):
+- Chinese (short input): "这份简单的快乐很珍贵。"
+- Chinese (longer input): "这份记录很温暖。生活中的小确幸，往往是最治愈的时刻。"
+- English (short input): "This simple joy is precious."
+- English (longer input): "This moment you captured is beautiful. Small joys like this are what make life meaningful."
 
-Remember: Be warm, be real, be brief."""
+Remember: Be warm, be brief, be personal. Quality over quantity."""
 
-            user_prompt = f"Someone just shared this with you:\n\n{text}\n\nRespond with warmth wisdom, and empathy:"
+            # 构建个性化的用户提示
+            if user_name:
+                user_prompt = f"{user_name} just shared this with you:\n\n{text}\n\nRespond warmly and personally:"
+            else:
+                user_prompt = f"Someone just shared this with you:\n\n{text}\n\nRespond with warmth and empathy:"
             
             # 调用 Bedrock API（Claude 3.5 格式）
+            # 动态调整 max_tokens：根据用户输入长度，但不超过200
+            max_tokens = min(max(user_text_length // 2, 50), 200)
+            
             request_body = {
                 "anthropic_version": "bedrock-2023-05-31",
-                "max_tokens": 500,
+                "max_tokens": max_tokens,
                 "temperature": 0.7,
                 "system": system_prompt,
                 "messages": [
@@ -476,14 +574,17 @@ Remember: Be warm, be real, be brief."""
             print(f"📤 Sonnet: 发送请求到 Bedrock...")
             print(f"   模型: {self.MODEL_CONFIG['sonnet']}")
             print(f"   区域: {self.bedrock_client.meta.region_name}")
+            print(f"   用户名字: {user_name if user_name else '未提供'}")
+            print(f"   System prompt 前100字符: {system_prompt[:100]}...")
             
             # 注意：boto3 invoke_model 会自动处理 content-type
             # 需要确保 body 是 bytes 格式
             request_bytes = json.dumps(request_body).encode('utf-8')
             
             # 🔥 实现带指数退避的重试机制（专门处理限流）
+            # 增加重试间隔，减少限流概率
             max_retries = 5  # 最多重试5次
-            base_delay = 1.0  # 基础延迟1秒
+            base_delay = 2.0  # 基础延迟2秒（从1秒增加到2秒，减少限流）
             
             for attempt in range(max_retries):
                 try:
@@ -500,9 +601,10 @@ Remember: Be warm, be real, be brief."""
                     
                     # 如果是限流错误，进行重试
                     if error_code == 'ThrottlingException' and attempt < max_retries - 1:
-                        # 指数退避：1秒、2秒、4秒、8秒、16秒
+                        # 指数退避：2秒、4秒、8秒、16秒、32秒（从1秒基础延迟改为2秒）
                         delay = base_delay * (2 ** attempt)
                         print(f"⚠️ Sonnet: 遇到限流，等待 {delay:.1f} 秒后重试 (尝试 {attempt + 1}/{max_retries})...")
+                        print(f"   💡 提示：Sonnet 限流频繁，可能是请求频率过高。建议稍后再试。")
                         await asyncio.sleep(delay)
                         continue
                     else:
@@ -516,6 +618,18 @@ Remember: Be warm, be real, be brief."""
             
             response_body = json.loads(response_bytes)
             print(f"✅ Sonnet: 收到响应，状态码: {response.get('ResponseMetadata', {}).get('HTTPStatusCode', 'N/A')}")
+            
+            # 提取反馈内容并打印（用于调试）
+            if 'content' in response_body and len(response_body['content']) > 0:
+                feedback_text = response_body['content'][0].get('text', '')
+                print(f"📝 Sonnet 反馈内容: {feedback_text[:100]}...")
+                # 检查是否包含用户名字
+                if user_name and user_name.strip():
+                    if user_name.lower() in feedback_text.lower():
+                        print(f"✅ 反馈中包含用户名字 '{user_name}'")
+                    else:
+                        print(f"⚠️ 警告：反馈中未包含用户名字 '{user_name}'！")
+                        print(f"   反馈内容: {feedback_text}")
             
             # 检查响应结构
             if 'content' not in response_body:
@@ -678,7 +792,18 @@ Remember: Be warm, be real, be brief."""
         # 修正润色内容
         polished = clean_text(polished)
         max_polished_len = int(orig_len * self.LENGTH_LIMITS["polished_ratio"])
+        
+        # ✅ 添加长度检查日志
+        print(f"📊 润色内容验证: 原始长度={orig_len}, 润色后长度={len(polished)}, 最大允许长度={max_polished_len}")
+        
+        # ⚠️ 如果润色后内容明显少于原始内容（小于80%），可能是被截断了，使用原始内容
+        if len(polished) < orig_len * 0.8:
+            print(f"⚠️ 警告：润色后内容明显少于原始内容（{len(polished)} < {orig_len * 0.8}），使用原始内容")
+            polished = original_text.strip()
+        
+        # 只有在超过最大长度时才截断（但这种情况不应该发生，因为提示词要求≤115%）
         if len(polished) > max_polished_len:
+            print(f"⚠️ 润色后内容超过最大长度（{len(polished)} > {max_polished_len}），按完整句子截断")
             polished = trim_to_complete_sentences(polished, max_polished_len)
         
         # 修正反馈

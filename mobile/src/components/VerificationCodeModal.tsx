@@ -138,6 +138,10 @@ export default function VerificationCodeModal({
               maxLength={6}
               autoFocus={true}
               editable={!isVerifying && !isResending}
+              accessibilityLabel={t("login.verificationCode")}
+              accessibilityHint={t("accessibility.input.codeHint")}
+              accessibilityRole="text"
+              accessibilityState={{ disabled: isVerifying || isResending }}
             />
           </View>
 
@@ -148,6 +152,10 @@ export default function VerificationCodeModal({
               style={[styles.button, styles.cancelButton]}
               onPress={onClose}
               disabled={isVerifying || isResending}
+              accessibilityLabel={t("common.cancel")}
+              accessibilityHint={t("accessibility.button.cancelHint")}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: isVerifying || isResending }}
             >
               <Text style={styles.cancelButtonText}>{t("common.cancel")}</Text>
             </TouchableOpacity>
@@ -157,6 +165,10 @@ export default function VerificationCodeModal({
               style={[styles.button, styles.verifyButton]}
               onPress={handleVerify}
               disabled={isVerifying || isResending || !code.trim()}
+              accessibilityLabel={t("login.verifyAndLogin")}
+              accessibilityHint={t("accessibility.button.confirmHint")}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: isVerifying || isResending || !code.trim() }}
             >
               {isVerifying ? (
                 <ActivityIndicator color="#fff" />
@@ -173,6 +185,10 @@ export default function VerificationCodeModal({
             style={styles.resendContainer}
             onPress={handleResend}
             disabled={isResending || countdown > 0}
+            accessibilityLabel={t("login.resendCode")}
+            accessibilityHint={countdown > 0 ? t("login.countdown", { seconds: countdown }) : t("accessibility.button.continueHint")}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: isResending || countdown > 0 }}
           >
             {isResending ? (
               <ActivityIndicator size="small" color="#007AFF" />

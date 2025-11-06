@@ -1,6 +1,6 @@
 /**
  * 引导页1 - "Just speak it out"
- * 
+ *
  * 设计理念：简洁、优雅、有温度
  * 技术实现：可复用、性能优化
  */
@@ -8,7 +8,7 @@ import React from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { t } from "../i18n";
 import { getTypography } from "../styles/typography";
-import VoiceIcon from "../components/VoiceIcon";
+import Onboarding1Icon from "../assets/icons/onboarding1.svg";
 
 export default function OnboardingScreen1() {
   const typography = getTypography();
@@ -19,7 +19,7 @@ export default function OnboardingScreen1() {
       <View style={styles.content}>
         {/* 插画 */}
         <View style={styles.illustrationContainer}>
-          <VoiceIcon width={160} height={160} />
+          <Onboarding1Icon width={160} height={160} />
         </View>
 
         {/* 标题和副标题 */}
@@ -48,7 +48,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
   },
   illustrationContainer: {
-    marginBottom: 60,
+    marginBottom: 16,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -69,4 +69,3 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
 });
-

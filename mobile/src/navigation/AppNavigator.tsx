@@ -129,7 +129,7 @@ export default function AppNavigator() {
   if (!DEV_MODE_FORCE_ONBOARDING && (isAuthenticated === null || hasCompletedOnboarding === null)) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#D96F4C" />
+        <ActivityIndicator size="large" color="#E56C45" />
       </View>
     );
   }

@@ -22,6 +22,7 @@ from jose import jwt
 from botocore.exceptions import ClientError
 import uuid
 from datetime import datetime
+from ..utils.cognito_auth import get_current_user
 
 # 创建路由器
 router = APIRouter()
@@ -1277,3 +1278,56 @@ async def phone_login_verify(request: PhoneLoginVerifyRequest):
     except Exception as e:
         print(f"❌ 验证手机登录验证码失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"验证失败: {str(e)}")
+
+
+class UpdateUserNameRequest(BaseModel):
+    """更新用户姓名请求"""
+    name: str
+
+
+@router.put("/user/name", summary="更新用户姓名")
+async def update_user_name(
+    request: UpdateUserNameRequest,
+    user: Dict = Depends(get_current_user)
+):
+    """
+    更新当前登录用户的姓名属性
+    
+    流程：
+    1. 验证用户已登录
+    2. 更新 Cognito 用户的 name 属性
+    """
+    try:
+        username = user.get('username') or user.get('user_id')
+        if not username:
+            raise HTTPException(status_code=400, detail="无法获取用户ID")
+        
+        print(f"📝 更新用户姓名: user_id={username}, name={request.name}")
+        
+        # 更新 Cognito 用户属性
+        try:
+            cognito_client.admin_update_user_attributes(
+                UserPoolId=COGNITO_USER_POOL_ID,
+                Username=username,
+                UserAttributes=[
+                    {'Name': 'name', 'Value': request.name}
+                ]
+            )
+            print(f"✅ 用户姓名更新成功")
+            
+            return {
+                "success": True,
+                "message": "姓名更新成功",
+                "name": request.name
+            }
+        except ClientError as e:
+            error_code = e.response['Error']['Code']
+            error_message = e.response['Error']['Message']
+            print(f"❌ Cognito错误: [{error_code}] {error_message}")
+            raise HTTPException(status_code=400, detail=f"更新失败: {error_message}")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ 更新用户姓名失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"更新失败: {str(e)}")

@@ -10,7 +10,7 @@ import type { RootStackParamList } from "../navigation/AppNavigator";
 import { useNavigation } from "@react-navigation/native";
 import { t } from "../i18n";
 import { getTypography } from "../styles/typography";
-import StartIcon from "../components/StartIcon";
+import Onboarding3Icon from "../assets/icons/onboarding3.svg";
 
 export default function OnboardingScreen3() {
   const navigation =
@@ -27,7 +27,7 @@ export default function OnboardingScreen3() {
     <View style={styles.container}>
       <View style={styles.content}>
         <View style={styles.illustrationContainer}>
-          <StartIcon width={160} height={160} />
+          <Onboarding3Icon width={160} height={160} />
         </View>
 
         <View style={styles.textContainer}>
@@ -68,7 +68,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
   },
   illustrationContainer: {
-    marginBottom: 60,
+    marginBottom: 16,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -89,18 +89,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   bottomContainer: {
-    paddingBottom: 40, // 最后一页不需要为分页指示器留空间
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingBottom: 48,
     paddingHorizontal: 32,
+    backgroundColor: "#FAF6ED", // ✅ 保持背景色一致
   },
   button: {
-    backgroundColor: "#D96F4C",
+    backgroundColor: "#E56C45",
     borderRadius: 12,
-    paddingVertical: 16,
+    paddingVertical: 12,
     paddingHorizontal: 32,
     alignItems: "center",
     justifyContent: "center",
     minHeight: 52,
-    shadowColor: "#D96F4C",
+    shadowColor: "#E56C45",
     shadowOffset: {
       width: 0,
       height: 4,
@@ -115,4 +120,3 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
 });
-

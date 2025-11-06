@@ -76,12 +76,14 @@ export default function RecordingModal({
   // ✅ 新增:平滑动画定时器
   const progressAnimationRef = useRef<NodeJS.Timeout | null>(null);
 
+  // ✅ 优化步骤时长：更合理的分配，减少卡顿
+  // 🎯 策略：前面的步骤稍快，后面的步骤稍慢，总体更流畅
   const processingSteps = [
-    { icon: "📤", text: t("diary.processingSteps.upload"), duration: 1500 },
-    { icon: "👂", text: t("diary.processingSteps.listen"), duration: 4000 },
-    { icon: "✨", text: t("diary.processingSteps.polish"), duration: 3000 },
-    { icon: "💭", text: t("diary.processingSteps.title"), duration: 2000 },
-    { icon: "💬", text: t("diary.processingSteps.feedback"), duration: 2000 },
+    { icon: "📤", text: t("diary.processingSteps.upload"), duration: 800, progress: 20 }, // 20% - 快速上传
+    { icon: "👂", text: t("diary.processingSteps.listen"), duration: 3000, progress: 50 }, // 30% - 转录（最耗时）
+    { icon: "✨", text: t("diary.processingSteps.polish"), duration: 2000, progress: 70 }, // 20% - 润色
+    { icon: "💭", text: t("diary.processingSteps.title"), duration: 1200, progress: 85 }, // 15% - 标题
+    { icon: "💬", text: t("diary.processingSteps.feedback"), duration: 1200, progress: 100 }, // 15% - 反馈
   ];
 
   /**
@@ -92,49 +94,80 @@ export default function RecordingModal({
    * @param target - 目标进度(0-100)
    * @param speed - 速度(每次增加多少,默认0.5)
    */
+  // ✅ 使用 Animated API 实现更平滑的进度动画
+  const progressAnimValue = useRef(new Animated.Value(0)).current;
+  // ✅ 使用 ref 保存当前进度值，确保跨步骤连续性
+  const currentProgressRef = useRef(0);
+
   /**
-   * 平滑更新进度条(带持续爬升)
+   * 平滑更新进度条（简化版 - 确保不倒退）
+   * 
+   * 🎯 核心原则：
+   * 1. 进度值只能增加，不能减少
+   * 2. 从当前动画值继续，而不是从状态值
+   * 3. 使用 ref 保存当前值，确保跨步骤连续性
    */
   const smoothUpdateProgress = useCallback(
-    (target: number, speed: number = 0.8) => {
-      console.log(`🎯 目标: ${target}%`);
+    (target: number, duration: number = 800) => {
+      // ✅ 确保目标值不小于当前值
+      const safeTarget = Math.max(target, currentProgressRef.current);
+      
+      console.log(`🎯 更新进度: ${currentProgressRef.current}% → ${safeTarget}% (时长: ${duration}ms)`);
 
+      // 停止之前的动画（但不重置值）
+      progressAnimValue.stopAnimation();
+      
+      // 清理之前的监听器
       if (progressAnimationRef.current) {
-        clearInterval(progressAnimationRef.current);
+        if (typeof progressAnimationRef.current === 'object' && progressAnimationRef.current.cancel) {
+          progressAnimationRef.current.cancel();
+        }
+        progressAnimationRef.current = null;
       }
 
-      setTargetProgress(target);
+      setTargetProgress(safeTarget);
 
-      progressAnimationRef.current = setInterval(() => {
-        setProcessingProgress((current) => {
-          // 快速增长阶段:还没到目标
-          if (current < target - 1) {
-            const diff = target - current;
-            const step = Math.min(speed, diff);
-            return current + step;
-          }
+      // ✅ 关键：从 ref 保存的当前值开始，而不是从状态或动画值
+      // 这样可以确保跨步骤的连续性
+      const startValue = currentProgressRef.current;
+      progressAnimValue.setValue(startValue);
 
-          // 慢速爬升阶段:接近或到达目标
-          if (current < target) {
-            // 最后1%用慢速
-            return current + 0.2;
-          }
+      // 使用 Animated API 实现平滑过渡
+      const animation = Animated.timing(progressAnimValue, {
+        toValue: safeTarget,
+        duration: duration,
+        easing: Easing.out(Easing.quad), // 使用简单的缓出曲线，更平滑
+        useNativeDriver: false,
+      });
 
-          // 微增长阶段:超过目标后继续慢慢爬
-          if (current < 99) {
-            return current + 0.05; // ✅ 极慢速度持续增长
-          }
+      // 使用监听器实时更新状态和 ref
+      const listenerId = progressAnimValue.addListener(({ value }) => {
+        // ✅ 确保值只增不减
+        const clampedValue = Math.max(currentProgressRef.current, Math.min(100, value));
+        currentProgressRef.current = clampedValue;
+        setProcessingProgress(clampedValue);
+      });
 
-          // 到达99%,停止
-          if (progressAnimationRef.current) {
-            clearInterval(progressAnimationRef.current);
-            progressAnimationRef.current = null;
-          }
-          return current;
-        });
-      }, 40);
+      // 启动动画
+      animation.start((finished) => {
+        if (finished) {
+          // 动画完成，确保最终值
+          currentProgressRef.current = safeTarget;
+          setProcessingProgress(safeTarget);
+        }
+        // 移除监听器
+        progressAnimValue.removeListener(listenerId);
+      });
+
+      // 保存清理函数
+      progressAnimationRef.current = {
+        cancel: () => {
+          animation.stop();
+          progressAnimValue.removeListener(listenerId);
+        }
+      } as any;
     },
-    []
+    [progressAnimValue]
   );
 
   // ✅ 新增:结果预览状态
@@ -152,7 +185,9 @@ export default function RecordingModal({
   const [isPlayingResult, setIsPlayingResult] = useState(false);
   const [resultCurrentTime, setResultCurrentTime] = useState(0);
   const [resultDuration, setResultDuration] = useState(0);
+  const [hasPlayedResultOnce, setHasPlayedResultOnce] = useState(false); // ✅ 是否曾经播放过
   const resultSoundRef = useRef<Audio.Sound | null>(null);
+  const resultProgressIntervalRef = useRef<NodeJS.Timeout | null>(null); // ✅ 进度更新定时器
 
   // ✅ 新增:保存状态保护 - 防止重复调用
   const isSavingRef = useRef(false);
@@ -423,6 +458,13 @@ export default function RecordingModal({
           // ✅ 新增:清理结果页音频
           if (resultSoundRef.current) {
             await resultSoundRef.current.unloadAsync();
+            resultSoundRef.current = null;
+          }
+          
+          // ✅ 清理进度更新定时器
+          if (resultProgressIntervalRef.current) {
+            clearInterval(resultProgressIntervalRef.current);
+            resultProgressIntervalRef.current = null;
           }
         } catch (_) {}
       })();
@@ -732,16 +774,16 @@ export default function RecordingModal({
         const diary = await createVoiceDiary(uri!, recordedDuration);
         console.log("✅ 后端返回成功");
 
-        // 如果进度小于100%,等待动画完成
-        // currentProgress 报错的原因是：这个变量没有定义。
-        // 这个地方其实想用 processingProgress，它是 useState 里的进度条状态。
+        // ✅ 优化：如果后端提前完成，平滑推进到100%
+        // 🎨 苹果风格：无论何时完成，都平滑过渡到100%
         if (processingProgress < 100) {
-          console.log(`⏳ 当前进度${processingProgress}%,等待到100%`);
+          console.log(`⏳ 后端提前完成，当前进度${processingProgress}%，平滑推进到100%`);
 
-          // 快速推进到100%
-          smoothUpdateProgress(100, 2.0);
-          // 等待2秒让动画完成
-          await new Promise((resolve) => setTimeout(resolve, 2000));
+          // ✅ 使用更快的动画（500ms）快速到达100%
+          smoothUpdateProgress(100, 500);
+          
+          // ✅ 等待动画完成（略长于动画时长，确保流畅）
+          await new Promise((resolve) => setTimeout(resolve, 600));
         }
 
         // ✅ 停止模拟
@@ -823,11 +865,19 @@ export default function RecordingModal({
   };
 
   /**
-   * 模拟处理步骤和进度
+   * 模拟处理步骤和进度（优化版 - 更平滑，无卡顿）
+   * 
+   * 🎨 苹果风格优化：
+   * 1. 使用连续的进度值（20%, 50%, 70%, 85%, 100%）而不是均匀分配
+   * 2. 每个步骤的动画时长根据实际处理时间动态调整
+   * 3. 步骤之间无缝衔接，避免在 20%、40%、60% 卡顿
    */
   function simulateProcessingSteps() {
+    // ✅ 重置所有状态和动画值
     setProcessingStep(0);
     setProcessingProgress(0);
+    currentProgressRef.current = 0; // 重置 ref
+    progressAnimValue.setValue(0); // 重置动画值
 
     const totalSteps = processingSteps.length;
     const stepTimers: ReturnType<typeof setTimeout>[] = [];
@@ -835,12 +885,12 @@ export default function RecordingModal({
 
     processingSteps.forEach((step, index) => {
       const timer = setTimeout(() => {
-        console.log(`📍 步骤 ${index + 1}/${totalSteps}: ${step.text}`);
+        console.log(`📍 步骤 ${index + 1}/${totalSteps}: ${step.text} (目标: ${step.progress}%)`);
         setProcessingStep(index);
 
-        // 平滑更新进度
-        const targetProgress = ((index + 1) / totalSteps) * 100;
-        smoothUpdateProgress(targetProgress, 0.8); // 速度调快一点
+        // ✅ 动画时长 = 步骤时长，确保动画完成时步骤也完成
+        // ✅ 使用步骤中定义的进度值
+        smoothUpdateProgress(step.progress, step.duration);
       }, accumulatedTime);
 
       stepTimers.push(timer);
@@ -852,9 +902,18 @@ export default function RecordingModal({
       console.log("🧹 清理步骤定时器");
       stepTimers.forEach((timer) => clearTimeout(timer));
 
+      // ✅ 停止所有动画
+      progressAnimValue.stopAnimation();
+      
       // ✅ 清理进度动画
       if (progressAnimationRef.current) {
-        clearInterval(progressAnimationRef.current);
+        // 如果是对象（新的格式），调用 cancel
+        if (typeof progressAnimationRef.current === 'object' && progressAnimationRef.current.cancel) {
+          progressAnimationRef.current.cancel();
+        } else {
+          // 如果是旧的格式（定时器），清理
+          clearInterval(progressAnimationRef.current as any);
+        }
         progressAnimationRef.current = null;
       }
     };
@@ -874,7 +933,15 @@ export default function RecordingModal({
         if (resultSoundRef.current) {
           await resultSoundRef.current.pauseAsync();
           setIsPlayingResult(false);
+          // ✅ 暂停时不清除定时器，保持 currentTime 不变（和日记列表页保持一致）
         }
+        return;
+      }
+      
+      // ✅ 恢复播放
+      if (resultSoundRef.current) {
+        await resultSoundRef.current.playAsync();
+        setIsPlayingResult(true);
         return;
       }
 
@@ -901,25 +968,81 @@ export default function RecordingModal({
 
       resultSoundRef.current = sound;
       setIsPlayingResult(true);
+      setHasPlayedResultOnce(true); // ✅ 标记为已播放过，显示倒计时
 
-      // 监听播放状态
+      // ✅ 初始化 duration（优先使用数据库中的 audio_duration）
+      const initialDuration = resultDiary.audio_duration || 0;
+      if (initialDuration > 0) {
+        setResultDuration(initialDuration);
+      }
+
+      // ✅ 初始化 currentTime 为 0
+      setResultCurrentTime(0);
+
+      // ✅ 清理之前的定时器
+      if (resultProgressIntervalRef.current) {
+        clearInterval(resultProgressIntervalRef.current);
+        resultProgressIntervalRef.current = null;
+      }
+
+      // ✅ 使用定时器定期更新进度（和日记列表页保持一致）
+      resultProgressIntervalRef.current = setInterval(async () => {
+        try {
+          if (!resultSoundRef.current) {
+            clearInterval(resultProgressIntervalRef.current!);
+            resultProgressIntervalRef.current = null;
+            return;
+          }
+
+          const status = await resultSoundRef.current.getStatusAsync();
+          
+          if (status.isLoaded) {
+            const durationMillis = status.durationMillis;
+            const positionMillis = status.positionMillis;
+
+            // ✅ 更新总时长（只在变化时更新）
+            if (durationMillis !== undefined && durationMillis > 0) {
+              const durationSeconds = Math.floor(durationMillis / 1000);
+              setResultDuration((prev) => {
+                if (prev !== durationSeconds) {
+                  return durationSeconds;
+                }
+                return prev;
+              });
+            }
+
+            // ✅ 更新当前时间（实时更新，确保倒计时正常显示）
+            if (positionMillis !== undefined) {
+              const currentTimeSeconds = Math.floor(positionMillis / 1000);
+              setResultCurrentTime((prev) => {
+                // 只在时间变化时更新（减少不必要的渲染）
+                if (Math.abs(prev - currentTimeSeconds) >= 1) {
+                  return currentTimeSeconds;
+                }
+                return prev;
+              });
+            }
+
+            // ✅ 检查播放完成
+            if (status.didJustFinish) {
+              clearInterval(resultProgressIntervalRef.current!);
+              resultProgressIntervalRef.current = null;
+              setIsPlayingResult(false);
+              setResultCurrentTime(0);
+              await sound.unloadAsync();
+              resultSoundRef.current = null;
+            }
+          }
+        } catch (error) {
+          console.error("❌ 更新播放进度失败:", error);
+        }
+      }, 100); // ✅ 每100ms更新一次（和日记列表页保持一致）
+
+      // 监听播放状态（用于检测暂停等状态变化）
       sound.setOnPlaybackStatusUpdate((status) => {
-        if (status.isLoaded) {
-          const durationMillis = status.durationMillis;
-          const positionMillis = status.positionMillis;
-
-          if (durationMillis !== undefined && positionMillis !== undefined) {
-            setResultCurrentTime(Math.floor(positionMillis / 1000));
-            setResultDuration(Math.floor(durationMillis / 1000));
-          }
-
-          // 播放完成
-          if (status.didJustFinish) {
-            setIsPlayingResult(false);
-            setResultCurrentTime(0);
-            sound.unloadAsync();
-            resultSoundRef.current = null;
-          }
+        if (status.isLoaded && !status.isPlaying) {
+          // 如果暂停了，不需要做任何事，定时器会继续更新currentTime
+          // 这样暂停时也能保持当前时间不变
         }
       });
 
@@ -969,10 +1092,16 @@ export default function RecordingModal({
         }
       }
 
-      // 清理音频
+      // ✅ 清理音频播放相关资源
       if (resultSoundRef.current) {
         resultSoundRef.current.unloadAsync().catch(console.log);
         resultSoundRef.current = null;
+      }
+      
+      // ✅ 清理进度更新定时器
+      if (resultProgressIntervalRef.current) {
+        clearInterval(resultProgressIntervalRef.current);
+        resultProgressIntervalRef.current = null;
       }
 
       // 重置所有状态
@@ -981,6 +1110,7 @@ export default function RecordingModal({
       setIsPlayingResult(false);
       setResultCurrentTime(0);
       setResultDuration(0);
+      setHasPlayedResultOnce(false); // ✅ 重置播放状态
       setIsEditingTitle(false);
       setIsEditingContent(false);
       setEditedTitle("");
@@ -1095,7 +1225,13 @@ export default function RecordingModal({
       {/* 录音动画区域 */}
       <View style={styles.animationArea}>
         {isProcessing ? (
-          <View style={styles.processingCenter}>
+          <View
+            style={styles.processingCenter}
+            accessibilityLiveRegion="polite"
+            accessibilityLabel={t("accessibility.status.processing", {
+              step: processingStep + 1,
+            })}
+          >
             <View style={styles.processingContent}>
               {/* 当前步骤 */}
               <View style={styles.currentStepContainer}>
@@ -1117,7 +1253,10 @@ export default function RecordingModal({
                     ]}
                   />
                 </View>
-                <Text style={styles.progressText}>
+                <Text
+                  style={styles.progressText}
+                  accessibilityLabel={`${t("accessibility.status.processing")}, ${Math.round(processingProgress)}%`}
+                >
                   {Math.round(processingProgress)}%
                 </Text>
               </View>
@@ -1177,7 +1316,7 @@ export default function RecordingModal({
               <Ionicons
                 name={isPaused ? "pause" : "mic"}
                 size={44}
-                color="#D96F4C"
+                color="#E56C45"
               />
             </Animated.View>
 
@@ -1202,6 +1341,9 @@ export default function RecordingModal({
             <TouchableOpacity
               style={styles.cancelButton}
               onPress={handleCancelRecording}
+              accessibilityLabel={t("common.cancel")}
+              accessibilityHint={t("accessibility.button.cancelHint")}
+              accessibilityRole="button"
             >
               <Text style={styles.cancelText}>{t("common.cancel")}</Text>
             </TouchableOpacity>
@@ -1209,6 +1351,18 @@ export default function RecordingModal({
             <TouchableOpacity
               style={styles.pauseButton}
               onPress={isPaused ? handleResumeRecording : handlePauseRecording}
+              accessibilityLabel={
+                isPaused
+                  ? t("createVoiceDiary.resumeRecording")
+                  : t("createVoiceDiary.pauseRecording")
+              }
+              accessibilityHint={
+                isPaused
+                  ? t("accessibility.button.recordHint")
+                  : t("accessibility.button.stopHint")
+              }
+              accessibilityRole="button"
+              accessibilityState={{ selected: !isPaused }}
             >
               <Ionicons
                 name={isPaused ? "play" : "pause"}
@@ -1220,6 +1374,9 @@ export default function RecordingModal({
             <TouchableOpacity
               style={styles.finishButton}
               onPress={handleFinishRecording}
+              accessibilityLabel={t("common.done")}
+              accessibilityHint={t("accessibility.button.continueHint")}
+              accessibilityRole="button"
             >
               <Text style={styles.finishText}>{t("common.done")}</Text>
             </TouchableOpacity>
@@ -1241,6 +1398,10 @@ export default function RecordingModal({
         <TouchableOpacity
           onPress={isEditing ? cancelEditing : handleCancelRecording}
           style={styles.resultHeaderButton}
+          accessibilityLabel={isEditing ? t("common.cancel") : t("common.close")}
+          accessibilityHint={t("accessibility.button.closeHint")}
+          accessibilityRole="button"
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
           {isEditing ? (
             <Text style={styles.resultHeaderButtonText}>
@@ -1261,6 +1422,10 @@ export default function RecordingModal({
           <TouchableOpacity
             onPress={finishEditing}
             style={styles.resultHeaderButton}
+            accessibilityLabel={t("common.done")}
+            accessibilityHint={t("accessibility.button.saveHint")}
+            accessibilityRole="button"
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
             <Text
               style={[
@@ -1309,6 +1474,7 @@ export default function RecordingModal({
                 isPlaying={isPlayingResult}
                 currentTime={resultCurrentTime}
                 totalDuration={resultDuration}
+                hasPlayedOnce={hasPlayedResultOnce} // ✅ 传入 hasPlayedOnce，显示倒计时
                 onPlayPress={handlePlayResultAudio}
                 style={styles.resultAudioPlayer}
               />
@@ -1330,11 +1496,17 @@ export default function RecordingModal({
                   multiline
                   placeholder={t("diary.placeholderTitle")}
                   scrollEnabled={false} // ✅ 让外层ScrollView处理滚动
+                  accessibilityLabel={t("diary.placeholderTitle")}
+                  accessibilityHint={t("accessibility.input.textHint")}
+                  accessibilityRole="text"
                 />
               ) : (
                 <TouchableOpacity
                   onPress={startEditingTitle}
                   activeOpacity={0.7}
+                  accessibilityLabel={resultDiary.title}
+                  accessibilityHint={t("accessibility.button.editHint")}
+                  accessibilityRole="button"
                 >
                   <Text style={styles.resultTitleText}>
                     {resultDiary.title}
@@ -1356,11 +1528,17 @@ export default function RecordingModal({
                   multiline
                   placeholder={t("diary.placeholderContent")}
                   scrollEnabled={true} // ✅ 让外层ScrollView处理滚动
+                  accessibilityLabel={t("diary.placeholderContent")}
+                  accessibilityHint={t("accessibility.input.textHint")}
+                  accessibilityRole="text"
                 />
               ) : (
                 <TouchableOpacity
                   onPress={startEditingContent}
                   activeOpacity={0.7}
+                  accessibilityLabel={resultDiary.polished_content.substring(0, 100) + (resultDiary.polished_content.length > 100 ? "..." : "")}
+                  accessibilityHint={t("accessibility.button.editHint")}
+                  accessibilityRole="button"
                 >
                   <Text style={styles.resultContentText}>
                     {resultDiary.polished_content}
@@ -1375,7 +1553,7 @@ export default function RecordingModal({
               !!resultDiary?.ai_feedback && (
                 <View style={styles.resultFeedbackCard}>
                   <View style={styles.resultFeedbackHeader}>
-                    <Ionicons name="sparkles" size={18} color="#D96F4C" />
+                    <Ionicons name="sparkles" size={18} color="#E56C45" />
                     <Text style={styles.resultFeedbackTitle}>
                       {t("diary.aiFeedbackTitle")}
                     </Text>
@@ -1400,6 +1578,9 @@ export default function RecordingModal({
           <TouchableOpacity
             style={styles.saveButton}
             onPress={handleSaveAndClose}
+            accessibilityLabel={t("diary.saveToJournal")}
+            accessibilityHint={t("accessibility.button.saveHint")}
+            accessibilityRole="button"
           >
             <Text style={styles.saveButtonText}>
               {t("diary.saveToJournal")}
@@ -1520,7 +1701,7 @@ const styles = StyleSheet.create({
   },
   durationText: {
     ...Typography.sectionTitle,
-    color: "#D96F4C", // ✅ 高亮红色
+    color: "#E56C45", // ✅ 高亮红色
     fontVariant: ["tabular-nums"],
   },
   maxDuration: {
@@ -1540,16 +1721,16 @@ const styles = StyleSheet.create({
   },
   cancelText: {
     ...Typography.body,
-    color: "#D96F4C", // 主题色
+    color: "#E56C45", // 主题色
   },
   pauseButton: {
     width: 72,
     height: 72,
     borderRadius: 36,
-    backgroundColor: "#D96F4C",
+    backgroundColor: "#E56C45",
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#D96F4C",
+    shadowColor: "#E56C45",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
@@ -1560,7 +1741,7 @@ const styles = StyleSheet.create({
   },
   finishText: {
     ...Typography.body,
-    color: "#D96F4C",
+    color: "#E56C45",
   },
   // ===== 结果预览视图样式 =====
   headerLeft: {
@@ -1614,7 +1795,7 @@ const styles = StyleSheet.create({
   resultFeedbackTitle: {
     ...Typography.sectionTitle,
     fontSize: 16,
-    color: "#D96F4C",
+    color: "#E56C45",
     marginLeft: 6,
   },
   resultFeedbackText: {
@@ -1631,11 +1812,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
   },
   saveButton: {
-    backgroundColor: "#D96F4C",
+    backgroundColor: "#E56C45",
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: "center",
-    shadowColor: "#D96F4C",
+    shadowColor: "#E56C45",
     shadowOffset: {
       width: 0,
       height: 4,
@@ -1654,7 +1835,7 @@ const styles = StyleSheet.create({
     color: "#1A1A1A",
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: "#D96F4C",
+    borderColor: "#E56C45",
     borderRadius: 8,
     padding: 12,
     backgroundColor: "#fff",
@@ -1663,7 +1844,7 @@ const styles = StyleSheet.create({
     ...Typography.body,
     color: "#1A1A1A",
     borderWidth: 1,
-    borderColor: "#D96F4C",
+    borderColor: "#E56C45",
     borderRadius: 8,
     padding: 12,
     backgroundColor: "#fff",
@@ -1699,7 +1880,7 @@ const styles = StyleSheet.create({
   },
   resultHeaderSaveText: {
     ...Typography.body,
-    color: "#D96F4C",
+    color: "#E56C45",
   },
 
   // ===== Toast（iOS）与列表删除一致 =====
@@ -1766,7 +1947,7 @@ const styles = StyleSheet.create({
   },
   progressBarFill: {
     height: "100%",
-    backgroundColor: "#D96F4C",
+    backgroundColor: "#E56C45",
     borderRadius: 3,
   },
   progressText: {

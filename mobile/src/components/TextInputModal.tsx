@@ -447,7 +447,14 @@ export default function TextInputModal({
     return (
       <>
         <View style={styles.header}>
-          <TouchableOpacity style={styles.closeButton} onPress={onCancel}>
+          <TouchableOpacity
+            style={styles.closeButton}
+            onPress={onCancel}
+            accessibilityLabel={t("common.close")}
+            accessibilityHint={t("accessibility.button.closeHint")}
+            accessibilityRole="button"
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
             <Ionicons name="close-outline" size={24} color="#666" />
           </TouchableOpacity>
           <Text style={styles.title}>{t("createTextDiary.title")}</Text>
@@ -479,6 +486,9 @@ export default function TextInputModal({
                 multiline
                 autoFocus
                 maxLength={500}
+                accessibilityLabel={t("createTextDiary.textPlaceholder")}
+                accessibilityHint={t("accessibility.input.textHint")}
+                accessibilityRole="text"
               />
 
               <Text
@@ -494,6 +504,9 @@ export default function TextInputModal({
             <TouchableOpacity
               style={styles.completeButton}
               onPress={handleTextSubmit}
+              accessibilityLabel={t("common.done")}
+              accessibilityHint={t("accessibility.button.continueHint")}
+              accessibilityRole="button"
             >
               <Text style={styles.completeButtonText}>{t("common.done")}</Text>
             </TouchableOpacity>
@@ -699,10 +712,10 @@ const styles = StyleSheet.create({
     color: "#999",
   },
   charCountWarning: {
-    color: "#D96F4C",
+    color: "#E56C45",
   },
   completeButton: {
-    backgroundColor: "#D96F4C",
+    backgroundColor: "#E56C45",
     paddingVertical: 14,
     borderRadius: 12,
     alignItems: "center",
@@ -741,7 +754,7 @@ const styles = StyleSheet.create({
   },
   resultHeaderSaveText: {
     ...Typography.body,
-    color: "#D96F4C",
+    color: "#E56C45",
   },
   resultScrollView: {
     flex: 1, // ✅ 加载状态时使用（固定高度）
@@ -764,11 +777,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
   },
   saveButton: {
-    backgroundColor: "#D96F4C",
+    backgroundColor: "#E56C45",
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: "center",
-    shadowColor: "#D96F4C",
+    shadowColor: "#E56C45",
     shadowOffset: {
       width: 0,
       height: 4,

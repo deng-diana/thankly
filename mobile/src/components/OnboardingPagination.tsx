@@ -1,6 +1,6 @@
 /**
  * Onboarding分页指示器组件
- * 
+ *
  * 设计理念：简洁、优雅、不打扰
  * 显示当前页面位置，帮助用户理解进度
  */
@@ -42,19 +42,12 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    transition: "all 0.3s ease",
   },
   dotActive: {
-    backgroundColor: "#D96F4C", // 主题色
+    backgroundColor: "#E56C45", // 主题色
     width: 24, // 活跃状态更长
   },
   dotInactive: {
-    backgroundColor: "#E0E0E0", // 灰色
+    backgroundColor: "#F2E2C2", // 灰色
   },
 });
-
-
-
-
-
-

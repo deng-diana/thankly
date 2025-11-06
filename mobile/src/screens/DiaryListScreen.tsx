@@ -9,6 +9,8 @@
  */
 import ImageInputIcon from "../assets/icons/addImageIcon.svg";
 import TextInputIcon from "../assets/icons/textInputIcon.svg";
+import EmptyStateIcon from "../assets/icons/empty-state.svg";
+import AppIconHomepage from "../assets/icons/app-icon-homepage.svg";
 import { Typography, getTypography } from "../styles/typography";
 import React, { useState, useEffect, useRef } from "react";
 import {
@@ -46,44 +48,7 @@ import TextInputModal from "../components/TextInputModal";
 // 🌍 导入翻译函数
 // ============================================================================
 import { t, getCurrentLocale } from "../i18n";
-
-/**
- * 获取用户头像首字母
- * 规则：如果首字母是数字或全是数字，显示 "U"
- * 否则显示首字母
- */
-const getUserInitial = (name?: string, email?: string): string => {
-  // 优先使用姓名
-  if (name) {
-    // 移除数字，获取首字母
-    const cleanName = name.replace(/[0-9]/g, "");
-    if (cleanName.length > 0) {
-      return cleanName.charAt(0).toUpperCase();
-    }
-    // 如果姓名全是数字，检查原始姓名
-    if (/^[0-9]+$/.test(name)) {
-      return "U";
-    }
-  }
-
-  // 如果姓名不可用，使用邮箱
-  if (email) {
-    const emailPrefix = email.split("@")[0];
-    // 如果邮箱前缀全是数字，显示 "U"
-    if (/^[0-9]+$/.test(emailPrefix)) {
-      return "U";
-    }
-    // 如果邮箱前缀首字母是数字，显示 "U"
-    if (/^[0-9]/.test(emailPrefix)) {
-      return "U";
-    }
-    // 否则显示首字母
-    return emailPrefix.charAt(0).toUpperCase();
-  }
-
-  // 默认返回 "U"
-  return "U";
-};
+import AvatarDefault from "../assets/icons/avatar-default.svg";
 
 // import * as ImagePicker from "expo-image-picker"; // ✅ 新增：图片选择器（稍后安装）
 import {
@@ -630,14 +595,14 @@ export default function DiaryListScreen() {
         if (sound) {
           sound.pause(); // expo-audio 的 pause() 是同步方法
           setCurrentPlayingId(null);
-          
+
           // 清理定时器
           const intervalId = intervalRefs.current.get(diary.diary_id);
           if (intervalId) {
             clearInterval(intervalId);
             intervalRefs.current.delete(diary.diary_id);
           }
-          
+
           console.log("⏸ 已暂停");
         }
         return;
@@ -680,7 +645,7 @@ export default function DiaryListScreen() {
           updateInterval: 100, // 每100ms更新一次状态
         });
         soundRefs.current.set(diary.diary_id, player);
-        
+
         // 标记为已播放过
         setHasPlayedOnce((prev) => {
           const newSet = new Set(prev);
@@ -697,10 +662,11 @@ export default function DiaryListScreen() {
       setCurrentPlayingId(diary.diary_id);
 
       // 初始化：立即设置 duration（优先使用数据库中的audio_duration，如果player已加载则使用player的duration）
-      const initialDuration = player.isLoaded && player.duration > 0 
-        ? Math.floor(player.duration)
-        : (diary.audio_duration || 0);
-      
+      const initialDuration =
+        player.isLoaded && player.duration > 0
+          ? Math.floor(player.duration)
+          : diary.audio_duration || 0;
+
       if (initialDuration > 0) {
         setDuration((prev) => {
           const newMap = new Map(prev);
@@ -724,7 +690,7 @@ export default function DiaryListScreen() {
       // 监听播放状态更新（优化：只在播放时更新，减少不必要的状态更新）
       // 使用闭包变量保存上次更新的时间，避免不必要的状态更新
       let lastUpdateTime = 0;
-      
+
       const updateProgress = () => {
         if (!player.isLoaded) {
           // 如果player还未加载，尝试设置duration
@@ -750,7 +716,7 @@ export default function DiaryListScreen() {
         // 只在时间变化时更新（减少不必要的渲染和闪烁）
         if (currentTimeSeconds !== lastUpdateTime) {
           lastUpdateTime = currentTimeSeconds;
-          
+
           setCurrentTime((prev) => {
             const existing = prev.get(diary.diary_id) || 0;
             // 只在时间真的变化时更新（避免小数秒的抖动）
@@ -779,13 +745,13 @@ export default function DiaryListScreen() {
 
       // 定期更新进度并检查播放状态
       const currentDiaryId = diary.diary_id; // 保存当前diary_id到闭包
-      
+
       // 清理之前的定时器（如果存在）
       const existingInterval = intervalRefs.current.get(currentDiaryId);
       if (existingInterval) {
         clearInterval(existingInterval);
       }
-      
+
       const progressInterval = setInterval(() => {
         // 检查当前播放的音频是否还是这个
         if (!soundRefs.current.has(currentDiaryId)) {
@@ -801,15 +767,19 @@ export default function DiaryListScreen() {
         }
 
         // 检查是否播放完成
-        if (player.isLoaded && 
-            !player.playing &&
-            player.currentTime > 0 &&
-            player.duration > 0 &&
-            Math.abs(player.currentTime - player.duration) < 0.5) {
+        if (
+          player.isLoaded &&
+          !player.playing &&
+          player.currentTime > 0 &&
+          player.duration > 0 &&
+          Math.abs(player.currentTime - player.duration) < 0.5
+        ) {
           clearInterval(progressInterval);
           intervalRefs.current.delete(currentDiaryId);
-          
-          setCurrentPlayingId((prev) => prev === currentDiaryId ? null : prev);
+
+          setCurrentPlayingId((prev) =>
+            prev === currentDiaryId ? null : prev
+          );
           soundRefs.current.delete(currentDiaryId);
           player.remove();
 
@@ -828,7 +798,7 @@ export default function DiaryListScreen() {
           console.log("✅ 播放完成");
         }
       }, 100); // 每100ms更新一次
-      
+
       // 保存定时器引用
       intervalRefs.current.set(currentDiaryId, progressInterval);
 
@@ -1020,10 +990,8 @@ export default function DiaryListScreen() {
                 style={styles.profileMenuAvatar}
               />
             ) : (
-              <View style={styles.profileMenuInitial}>
-                <Text style={[styles.profileMenuInitialText, typography.body]}>
-                  {getUserInitial(user?.name, user?.email)}
-                </Text>
+              <View style={styles.profileMenuAvatar}>
+                <AvatarDefault width={32} height={32} />
               </View>
             )}
             <View style={styles.profileMenuInfo}>
@@ -1049,6 +1017,9 @@ export default function DiaryListScreen() {
           <TouchableOpacity
             style={styles.profileMenuItem}
             onPress={handleSignOut}
+            accessibilityLabel={t("home.signOut")}
+            accessibilityHint={t("accessibility.button.signOutHint")}
+            accessibilityRole="button"
           >
             <Ionicons name="log-out-outline" size={20} color="#FF3B30" />
             <Text style={[styles.profileMenuItemTextDanger, typography.body]}>
@@ -1070,27 +1041,45 @@ export default function DiaryListScreen() {
       <View style={styles.topBar}>
         {/* 问候语 */}
         <View style={styles.greetingContainer}>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "baseline" }}>
-            {userDisplayName && greetingWelcome.includes(userDisplayName) ? (
-              // 如果包含用户名，拆分显示以高亮name
-              (() => {
-                const parts = greetingWelcome.split(userDisplayName);
-                return (
-                  <>
-                    {parts.map((part, index) => (
-                      <React.Fragment key={index}>
-                        {part && <Text style={styles.greetingBold}>{part}</Text>}
-                        {index < parts.length - 1 && (
-                          <Text style={styles.greetingBoldHighlight}>{userDisplayName}</Text>
-                        )}
-                      </React.Fragment>
-                    ))}
-                  </>
-                );
-              })()
-            ) : (
-              <Text style={styles.greetingBold}>{greetingWelcome}</Text>
-            )}
+          <View style={styles.greetingTitleRow}>
+            <AppIconHomepage
+              width={32}
+              height={32}
+              style={styles.greetingIcon}
+            />
+            <View
+              style={{
+                flexDirection: "row",
+                flexWrap: "wrap",
+                alignItems: "baseline",
+                flex: 1,
+              }}
+            >
+              {userDisplayName && greetingWelcome.includes(userDisplayName) ? (
+                // 如果包含用户名，拆分显示以高亮name
+                (() => {
+                  const parts = greetingWelcome.split(userDisplayName);
+                  return (
+                    <>
+                      {parts.map((part, index) => (
+                        <React.Fragment key={index}>
+                          {part && (
+                            <Text style={styles.greetingBold}>{part}</Text>
+                          )}
+                          {index < parts.length - 1 && (
+                            <Text style={styles.greetingBoldHighlight}>
+                              {userDisplayName}
+                            </Text>
+                          )}
+                        </React.Fragment>
+                      ))}
+                    </>
+                  );
+                })()
+              ) : (
+                <Text style={styles.greetingBold}>{greetingWelcome}</Text>
+              )}
+            </View>
           </View>
           <Text style={styles.greetingLight}>{greetingSubtitle}</Text>
         </View>
@@ -1102,20 +1091,22 @@ export default function DiaryListScreen() {
             console.log("👆 点击了头像");
             setProfileMenuVisible(true);
           }}
+          accessibilityLabel={t("home.profileMenuButton")}
+          accessibilityRole="button"
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
           {user?.picture ? (
             // Google用户:显示真实头像
             <Image source={{ uri: user.picture }} style={styles.profileImage} />
           ) : (
-            // Apple用户或无头像:显示首字母
-            <View style={styles.profileInitial}>
-              <Text style={[styles.initialText, typography.body]}>
-                {getUserInitial(user?.name, user?.email)}
-              </Text>
-            </View>
+            // 默认头像:显示 SVG
+            <AvatarDefault width={32} height={32} />
           )}
         </TouchableOpacity>
       </View>
+
+      {/* 分割线 */}
+      <View style={styles.divider} />
 
       {/* 我的日记标题 - 仅在列表不为空时显示 */}
       {diaries.length > 0 && (
@@ -1133,15 +1124,23 @@ export default function DiaryListScreen() {
    * - 中间显示日记内容(最多3行)
    * - 底部显示AI反馈(带渐变背景)
    */
-  const renderDiaryCard = ({ item }: { item: Diary }) => {
+  const renderDiaryCard = ({ item, index }: { item: Diary; index: number }) => {
     // 格式化日期和时间显示
     const displayDate = formatDateTime(item.created_at);
+
+    // 生成无障碍标签（包含索引和总数信息）
+    const accessibilityLabel = `${t("accessibility.list.diaryCard")} ${
+      index + 1
+    } ${t("accessibility.list.of")} ${diaries.length}, ${item.title}`;
 
     return (
       <TouchableOpacity
         style={styles.diaryCard}
         onPress={() => handleDiaryPress(item)}
         activeOpacity={0.7}
+        accessibilityLabel={accessibilityLabel}
+        accessibilityHint={t("accessibility.list.cardHint")}
+        accessibilityRole="button"
       >
         {/* 日期 + 三点菜单图标 */}
         <View style={styles.cardHeader}>
@@ -1157,7 +1156,10 @@ export default function DiaryListScreen() {
               handleDiaryOptions(item);
             }}
             style={styles.optionsButton}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            accessibilityLabel={t("home.diaryOptionsButton")}
+            accessibilityHint={t("accessibility.button.editHint")}
+            accessibilityRole="button"
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
           >
             <Ionicons name="ellipsis-horizontal" size={20} color="#999" />
           </TouchableOpacity>
@@ -1241,9 +1243,10 @@ export default function DiaryListScreen() {
    */
   const renderEmptyState = () => (
     <View style={styles.emptyState}>
-      <Text style={styles.emptyIcon}>📝</Text>
-      <Text style={styles.emptyTitle}>{t("home.noDiaries")}</Text>
-      <Text style={styles.emptyText}>{t("home.noDiariesHint")}</Text>
+      <View style={styles.emptyIconContainer}>
+        <EmptyStateIcon width={120} height={120} />
+      </View>
+      <Text style={styles.emptyText}>{t("home.noDiaries")}</Text>
     </View>
   );
 
@@ -1251,6 +1254,23 @@ export default function DiaryListScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
+      {/* 动态内容更新提示区域 */}
+      <View
+        accessibilityLiveRegion="polite"
+        style={{ position: "absolute", left: -9999, width: 1, height: 1 }}
+      >
+        {loading && (
+          <Text accessibilityLabel={t("accessibility.status.loading")}>
+            {t("accessibility.status.loading")}
+          </Text>
+        )}
+        {refreshing && (
+          <Text accessibilityLabel={t("home.refreshing")}>
+            {t("home.refreshing")}
+          </Text>
+        )}
+      </View>
+
       {/* 正在加载时显示骨架屏 */}
       {loading ? (
         renderSkeleton()
@@ -1259,7 +1279,7 @@ export default function DiaryListScreen() {
           {/* 日记列表 */}
           <FlatList
             data={diaries}
-            renderItem={renderDiaryCard}
+            renderItem={({ item, index }) => renderDiaryCard({ item, index })}
             keyExtractor={(item) => item.diary_id}
             ListHeaderComponent={renderHeader}
             ListEmptyComponent={renderEmptyState}
@@ -1268,10 +1288,16 @@ export default function DiaryListScreen() {
               <RefreshControl
                 refreshing={refreshing}
                 onRefresh={onRefresh}
-                tintColor="#D96F4C"
+                tintColor="#E56C45"
+                accessibilityLabel={t("home.refreshing")}
               />
             }
             showsVerticalScrollIndicator={false}
+            accessibilityLabel={
+              diaries.length > 0
+                ? `${diaries.length} ${t("accessibility.list.diaryCard")}`
+                : t("accessibility.list.emptyList")
+            }
           />
 
           {/* 底部操作栏 */}
@@ -1281,8 +1307,11 @@ export default function DiaryListScreen() {
               style={styles.actionButton}
               onPress={handleImageUpload}
               activeOpacity={0.7}
+              accessibilityLabel={t("home.addImageButton")}
+              accessibilityHint={t("accessibility.button.recordHint")}
+              accessibilityRole="button"
             >
-              <ImageInputIcon width={36} height={36} fill={"#332824"} />
+              <ImageInputIcon width={32} height={32} fill={"#332824"} />
             </TouchableOpacity>
 
             {/* 录音按钮 - 主按钮 */}
@@ -1290,6 +1319,9 @@ export default function DiaryListScreen() {
               style={styles.recordButton}
               onPress={handleVoiceRecord}
               activeOpacity={0.8}
+              accessibilityLabel={t("home.recordVoiceButton")}
+              accessibilityHint={t("accessibility.button.recordHint")}
+              accessibilityRole="button"
             >
               <Ionicons name="mic" size={26} color="#fff" />
             </TouchableOpacity>
@@ -1299,8 +1331,11 @@ export default function DiaryListScreen() {
               style={styles.actionButton}
               onPress={handleTextInput}
               activeOpacity={0.7}
+              accessibilityLabel={t("home.writeTextButton")}
+              accessibilityHint={t("accessibility.button.continueHint")}
+              accessibilityRole="button"
             >
-              <TextInputIcon width={36} height={36} fill={"#332824"} />
+              <TextInputIcon width={32} height={32} fill={"#332824"} />
             </TouchableOpacity>
           </View>
         </>
@@ -1398,7 +1433,7 @@ function formatAudioDuration(seconds: number): string {
  * 样式说明:
  *
  * 颜色系统:
- * - 主色调: #D96F4C (粉红色,温暖友好)
+ * - 主色调: #E56C45 (粉红色,温暖友好)
  * - 辅助色: #C084FC (紫色,神秘优雅)
  * - 背景色: #F8F9FA (浅灰,干净舒适)
  * - 文字色: #1A1A1A (深灰,易读)
@@ -1426,21 +1461,38 @@ const styles = StyleSheet.create({
 
   // ===== 头部区域 =====
   header: {
-    paddingHorizontal: 20,
-    paddingTop: 40,
+    paddingHorizontal: 24,
+    paddingTop: 48,
     paddingBottom: 12,
   },
 
   topBar: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start", // 改为顶对齐，让头像与左侧内容顶部对齐
     justifyContent: "space-between",
-    marginBottom: 24,
+    marginBottom: 0,
+  },
+
+  divider: {
+    height: 1,
+    backgroundColor: "#F2E2C3",
+    marginTop: 16,
+    marginBottom: 8,
   },
 
   greetingContainer: {
     flex: 1,
-    marginRight: 20,
+    marginRight: 32,
+  },
+
+  greetingTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 2,
+  },
+
+  greetingIcon: {
+    marginRight: 8,
   },
 
   greetingBold: {
@@ -1451,7 +1503,7 @@ const styles = StyleSheet.create({
 
   greetingBoldHighlight: {
     ...Typography.diaryTitle,
-    color: "#D96F4C", // 主题色高亮
+    color: "#E56C45", // 主题色高亮
     marginBottom: 2,
   },
 
@@ -1462,33 +1514,21 @@ const styles = StyleSheet.create({
   },
 
   profileButton: {
-    padding: 4,
-  },
-
-  // ✅ 新增:头像相关样式
-  profileImage: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#F0F0F0",
-  },
-
-  profileInitial: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#F7DFC6", // 浅粉色背景
-    borderWidth: 1,
-    borderColor: "#F2CEAA", // 描边颜色
+    padding: 6, // 增加 padding 确保点击区域至少 44x44pt (32 + 6*2 = 44)
+    minWidth: 44,
+    minHeight: 44,
     alignItems: "center",
     justifyContent: "center",
   },
 
-  initialText: {
-    fontSize: 16,
-    fontWeight: "900", // 最粗字体
-    color: "#D96F4C", // 品牌色文字
+  // ✅ 新增:头像相关样式
+  profileImage: {
+    width: 32,
+    height: 32,
+    borderRadius: 32,
+    backgroundColor: "#F0F0F0",
   },
+
   // ===== 标题 =====
   sectionTitle: {
     ...Typography.sectionTitle,
@@ -1533,7 +1573,11 @@ const styles = StyleSheet.create({
   },
 
   optionsButton: {
-    padding: 5,
+    padding: 12, // 增加 padding 确保点击区域至少 44x44pt (20 + 12*2 = 44)
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   cardContent: {
@@ -1556,7 +1600,7 @@ const styles = StyleSheet.create({
   aiFeedback: {
     flex: 1,
     fontSize: 14,
-    color: "#D96F4C",
+    color: "#E56C45",
     marginLeft: 6,
     lineHeight: 20,
   },
@@ -1566,26 +1610,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 80,
-    paddingHorizontal: 40,
+    paddingHorizontal: 64,
     marginTop: 40,
   },
 
-  emptyIcon: {
-    fontSize: 64,
-    marginBottom: 16,
-  },
-
-  emptyTitle: {
-    ...Typography.diaryTitle,
-    fontSize: 18,
-    color: "#1A1A1A",
-    marginBottom: 6,
+  emptyIconContainer: {
+    marginBottom: 8,
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   emptyText: {
     ...Typography.caption,
+    fontSize: 16,
     color: "#666",
     textAlign: "center",
+    lineHeight: 24,
   },
 
   // ===== 创建按钮 =====
@@ -1599,12 +1639,12 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: "#D96F4C",
+    backgroundColor: "#E56C45",
     alignItems: "center",
     justifyContent: "center",
 
     // 更明显的阴影
-    shadowColor: "#D96F4C",
+    shadowColor: "#E56C45",
     shadowOffset: {
       width: 0,
       height: 4,
@@ -1753,7 +1793,7 @@ const styles = StyleSheet.create({
     ...Typography.body,
     fontSize: 17, // iOS 系统默认字号
     fontWeight: "600",
-    color: "#D96F4C", // 主题色
+    color: "#E56C45", // 主题色
   },
 
   // ===== Toast（iOS）=====
@@ -1787,8 +1827,8 @@ const styles = StyleSheet.create({
   bottomActionBar: {
     position: "absolute",
     bottom: 32, // 距离底部的间距
-    left: 64, // 增加左右间距，减少宽度
-    right: 64,
+    left: 56, // 增加左右间距，减少宽度
+    right: 56,
     //borderWidth:1,
     borderColor: "#F2F2F2",
     backgroundColor: "#fff",
@@ -1798,7 +1838,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-evenly", // 均匀分布，居中显示
     paddingVertical: 8, // 降低高度
     paddingHorizontal: 0, // 增加内边距
-    shadowColor: "#D96F4C",
+    shadowColor: "#E56C45",
     shadowOffset: {
       width: 0,
       height: 6,
@@ -1809,20 +1849,20 @@ const styles = StyleSheet.create({
   },
 
   actionButton: {
-    width: 44, // 缩小按钮尺寸
+    width: 44, // 确保点击区域至少 44x44pt (符合 Apple HIG 和 Android 无障碍标准)
     height: 44,
     alignItems: "center",
     justifyContent: "center",
   },
 
   recordButton: {
-    width: 48, // 缩小录音按钮
+    width: 56, // 确保点击区域至少 44x44pt，主按钮稍大一些
     height: 56,
     borderRadius: 28, // 对应调整圆角
-    backgroundColor: "#D96F4C", // 使用主题色
+    backgroundColor: "#E56C45", // 使用主题色
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#D96F4C",
+    shadowColor: "#E56C45",
     shadowOffset: {
       width: 0,
       height: 4,
@@ -1860,48 +1900,29 @@ const styles = StyleSheet.create({
   },
 
   profileMenuAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 30,
-    backgroundColor: "#F0F0F0",
-    marginRight: 12,
-  },
-
-  profileMenuInitial: {
-    width: 40,
-    height: 40,
-    borderRadius: 30,
-    backgroundColor: "#F7DFC6", // 浅粉色背景
-    borderWidth: 1,
-    borderColor: "#F2CEAA", // 描边颜色
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 10,
-  },
-
-  profileMenuInitialText: {
-    fontSize: 18,
-    fontWeight: "900", // 最粗字体
-    color: "#D96F4C", // 品牌色文字
+    width: 36,
+    height: 36,
+    borderRadius: 36,
+    marginRight: 8,
   },
 
   profileMenuName: {
-    fontSize: 19, // 17 + 2 = 19
+    fontSize: 18, // 17 + 2 = 19
     fontWeight: "600",
     color: "#1A1A1A",
-    marginBottom: 4,
+    marginBottom: -2,
     overflow: "hidden",
   },
 
   profileMenuEmail: {
-    fontSize: 15, // 13 + 2 = 15
+    fontSize: 14, // 13 + 2 = 15
     color: "#666",
     overflow: "hidden",
   },
 
   profileMenuDivider: {
     height: 1,
-    backgroundColor: "#E5E5E5",
+    backgroundColor: "#FCF4E3",
     marginHorizontal: 16,
   },
 

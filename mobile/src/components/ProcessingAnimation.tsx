@@ -7,6 +7,7 @@
 import React from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { Typography } from "../styles/typography";
+import { t } from "../i18n";
 
 interface ProcessingStep {
   icon: string;
@@ -26,7 +27,14 @@ export default function ProcessingAnimation({
   steps,
 }: ProcessingAnimationProps) {
   return (
-    <View style={styles.processingCenter}>
+    <View
+      style={styles.processingCenter}
+      accessibilityLiveRegion="polite"
+      accessibilityLabel={t("accessibility.status.processing", {
+        step: processingStep + 1,
+      })}
+      accessibilityRole="progressbar"
+    >
       <View style={styles.processingContent}>
         {/* 当前步骤 */}
         <View style={styles.currentStepContainer}>
@@ -44,7 +52,10 @@ export default function ProcessingAnimation({
               ]}
             />
           </View>
-          <Text style={styles.progressText}>
+          <Text
+            style={styles.progressText}
+            accessibilityLabel={`${t("accessibility.status.processing")}, ${Math.round(processingProgress)}%`}
+          >
             {Math.round(processingProgress)}%
           </Text>
         </View>
@@ -100,7 +111,7 @@ const styles = StyleSheet.create({
 
   progressBarFill: {
     height: "100%",
-    backgroundColor: "#D96F4C",
+    backgroundColor: "#E56C45",
     borderRadius: 3,
   },
 

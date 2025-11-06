@@ -52,9 +52,18 @@ export default function DiaryResultView({
             multiline
             autoFocus
             placeholder={t("diary.placeholderContent")}
+            accessibilityLabel={t("diary.placeholderContent")}
+            accessibilityHint={t("accessibility.input.textHint")}
+            accessibilityRole="text"
           />
         ) : (
-          <TouchableOpacity onPress={onStartEditing} activeOpacity={0.7}>
+          <TouchableOpacity
+            onPress={onStartEditing}
+            activeOpacity={0.7}
+            accessibilityLabel={polishedContent.substring(0, 100) + (polishedContent.length > 100 ? "..." : "")}
+            accessibilityHint={t("accessibility.button.editHint")}
+            accessibilityRole="button"
+          >
             <Text style={styles.resultContentText}>{polishedContent}</Text>
           </TouchableOpacity>
         )}
@@ -64,7 +73,7 @@ export default function DiaryResultView({
       {!isEditing && !!aiFeedback && (
         <View style={styles.resultFeedbackCard}>
           <View style={styles.resultFeedbackHeader}>
-            <Ionicons name="sparkles" size={18} color="#D96F4C" />
+            <Ionicons name="sparkles" size={18} color="#E56C45" />
             <Text style={styles.resultFeedbackTitle}>
               {t("diary.aiFeedbackTitle")}
             </Text>
@@ -105,7 +114,7 @@ const styles = StyleSheet.create({
     ...Typography.body,
     color: "#1A1A1A",
     borderWidth: 1,
-    borderColor: "#D96F4C",
+    borderColor: "#E56C45",
     borderRadius: 8,
     padding: 12,
     backgroundColor: "#fff",
@@ -132,7 +141,7 @@ const styles = StyleSheet.create({
   resultFeedbackTitle: {
     ...Typography.sectionTitle,
     fontSize: 16,
-    color: "#D96F4C",
+    color: "#E56C45",
     marginLeft: 6,
   },
 

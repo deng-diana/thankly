@@ -31,18 +31,20 @@ import { Ionicons } from "@expo/vector-icons";
 import {
   signInWithApple,
   signInWithGoogle,
+  signInWithUsernamePassword,
+  loginWithPhone,
+  verifyPhoneLoginCode,
+  signUp,
+  signUpWithPhone,
+  verifyPhoneCode,
   emailLoginOrSignUp,
   emailConfirmAndLogin,
-  getCurrentUser,
-  saveUser,
-  isValidUserName,
-  updateUserName,
 } from "../services/authService";
 import VerificationCodeModal from "../components/VerificationCodeModal";
+import CountryCodePicker from "../components/CountryCodePicker";
 import GoogleIcon from "../components/GoogleIcon";
 import NameInputModal from "../components/NameInputModal";
 import { getTypography } from "../styles/typography";
-import SplashIcon from "../assets/icons/splash-icon.svg";
 
 // ============================================================================
 // 🌍 Step 1: 导入翻译函数
@@ -59,13 +61,22 @@ export default function LoginScreen() {
   // 加载状态
   const [loading, setLoading] = useState(false);
   const [loadingProvider, setLoadingProvider] = useState<
-    "apple" | "google" | "username" | null
+    "apple" | "google" | "username" | "phone" | null
   >(null);
 
-  // 邮箱登录状态
+  // 登录方式选择：'email' | 'phone'
+  const [loginMethod, setLoginMethod] = useState<"email" | "phone">("email");
+
+  // 用户名密码登录状态
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false); // 密码显示/隐藏状态
+
+  // 手机号登录状态
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [countryCode, setCountryCode] = useState("+86"); // 默认中国
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
+  const [isSendingCode, setIsSendingCode] = useState(false);
 
   // 邮箱验证码状态
   const [showEmailVerificationModal, setShowEmailVerificationModal] =
@@ -76,6 +87,7 @@ export default function LoginScreen() {
   const [showNameInputModal, setShowNameInputModal] = useState(false);
   const [pendingEmail, setPendingEmail] = useState("");
   const [pendingPassword, setPendingPassword] = useState("");
+  const [pendingPhoneNumber, setPendingPhoneNumber] = useState("");
   const [isRegistering, setIsRegistering] = useState(false); // 标记是否正在注册流程
 
   // 获取 Typography 样式
@@ -91,16 +103,6 @@ export default function LoginScreen() {
       const user = await signInWithApple();
 
       console.log("登录成功!", user);
-
-      // ✅ 检查姓名是否有效，如果无效则弹出输入框
-      if (!isValidUserName(user.name, user.email)) {
-        console.log("📝 Apple登录用户姓名无效，弹出姓名输入框");
-        setPendingEmail(user.email);
-        setIsRegistering(true);
-        setShowNameInputModal(true);
-        return;
-      }
-
       // ✅ 跳转到日记列表
       navigation.replace("DiaryList");
 
@@ -162,16 +164,6 @@ export default function LoginScreen() {
       const user = await signInWithGoogle();
 
       console.log("登录成功!", user);
-
-      // ✅ 检查姓名是否有效，如果无效则弹出输入框
-      if (!isValidUserName(user.name, user.email)) {
-        console.log("📝 Google登录用户姓名无效，弹出姓名输入框");
-        setPendingEmail(user.email);
-        setIsRegistering(true);
-        setShowNameInputModal(true);
-        return;
-      }
-
       // ✅ 跳转到日记列表
       navigation.replace("DiaryList");
       // TODO: 跳转到日记列表页面
@@ -299,17 +291,6 @@ export default function LoginScreen() {
 
       console.log("✅ 邮箱确认并登录成功!", user);
       setShowEmailVerificationModal(false);
-
-      // ✅ 检查姓名是否有效，如果无效则弹出输入框
-      if (!isValidUserName(user.name, user.email)) {
-        console.log("📝 邮箱注册用户姓名无效，弹出姓名输入框");
-        setPendingEmail(user.email);
-        setPendingPassword(password);
-        setIsRegistering(true);
-        setShowNameInputModal(true);
-        return;
-      }
-
       navigation.replace("DiaryList");
     } catch (error: any) {
       console.error("❌ 邮箱确认失败:", error);
@@ -320,76 +301,45 @@ export default function LoginScreen() {
     }
   };
 
-  // 处理姓名确认（适用于所有登录方式）
+  // 处理姓名确认（邮箱注册）
   const handleNameConfirm = async (name: string) => {
     try {
       setLoading(true);
       setLoadingProvider("username");
       setShowNameInputModal(false);
 
-      // 如果是邮箱注册流程，使用姓名重新调用注册接口
-      if (isRegistering && pendingEmail && pendingPassword) {
-        console.log("📧 使用姓名重新进行注册:", name);
+      console.log("📧 使用姓名重新进行注册:", name);
 
-        // 使用姓名重新调用注册接口（这会重新发送验证码）
-        const result = await emailLoginOrSignUp(
-          pendingEmail,
-          pendingPassword,
-          name
-        );
+      // 使用姓名重新调用注册接口（这会重新发送验证码）
+      const result = await emailLoginOrSignUp(
+        pendingEmail,
+        pendingPassword,
+        name
+      );
 
-        if (result.status === "SIGNED_IN") {
-          // 注册并登录成功（理论上不应该发生，因为需要验证码）
-          console.log("✅ 注册并登录成功!", result.user);
-          navigation.replace("DiaryList");
-        } else if (result.status === "CONFIRMATION_REQUIRED") {
-          // 需要验证码确认 - 此时姓名已经保存，验证码已重新发送
-          console.log("📧 验证码已重新发送，显示验证码输入框");
-          setEmailForVerification(result.email);
-          setShowEmailVerificationModal(true);
-        } else if (result.status === "WRONG_PASSWORD") {
-          // 密码错误（不应该发生，因为前面已经验证过了）
-          Alert.alert(t("login.title"), "操作失败，请重试", [
-            { text: t("common.confirm") },
-          ]);
-        }
-
-        // 重置状态
-        setPendingEmail("");
-        setPendingPassword("");
-        setIsRegistering(false);
-      } else {
-        // 如果是 Apple 或 Google 登录后的姓名更新
-        console.log("📝 更新用户姓名:", name);
-        const currentUser = await getCurrentUser();
-        if (currentUser) {
-          // 1. 先更新 Cognito 的 name 属性（这样后端 JWT 中会包含这个姓名）
-          try {
-            await updateUserName(name);
-            console.log("✅ Cognito 用户姓名已更新");
-          } catch (error: any) {
-            console.warn("⚠️ 更新 Cognito 姓名失败，但继续保存本地:", error);
-            // 即使 Cognito 更新失败，也继续保存本地
-          }
-
-          // 2. 更新本地存储的用户信息
-          const updatedUser = {
-            ...currentUser,
-            name: name,
-          };
-          await saveUser(updatedUser);
-          console.log("✅ 用户姓名已更新并保存");
-          navigation.replace("DiaryList");
-        } else {
-          console.error("❌ 无法获取当前用户信息");
-          Alert.alert(t("login.title"), "操作失败，请重试", [
-            { text: t("common.confirm") },
-          ]);
-        }
+      if (result.status === "SIGNED_IN") {
+        // 注册并登录成功（理论上不应该发生，因为需要验证码）
+        console.log("✅ 注册并登录成功!", result.user);
+        navigation.replace("DiaryList");
+      } else if (result.status === "CONFIRMATION_REQUIRED") {
+        // 需要验证码确认 - 此时姓名已经保存，验证码已重新发送
+        console.log("📧 验证码已重新发送，显示验证码输入框");
+        setEmailForVerification(result.email);
+        setShowEmailVerificationModal(true);
+      } else if (result.status === "WRONG_PASSWORD") {
+        // 密码错误（不应该发生，因为前面已经验证过了）
+        Alert.alert(t("login.title"), "操作失败，请重试", [
+          { text: t("common.confirm") },
+        ]);
       }
+
+      // 重置状态
+      setPendingEmail("");
+      setPendingPassword("");
+      setIsRegistering(false);
     } catch (error: any) {
-      console.error("❌ 处理姓名确认失败:", error);
-      let errorMessage = error.message || "操作失败";
+      console.error("❌ 注册失败:", error);
+      let errorMessage = error.message || "注册失败";
       if (errorMessage.includes("Network request failed")) {
         errorMessage = t("error.networkError");
       }
@@ -428,12 +378,164 @@ export default function LoginScreen() {
     }
   };
 
+  // 智能登录/注册处理（手机号）：发送验证码
+  const handlePhoneContinue = async () => {
+    if (!phoneNumber.trim()) {
+      Alert.alert(t("login.title"), t("login.phoneNumberPlaceholder"), [
+        { text: t("common.confirm") },
+      ]);
+      return;
+    }
+
+    // 组合完整的手机号（区号 + 手机号）
+    const fullPhoneNumber = countryCode + phoneNumber.trim();
+
+    try {
+      setIsSendingCode(true);
+      // 先尝试登录（发送验证码）
+      try {
+        await loginWithPhone(fullPhoneNumber);
+        // 登录成功，说明用户已存在，直接显示验证码输入框
+        setShowVerificationModal(true);
+        Alert.alert(t("login.codeSent"), t("login.codeSentMessage"), [
+          { text: t("common.confirm") },
+        ]);
+        return;
+      } catch (loginError: any) {
+        // 如果用户不存在，说明是新用户注册，先弹出姓名输入框
+        if (
+          loginError.message.includes("UserNotFoundException") ||
+          loginError.message.includes("未注册")
+        ) {
+          console.log("🆕 检测到新用户，弹出姓名输入框...");
+          setPendingPhoneNumber(fullPhoneNumber);
+          setIsRegistering(true);
+          setShowNameInputModal(true);
+          return;
+        }
+        // 其他错误（如网络错误等）直接显示
+        throw loginError;
+      }
+    } catch (error: any) {
+      console.error("❌ 发送验证码错误:", error);
+      let errorMessage = error.message || "发送验证码失败";
+      if (errorMessage.includes("Network request failed")) {
+        errorMessage = t("error.networkError");
+      }
+      Alert.alert(t("login.title"), errorMessage, [
+        { text: t("common.confirm") },
+      ]);
+    } finally {
+      setIsSendingCode(false);
+    }
+  };
+
+  // 验证手机验证码（智能判断注册/登录）
+  const handleVerifyPhoneCode = async (code: string) => {
+    try {
+      setLoading(true);
+      setLoadingProvider("phone");
+
+      // 组合完整的手机号
+      const fullPhoneNumber = countryCode + phoneNumber.trim();
+
+      // 先尝试登录流程验证（使用forgot_password流程）
+      try {
+        const tempPassword = fullPhoneNumber + "Temp123!@#";
+        const user = await verifyPhoneLoginCode(
+          fullPhoneNumber,
+          code,
+          tempPassword
+        );
+        console.log("✅ 手机号登录成功!", user);
+        setShowVerificationModal(false);
+        navigation.replace("DiaryList");
+        return;
+      } catch (loginError: any) {
+        // 如果登录失败，说明验证码是注册验证码，走注册流程验证
+        console.log("🆕 验证码是注册验证码，走注册流程...");
+        const user = await verifyPhoneCode(fullPhoneNumber, code);
+        console.log("✅ 手机号注册并登录成功!", user);
+        setShowVerificationModal(false);
+        navigation.replace("DiaryList");
+        return;
+      }
+    } catch (error: any) {
+      console.error("❌ 验证验证码错误:", error);
+      throw error; // 让模态框处理错误显示
+    } finally {
+      setLoading(false);
+      setLoadingProvider(null);
+    }
+  };
+
+  // 处理姓名确认（手机注册）
+  const handlePhoneNameConfirm = async (name: string) => {
+    try {
+      setIsSendingCode(true);
+      setShowNameInputModal(false);
+
+      console.log("📱 使用姓名进行手机号注册:", name);
+
+      // 使用姓名进行注册（发送验证码）
+      await signUpWithPhone(pendingPhoneNumber, name);
+
+      setShowVerificationModal(true);
+      Alert.alert(t("login.codeSent"), t("login.codeSentMessage"), [
+        { text: t("common.confirm") },
+      ]);
+
+      // 重置状态
+      setPendingPhoneNumber("");
+      setIsRegistering(false);
+    } catch (error: any) {
+      console.error("❌ 手机号注册失败:", error);
+      let errorMessage = error.message || "注册失败";
+      if (errorMessage.includes("Network request failed")) {
+        errorMessage = t("error.networkError");
+      }
+      Alert.alert(t("login.title"), errorMessage, [
+        { text: t("common.confirm") },
+      ]);
+      // 重置状态
+      setPendingPhoneNumber("");
+      setIsRegistering(false);
+    } finally {
+      setIsSendingCode(false);
+    }
+  };
+
+  // 处理姓名取消（手机注册）
+  const handlePhoneNameCancel = () => {
+    setShowNameInputModal(false);
+    setPendingPhoneNumber("");
+    setIsRegistering(false);
+  };
+
+  // 重新发送验证码（智能判断登录或注册）
+  const handleResendCode = async () => {
+    const fullPhoneNumber = countryCode + phoneNumber.trim();
+    try {
+      // 先尝试登录流程
+      await loginWithPhone(fullPhoneNumber);
+    } catch (error: any) {
+      // 如果登录失败（用户不存在），使用注册流程
+      if (
+        error.message.includes("UserNotFoundException") ||
+        error.message.includes("未注册")
+      ) {
+        await signUpWithPhone(fullPhoneNumber);
+      } else {
+        throw error;
+      }
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
         {/* 顶部标题 */}
         <View style={styles.header}>
-          <SplashIcon width={72} height={72} style={styles.logo} />
           <Text style={[styles.headerTitle, typography.diaryTitle]}>
             {t("login.title")}
           </Text>
@@ -443,85 +545,168 @@ export default function LoginScreen() {
         </View>
 
         <View style={styles.buttonSection}>
-          {/* 邮箱登录表单 */}
-          {/* 邮箱输入 */}
-          <TextInput
-            style={[styles.input, typography.body]}
-            placeholder={t("login.emailPlaceholder")}
-            placeholderTextColor="#999"
-            value={username}
-            onChangeText={setUsername}
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="email-address"
-            editable={!loading}
-            accessibilityLabel={t("login.emailPlaceholder")}
-            accessibilityHint={t("accessibility.input.emailHint")}
-            accessibilityRole="text"
-            accessibilityState={{ disabled: loading }}
-          />
-
-          {/* 密码输入 */}
-          <View style={styles.passwordInputContainer}>
-            <TextInput
-              style={[styles.input, styles.passwordInput, typography.body]}
-              placeholder={t("login.passwordPlaceholder")}
-              placeholderTextColor="#999"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry={!showPassword}
-              autoCapitalize="none"
-              autoCorrect={false}
-              editable={!loading}
-              accessibilityLabel={t("login.passwordPlaceholder")}
-              accessibilityHint={t("accessibility.input.passwordHint")}
-              accessibilityRole="text"
-              accessibilityState={{ disabled: loading }}
-            />
+          {/* 登录方式切换器 */}
+          <View style={styles.methodSwitch}>
             <TouchableOpacity
-              style={styles.eyeIcon}
-              onPress={() => setShowPassword(!showPassword)}
+              style={[
+                styles.methodButton,
+                loginMethod === "email" && styles.methodButtonActive,
+              ]}
+              onPress={() => setLoginMethod("email")}
               disabled={loading}
-              accessibilityLabel={
-                showPassword ? t("common.close") : t("common.show")
-              }
-              accessibilityHint={t("accessibility.button.showPasswordHint")}
-              accessibilityRole="button"
-              accessibilityState={{ disabled: loading }}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
-              <Ionicons
-                name={showPassword ? "eye-outline" : "eye-off-outline"}
-                size={20}
-                color="#999"
-              />
+              <Text
+                style={[
+                  styles.methodButtonText,
+                  typography.body,
+                  loginMethod === "email" && styles.methodButtonTextActive,
+                ]}
+              >
+                {t("login.email")}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.methodButton,
+                loginMethod === "phone" && styles.methodButtonActive,
+              ]}
+              onPress={() => setLoginMethod("phone")}
+              disabled={loading}
+            >
+              <Text
+                style={[
+                  styles.methodButtonText,
+                  typography.body,
+                  loginMethod === "phone" && styles.methodButtonTextActive,
+                ]}
+              >
+                {t("login.phone")}
+              </Text>
             </TouchableOpacity>
           </View>
 
-          {/* 继续按钮 */}
-          <TouchableOpacity
-            style={[styles.button, styles.primaryButton]}
-            onPress={handleEmailContinue}
-            disabled={loading}
-            accessibilityLabel={t("login.continue")}
-            accessibilityHint={t("accessibility.button.continueHint")}
-            accessibilityRole="button"
-            accessibilityState={{ disabled: loading }}
-          >
-            {loadingProvider === "username" ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={[styles.primaryButtonText, typography.body]}>
-                {t("login.continue")}
-              </Text>
-            )}
-          </TouchableOpacity>
+          {/* 邮箱登录表单 */}
+          {loginMethod === "email" && (
+            <>
+              {/* 邮箱输入 */}
+              <TextInput
+                style={[styles.input, typography.body]}
+                placeholder={t("login.emailPlaceholder")}
+                placeholderTextColor="#999"
+                value={username}
+                onChangeText={setUsername}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="email-address"
+                editable={!loading}
+              />
+
+              {/* 密码输入 */}
+              <View style={styles.passwordInputContainer}>
+                <TextInput
+                  style={[styles.input, styles.passwordInput, typography.body]}
+                  placeholder={t("login.passwordPlaceholder")}
+                  placeholderTextColor="#999"
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry={!showPassword}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  editable={!loading}
+                />
+                <TouchableOpacity
+                  style={styles.eyeIcon}
+                  onPress={() => setShowPassword(!showPassword)}
+                  disabled={loading}
+                >
+                  <Ionicons
+                    name={showPassword ? "eye-outline" : "eye-off-outline"}
+                    size={20}
+                    color="#999"
+                  />
+                </TouchableOpacity>
+              </View>
+
+              {/* 继续按钮 */}
+              <TouchableOpacity
+                style={[styles.button, styles.primaryButton]}
+                onPress={handleEmailContinue}
+                disabled={loading}
+              >
+                {loadingProvider === "username" ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={[styles.primaryButtonText, typography.body]}>
+                    {t("login.continue")}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </>
+          )}
+
+          {/* 手机号登录表单 */}
+          {loginMethod === "phone" && (
+            <>
+              {/* 区号和手机号并排输入 */}
+              <View style={styles.phoneInputContainer}>
+                <CountryCodePicker
+                  value={countryCode}
+                  onSelect={setCountryCode}
+                  disabled={loading || isSendingCode}
+                />
+                <TextInput
+                  style={[styles.input, styles.phoneInput, typography.body]}
+                  placeholder={t("login.phoneNumberPlaceholder")}
+                  placeholderTextColor="#999"
+                  value={phoneNumber}
+                  onChangeText={setPhoneNumber}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="phone-pad"
+                  editable={!loading && !isSendingCode}
+                />
+              </View>
+
+              {/* 继续按钮 */}
+              <TouchableOpacity
+                style={[styles.button, styles.primaryButton]}
+                onPress={handlePhoneContinue}
+                disabled={loading || isSendingCode}
+              >
+                {isSendingCode ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={[styles.primaryButtonText, typography.body]}>
+                    {t("login.continue")}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </>
+          )}
+
+          {/* 手机号验证码输入模态框 */}
+          <VerificationCodeModal
+            visible={showVerificationModal}
+            phoneNumber={countryCode + phoneNumber}
+            onClose={() => setShowVerificationModal(false)}
+            onVerify={handleVerifyPhoneCode}
+            onResend={handleResendCode}
+            isLoading={loading && loadingProvider === "phone"}
+          />
 
           {/* 姓名输入模态框 */}
           <NameInputModal
             visible={showNameInputModal}
-            onConfirm={handleNameConfirm}
-            onCancel={handleNameCancel}
+            onConfirm={
+              isRegistering && pendingEmail
+                ? handleNameConfirm
+                : handlePhoneNameConfirm
+            }
+            onCancel={
+              isRegistering && pendingEmail
+                ? handleNameCancel
+                : handlePhoneNameCancel
+            }
           />
 
           {/* 邮箱验证码输入模态框 */}
@@ -547,10 +732,6 @@ export default function LoginScreen() {
               style={[styles.button, styles.socialButton]}
               onPress={handleAppleSignIn}
               disabled={loading}
-              accessibilityLabel={t("login.appleSignIn")}
-              accessibilityHint={t("accessibility.button.continueHint")}
-              accessibilityRole="button"
-              accessibilityState={{ disabled: loading }}
             >
               {loadingProvider === "apple" ? (
                 <ActivityIndicator color="#1a1a1a" />
@@ -575,10 +756,6 @@ export default function LoginScreen() {
             style={[styles.button, styles.socialButton]}
             onPress={handleGoogleSignIn}
             disabled={loading}
-            accessibilityLabel={t("login.googleSignIn")}
-            accessibilityHint={t("accessibility.button.continueHint")}
-            accessibilityRole="button"
-            accessibilityState={{ disabled: loading }}
           >
             {loadingProvider === "google" ? (
               <ActivityIndicator color="#1a1a1a" />
@@ -619,27 +796,67 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
   },
   header: {
-    paddingTop: 56,
+    paddingTop: 64,
     paddingBottom: 20,
     alignItems: "center",
-  },
-  logo: {
-    marginBottom: 12,
   },
   headerTitle: {
     fontSize: 28,
     color: "#332824",
-    marginBottom: 0,
+    marginBottom: 4,
   },
   headerSubtitle: {
-    fontSize: 14,
+    fontSize: 16,
     color: "#666",
     textAlign: "center",
-    marginTop: 6,
+    marginTop: 8,
   },
   buttonSection: {
     width: "100%",
-    gap: 12,
+    gap: 8,
+  },
+  methodSwitch: {
+    flexDirection: "row",
+    backgroundColor: "#F2E9D5",
+    borderRadius: 12,
+    padding: 4,
+    marginBottom: 12,
+  },
+  methodButton: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  methodButtonActive: {
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "#F2E3C2",
+    //shadowColor: "#000",
+    // shadowOffset: {
+    //   width: 0,
+    //   height: 1,
+    // },
+    //shadowOpacity: 0.1,
+    //shadowRadius: 2,
+    //elevation: 2,
+  },
+  methodButtonText: {
+    fontSize: 16,
+    color: "#332824",
+  },
+  methodButtonTextActive: {
+    fontSize: 16,
+    color: "#E56C45",
+  },
+  phoneInputContainer: {
+    flexDirection: "row",
+    gap: 8,
+    alignItems: "center",
+  },
+  phoneInput: {
+    flex: 1,
   },
   separator: {
     flexDirection: "row",

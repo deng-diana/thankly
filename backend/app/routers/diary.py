@@ -7,7 +7,7 @@
 4. ✅ 保持所有原有逻辑不变
 """
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Form
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Form, Request
 from typing import List, Dict
 import asyncio
 import re
@@ -153,7 +153,11 @@ async def create_text_diary(
         
         # ✅ 修复：添加 await
         print(f"✨ 开始处理文字日记...")
-        ai_result = await openai_service.polish_content_multilingual(diary.content)
+        # 获取用户名字用于个性化反馈
+        import re
+        user_display_name = re.split(r'\s+', user.get('name', '').strip())[0] if user.get('name') else None
+        print(f"👤 用户信息: user_id={user.get('user_id')}, name={user.get('name')}, display_name={user_display_name}")
+        ai_result = await openai_service.polish_content_multilingual(diary.content, user_name=user_display_name)
         print(f"✅ AI 处理完成 - 标题: {ai_result['title']}")
         
         # 保存到数据库
@@ -183,7 +187,8 @@ async def create_text_diary(
 async def create_voice_diary(
     audio: UploadFile = File(...),
     duration: int = Form(...),
-    user: Dict = Depends(get_current_user)
+    user: Dict = Depends(get_current_user),
+    request: Request = None  # ✅ 添加 Request 参数以获取请求头
 ):
     """
     创建语音日记
@@ -255,7 +260,33 @@ async def create_voice_diary(
         # Step 4: AI 处理 - ✅ 添加 await
         # ============================================
         print(f"✨ 开始 AI 处理...")
-        ai_result = await openai_service.polish_content_multilingual(transcription)
+        # 获取用户名字用于个性化反馈
+        # ✅ 优先从 user dict 获取，如果没有则尝试从请求头获取（备用方案）
+        import re
+        
+        user_name = user.get('name', '').strip()
+        
+        # 如果名字为空，尝试从其他字段获取
+        if not user_name:
+            user_name = user.get('given_name', '').strip() or user.get('nickname', '').strip()
+        
+        # ✅ 如果JWT token中没有名字，尝试从请求头获取（前端传递的备用方案）
+        if not user_name and request:
+            user_name = request.headers.get("X-User-Name", "").strip()
+            if user_name:
+                print(f"   ✅ 从请求头获取到用户名字: {user_name}")
+        
+        # 提取名字（取第一个词）
+        user_display_name = re.split(r'\s+', user_name)[0] if user_name else None
+        
+        print(f"👤 用户信息提取:")
+        print(f"   user_id: {user.get('user_id')}")
+        print(f"   name字段: '{user.get('name')}'")
+        print(f"   given_name字段: '{user.get('given_name')}'")
+        print(f"   nickname字段: '{user.get('nickname')}'")
+        print(f"   最终使用的名字: '{user_display_name}'")
+        
+        ai_result = await openai_service.polish_content_multilingual(transcription, user_name=user_display_name)
         print(f"✅ AI 处理完成")
         print(f"  - 标题: {ai_result['title']}")
         print(f"  - 语言: {ai_result.get('language', 'zh')}")
@@ -321,13 +352,13 @@ async def get_diaries(
 ):
     """
     获取用户的日记列表
-    
+
     Args:
         limit: 返回数量限制（默认 20）
         user: 当前登录用户
     """
     try:
-        print(f"📖 开始获取日记列表 - 用户ID: {user.get('user_id')}, limit: {limit}")
+        print(f"📖 收到获取日记列表请求 - 用户ID: {user.get('user_id')}, limit: {limit}")
         
         # 检查用户ID是否存在
         user_id = user.get('user_id')

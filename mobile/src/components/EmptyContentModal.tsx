@@ -47,7 +47,7 @@ export default function EmptyContentModal({
             {/* 图标区域 */}
             <View style={styles.iconContainer}>
               <View style={styles.iconBackground}>
-                <Ionicons name="mic-off" size={32} color="#D96F4C" />
+                <Ionicons name="mic-off" size={32} color="#E56C45" />
               </View>
             </View>
 
@@ -88,6 +88,9 @@ export default function EmptyContentModal({
                 style={styles.primaryButton}
                 onPress={onRetry}
                 activeOpacity={0.8}
+                accessibilityLabel={t("diary.startRecording")}
+                accessibilityHint={t("accessibility.button.recordHint")}
+                accessibilityRole="button"
               >
                 <Ionicons name="mic" size={20} color="#fff" />
                 <Text style={styles.primaryButtonText}>
@@ -99,8 +102,11 @@ export default function EmptyContentModal({
                 style={styles.secondaryButton}
                 onPress={onSwitchToText}
                 activeOpacity={0.8}
+                accessibilityLabel={t("diary.typeHere")}
+                accessibilityHint={t("accessibility.button.continueHint")}
+                accessibilityRole="button"
               >
-                <Ionicons name="create-outline" size={20} color="#D96F4C" />
+                <Ionicons name="create-outline" size={20} color="#E56C45" />
                 <Text style={styles.secondaryButtonText}>
                   {t("diary.typeHere")}
                 </Text>
@@ -112,6 +118,9 @@ export default function EmptyContentModal({
               style={styles.cancelButton}
               onPress={onClose}
               activeOpacity={0.7}
+              accessibilityLabel={t("common.cancel")}
+              accessibilityHint={t("accessibility.button.cancelHint")}
+              accessibilityRole="button"
             >
               <Text style={styles.cancelButtonText}>{t("common.cancel")}</Text>
             </TouchableOpacity>
@@ -200,12 +209,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#D96F4C",
+    backgroundColor: "#E56C45",
     paddingVertical: 16,
     paddingHorizontal: 24,
     borderRadius: 12,
     marginBottom: 12,
-    shadowColor: "#D96F4C",
+    shadowColor: "#E56C45",
     shadowOffset: {
       width: 0,
       height: 4,
@@ -234,7 +243,7 @@ const styles = StyleSheet.create({
   secondaryButtonText: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#D96F4C",
+    color: "#E56C45",
     marginLeft: 8,
   },
   cancelButton: {
@@ -244,6 +253,6 @@ const styles = StyleSheet.create({
   cancelButtonText: {
     fontSize: 17,
     fontWeight: "600",
-    color: "#D96F4C", // 主题色
+    color: "#E56C45", // 主题色
   },
 });

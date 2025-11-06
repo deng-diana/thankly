@@ -391,7 +391,7 @@ export default function DiaryDetailScreen({
   // ========== 渲染函数 ==========
   const renderLoading = () => (
     <View style={styles.loadingContainer}>
-      <ActivityIndicator size="large" color="#D96F4C" />
+      <ActivityIndicator size="large" color="#E56C45" />
       <Text style={styles.loadingText}>加载中...</Text>
     </View>
   );
@@ -437,9 +437,18 @@ export default function DiaryDetailScreen({
               multiline
               placeholder="输入标题..."
               scrollEnabled={false}
+              accessibilityLabel={t("diary.placeholderTitle")}
+              accessibilityHint={t("accessibility.input.textHint")}
+              accessibilityRole="text"
             />
           ) : (
-            <TouchableOpacity onPress={startEditingTitle} activeOpacity={0.7}>
+            <TouchableOpacity
+              onPress={startEditingTitle}
+              activeOpacity={0.7}
+              accessibilityLabel={diary.title}
+              accessibilityHint={t("accessibility.button.editHint")}
+              accessibilityRole="button"
+            >
               <Text style={styles.titleText}>{diary.title}</Text>
             </TouchableOpacity>
           )}
@@ -455,9 +464,18 @@ export default function DiaryDetailScreen({
               placeholder="输入内容..."
               scrollEnabled={true}
               textAlignVertical="top"
+              accessibilityLabel={t("diary.placeholderContent")}
+              accessibilityHint={t("accessibility.input.textHint")}
+              accessibilityRole="text"
             />
           ) : (
-            <TouchableOpacity onPress={startEditingContent} activeOpacity={0.7}>
+            <TouchableOpacity
+              onPress={startEditingContent}
+              activeOpacity={0.7}
+              accessibilityLabel={diary.polished_content.substring(0, 100) + (diary.polished_content.length > 100 ? "..." : "")}
+              accessibilityHint={t("accessibility.button.editHint")}
+              accessibilityRole="button"
+            >
               <Text style={styles.contentText}>{diary.polished_content}</Text>
             </TouchableOpacity>
           )}
@@ -467,7 +485,7 @@ export default function DiaryDetailScreen({
         {!isEditingTitle && !isEditingContent && (
           <View style={styles.feedbackCard}>
             <View style={styles.feedbackHeader}>
-              <Ionicons name="sparkles" size={18} color="#D96F4C" />
+              <Ionicons name="sparkles" size={18} color="#E56C45" />
               <Text style={styles.feedbackTitle}>
                 {t("diary.aiFeedbackTitle")}
               </Text>
@@ -666,7 +684,7 @@ const styles = StyleSheet.create({
   },
 
   retryButton: {
-    backgroundColor: "#D96F4C",
+    backgroundColor: "#E56C45",
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 8,
@@ -754,7 +772,7 @@ const styles = StyleSheet.create({
   feedbackTitle: {
     ...Typography.sectionTitle,
     fontSize: 16,
-    color: "#D96F4C",
+    color: "#E56C45",
     marginLeft: 6,
   },
 
@@ -799,7 +817,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   saveText: {
-    color: "#D96F4C",
+    color: "#E56C45",
     fontWeight: "600",
   },
   closeButton: {
@@ -817,7 +835,7 @@ const styles = StyleSheet.create({
     letterSpacing: -0.5,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: "#D96F4C",
+    borderColor: "#E56C45",
     borderRadius: 8,
     padding: 12,
     backgroundColor: "#fff",
@@ -828,7 +846,7 @@ const styles = StyleSheet.create({
     color: "#1A1A1A",
     letterSpacing: 0.2,
     borderWidth: 1,
-    borderColor: "#D96F4C",
+    borderColor: "#E56C45",
     borderRadius: 8,
     padding: 12,
     backgroundColor: "#fff",

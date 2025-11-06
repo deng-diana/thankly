@@ -46,7 +46,7 @@ export default function PrivacyPolicyScreen() {
           Last updated: {new Date().toLocaleDateString()}
         </Text>
         <Text style={[styles.text, typography.body]}>
-          {"\n"}Thank you for using Thankly. This Privacy Policy explains how we
+          {"\n"}Thank you for using thankly. This Privacy Policy explains how we
           collect, use, and protect your information when you use our app.
           {"\n\n"}
           We are committed to protecting your privacy and ensuring the security

@@ -355,7 +355,14 @@ export default function CreateTextDiaryScreen() {
       {/* 顶部导航 */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          <TouchableOpacity style={styles.backButton} onPress={handleGoBack}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={handleGoBack}
+            accessibilityLabel={t("common.close")}
+            accessibilityHint={t("accessibility.button.closeHint")}
+            accessibilityRole="button"
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
             <Ionicons name="arrow-back-outline" size={24} color="#1A1A1A" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>{t("createTextDiary.title")}</Text>
@@ -363,7 +370,13 @@ export default function CreateTextDiaryScreen() {
 
         {/* 完成按钮（仅在编辑模式下显示） */}
         {submitted && isEditing && (
-          <TouchableOpacity style={styles.doneButton} onPress={handleSave}>
+          <TouchableOpacity
+            style={styles.doneButton}
+            onPress={handleSave}
+            accessibilityLabel={t("common.done")}
+            accessibilityHint={t("accessibility.button.saveHint")}
+            accessibilityRole="button"
+          >
             <Text style={styles.doneButtonText}>{t("common.done")}</Text>
           </TouchableOpacity>
         )}
@@ -397,6 +410,9 @@ export default function CreateTextDiaryScreen() {
                     multiline
                     autoFocus
                     maxLength={500}
+                    accessibilityLabel={t("createTextDiary.textPlaceholder")}
+                    accessibilityHint={t("accessibility.input.textHint")}
+                    accessibilityRole="text"
                   />
 
                   {/* 字数计数器在输入框内右下角 */}
@@ -417,6 +433,9 @@ export default function CreateTextDiaryScreen() {
                   <TouchableOpacity
                     style={styles.completeButton}
                     onPress={handleTextSubmit}
+                    accessibilityLabel={t("common.done")}
+                    accessibilityHint={t("accessibility.button.continueHint")}
+                    accessibilityRole="button"
                   >
                     <Text style={styles.completeButtonText}>
                       {t("common.done")}
@@ -528,7 +547,7 @@ const styles = StyleSheet.create({
   doneButton: {
     paddingHorizontal: 16,
     paddingVertical: 8,
-    backgroundColor: "#D96F4C",
+    backgroundColor: "#E56C45",
     borderRadius: 20,
   },
 
@@ -594,11 +613,11 @@ const styles = StyleSheet.create({
   },
 
   charCountWarning: {
-    color: "#D96F4C",
+    color: "#E56C45",
   },
 
   completeButton: {
-    backgroundColor: "#D96F4C",
+    backgroundColor: "#E56C45",
     paddingVertical: 14,
     borderRadius: 12,
     alignItems: "center",
@@ -625,11 +644,11 @@ const styles = StyleSheet.create({
   },
 
   saveButton: {
-    backgroundColor: "#D96F4C",
+    backgroundColor: "#E56C45",
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: "center",
-    shadowColor: "#D96F4C",
+    shadowColor: "#E56C45",
     shadowOffset: {
       width: 0,
       height: 4,

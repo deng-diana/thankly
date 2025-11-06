@@ -6,6 +6,7 @@
 import React from "react";
 import { TouchableOpacity, View, Text, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { t } from "../i18n";
 
 interface AudioPlayerProps {
   audioUrl?: string;
@@ -61,17 +62,45 @@ export default function AudioPlayer({
 
   const displayTime = formatDisplayTime();
 
+  // 计算剩余时间用于无障碍标签
+  const remaining = hasPlayedOnce && effectiveTotalDuration > 0
+    ? Math.max(0, effectiveTotalDuration - currentTime)
+    : effectiveTotalDuration;
+  const remainingFormatted = formatAudioDuration(remaining);
+  const totalFormatted = formatAudioDuration(effectiveTotalDuration);
+
+  // 生成无障碍标签
+  const getAccessibilityLabel = (): string => {
+    if (isPlaying) {
+      return t("accessibility.audio.playing", {
+        remaining: remainingFormatted,
+        total: totalFormatted,
+      });
+    } else {
+      return t("accessibility.audio.paused", {
+        total: totalFormatted,
+      });
+    }
+  };
+
   return (
     <TouchableOpacity
       style={[styles.audioButton, style]}
       onPress={onPlayPress}
       activeOpacity={0.8}
+      accessibilityLabel={getAccessibilityLabel()}
+      accessibilityHint={t("accessibility.audio.hint")}
+      accessibilityRole="button"
+      accessibilityState={{
+        playing: isPlaying,
+        paused: !isPlaying,
+      }}
     >
       <View style={styles.audioIconContainer}>
         <Ionicons
           name={isPlaying ? "pause" : "play"}
           size={16}
-          color="#D96F4C"
+          color="#E56C45"
           style={styles.playIcon}
         />
       </View>

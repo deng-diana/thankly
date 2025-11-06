@@ -1,6 +1,6 @@
 /**
  * 语音图标 - SVG组件
- * 
+ *
  * 设计：黑色线条画 + 橙色圆点
  * 简洁、现代、有温度
  */
@@ -53,13 +53,7 @@ export default function VoiceIcon({
         strokeLinecap="round"
       />
       {/* 橙色圆点装饰 */}
-      <Circle cx="85" cy="35" r="8" fill="#D96F4C" />
+      <Circle cx="85" cy="35" r="8" fill="#E56C45" />
     </Svg>
   );
 }
-
-
-
-
-
-

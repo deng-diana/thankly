@@ -623,7 +623,7 @@ export function parseJWT(token: string): any {
 /**
  * 保存用户信息到安全存储
  */
-async function saveUser(user: User): Promise<void> {
+export async function saveUser(user: User): Promise<void> {
   try {
     // 保存完整用户信息（包括所有tokens）
     await SecureStore.setItemAsync("user", JSON.stringify(user));
@@ -641,6 +641,74 @@ async function saveUser(user: User): Promise<void> {
   } catch (error) {
     console.error("保存用户信息失败:", error);
   }
+}
+
+/**
+ * 更新 Cognito 用户的姓名属性
+ * @param name 用户姓名
+ */
+export async function updateUserName(name: string): Promise<void> {
+  try {
+    const currentUser = await getCurrentUser();
+    if (!currentUser || !currentUser.accessToken) {
+      throw new Error("用户未登录或缺少访问令牌");
+    }
+
+    const response = await fetch(`${API_BASE_URL}/auth/user/name`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${currentUser.accessToken}`,
+      },
+      body: JSON.stringify({ name }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.detail || `更新失败: ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log("✅ Cognito 用户姓名更新成功:", data);
+  } catch (error: any) {
+    console.error("❌ 更新 Cognito 用户姓名失败:", error);
+    throw error;
+  }
+}
+
+/**
+ * 判断姓名是否有效（不是从邮箱截取的）
+ * @param name 用户姓名
+ * @param email 用户邮箱（用于判断是否从邮箱截取）
+ * @returns true 如果姓名有效，false 如果是从邮箱截取的
+ */
+export function isValidUserName(name: string | undefined | null, email?: string): boolean {
+  if (!name || name.trim().length === 0) {
+    return false;
+  }
+
+  const trimmedName = name.trim();
+
+  // 如果姓名等于邮箱前缀，说明是从邮箱截取的，无效
+  if (email) {
+    const emailPrefix = email.split("@")[0];
+    if (trimmedName.toLowerCase() === emailPrefix.toLowerCase()) {
+      return false;
+    }
+  }
+
+  // 如果姓名是默认值（如"用户"、"Google用户"等），无效
+  const defaultNames = ["用户", "User", "Google用户", "Google User", "Apple用户", "Apple User"];
+  if (defaultNames.includes(trimmedName)) {
+    return false;
+  }
+
+  // 如果姓名包含"用户"字样的数字后缀（如"用户123456"），无效
+  if (/^用户\d+/.test(trimmedName)) {
+    return false;
+  }
+
+  return true;
 }
 
 /**
