@@ -313,6 +313,41 @@ export async function uploadDiaryImages(
 }
 
 /**
+ * 创建纯图片日记（不需要AI处理）
+ *
+ * @param imageUris - 本地图片URI数组
+ * @returns 创建的日记对象
+ */
+export async function createImageOnlyDiary(
+  imageUris: string[]
+): Promise<Diary> {
+  console.log("📸 创建纯图片日记");
+  console.log("图片数量:", imageUris.length);
+
+  try {
+    // 第1步：上传图片到S3
+    console.log("📤 第1步：上传图片到S3...");
+    const imageUrls = await uploadDiaryImages(imageUris);
+    console.log("✅ 图片上传成功，S3 URLs:", imageUrls);
+
+    // 第2步：创建纯图片日记记录（使用专门的接口）
+    console.log("📝 第2步：创建纯图片日记记录...");
+
+    const response = await apiService.post<Diary>("/diary/image-only", {
+      body: {
+        image_urls: imageUrls,
+      },
+    });
+
+    console.log("✅ 纯图片日记创建成功:", response.diary_id);
+    return response;
+  } catch (error: any) {
+    console.log("⚠️ 创建纯图片日记失败:", error);
+    throw error;
+  }
+}
+
+/**
  * 更新日记内容和/或标题
  *
  * @param diaryId - 日记ID

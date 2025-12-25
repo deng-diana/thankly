@@ -14,7 +14,7 @@ import re
 import json
 from datetime import datetime, timezone
 
-from ..models.diary import DiaryCreate, DiaryResponse, DiaryUpdate
+from ..models.diary import DiaryCreate, DiaryResponse, DiaryUpdate, ImageOnlyDiaryCreate
 from ..services.openai_service import OpenAIService
 from ..services.dynamodb_service import DynamoDBService
 from ..services.s3_service import S3Service
@@ -463,6 +463,77 @@ async def upload_diary_images(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to upload images: {str(e)}"
+        )
+
+@router.post("/image-only", response_model=DiaryResponse, summary="创建纯图片日记")
+async def create_image_only_diary(
+    diary: ImageOnlyDiaryCreate,
+    user: Dict = Depends(get_current_user)
+):
+    """
+    创建纯图片日记 - 不需要AI处理
+    
+    特点：
+    - 适用于只想保存照片的场景
+    - 不需要AI润色，快速保存
+    - 使用默认标题和内容
+    
+    流程：
+    1. 验证图片URLs（1-9张）
+    2. 直接保存到DynamoDB
+    3. 使用默认标题"今天的照片 📷"
+    """
+    try:
+        print(f"📸 创建纯图片日记: {len(diary.image_urls)} 张图片")
+        
+        # 获取当前语言环境（从用户的第一条日记推断，或使用默认）
+        # 简单实现：使用中文作为默认
+        language = "zh"
+        
+        # 默认标题和内容
+        default_titles = {
+            "zh": "今天的照片 📷",
+            "en": "Today's Photos 📷",
+            "ja": "今日の写真 📷",
+        }
+        default_contents = {
+            "zh": "今天用照片记录了这一刻",
+            "en": "Captured this moment with photos today",
+            "ja": "今日この瞬間を写真で記録した",
+        }
+        default_feedbacks = {
+            "zh": "每一张照片都是时光的印记 ✨",
+            "en": "Every photo is a mark of time ✨",
+            "ja": "すべての写真は時間の印です ✨",
+        }
+        
+        title = default_titles.get(language, default_titles["zh"])
+        content = default_contents.get(language, default_contents["zh"])
+        feedback = default_feedbacks.get(language, default_feedbacks["zh"])
+        
+        # 保存到数据库
+        diary_obj = db_service.create_diary(
+            user_id=user['user_id'],
+            original_content=content,
+            polished_content=content,  # 纯图片日记不需要润色
+            ai_feedback=feedback,
+            language=language,
+            title=title,
+            image_urls=diary.image_urls
+        )
+        
+        print(f"✅ 纯图片日记创建成功 - ID: {diary_obj['diary_id']}")
+        return diary_obj
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ 创建纯图片日记失败: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create image-only diary: {str(e)}"
         )
 
 @router.get("/list", response_model=List[DiaryResponse], summary="获取日记列表")

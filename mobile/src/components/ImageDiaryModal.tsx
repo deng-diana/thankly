@@ -26,6 +26,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
+import { createImageOnlyDiary } from "../services/diaryService";
 
 // 导入图标
 import ImageInputIcon from "../assets/icons/addImageIcon.svg";
@@ -51,10 +52,12 @@ export default function ImageDiaryModal({
 }: ImageDiaryModalProps) {
   // ========== 状态管理 ==========
   const [selectedImages, setSelectedImages] = useState<string[]>(initialImages);
+  const [isSaving, setIsSaving] = useState(false); // 保存中状态
 
   // ========== 重置状态（Modal 关闭时） ==========
   const resetState = () => {
     setSelectedImages(initialImages);
+    setIsSaving(false);
   };
 
   // ========== 图片操作 ==========
@@ -144,9 +147,11 @@ export default function ImageDiaryModal({
   };
 
   /**
-   * 完成 - 将图片URI数组传递给父组件
-   * ⚠️ 注意：这里不上传到S3，只是收集用户选择的内容
-   * 真正的上传会在用户添加完所有内容（图片+语音/文字）后统一处理
+   * 完成 - 引导用户添加更多内容，或直接保存纯图片日记
+   *
+   * 设计理念：温柔引导，而非强制
+   * - 允许用户只发图片（尊重用户选择）
+   * - 鼓励用户留下一些话（让记录更有意义）
    */
   const handleComplete = () => {
     if (selectedImages.length === 0) {
@@ -154,27 +159,64 @@ export default function ImageDiaryModal({
       return;
     }
 
-    // TODO: 这里应该打开下一步的流程
-    // 比如：询问用户是否继续添加语音或文字
-    // 目前先临时用 Alert 提示
+    if (isSaving) {
+      return; // 正在保存时不响应
+    }
+
+    // 温柔的引导提示
     Alert.alert(
-      "下一步",
-      "图片已准备好，接下来可以：\n1. 继续添加语音\n2. 继续添加文字\n3. 直接保存（仅图片日记）",
+      "留下这一刻的故事 ✨",
+      "要不要用几句话或一段语音，记录此刻的心情？这会让这个时刻更有意义。",
       [
         {
-          text: "直接保存",
+          text: "添加语音",
+          onPress: handleAddVoice,
+        },
+        {
+          text: "添加文字",
+          onPress: handleAddText,
+        },
+        {
+          text: "就这样保存",
+          style: "cancel",
+          onPress: handleSaveImageOnly,
+        },
+      ],
+      { cancelable: true }
+    );
+  };
+
+  /**
+   * 保存纯图片日记
+   */
+  const handleSaveImageOnly = async () => {
+    console.log("📸 创建纯图片日记:", selectedImages);
+
+    try {
+      setIsSaving(true);
+
+      // 调用服务创建纯图片日记
+      // 这会：1) 上传图片到S3  2) 创建日记记录
+      const diary = await createImageOnlyDiary(selectedImages);
+
+      console.log("✅ 纯图片日记创建成功:", diary.diary_id);
+
+      // 成功提示
+      Alert.alert("保存成功", "你的照片已经记录下来了 ✨", [
+        {
+          text: "好的",
           onPress: () => {
-            // TODO: 调用创建纯图片日记的接口
-            console.log("📸 创建纯图片日记:", selectedImages);
             resetState();
-            onSuccess();
+            onSuccess(); // 通知父组件刷新列表
           },
         },
-        { text: "添加语音", onPress: handleAddVoice },
-        { text: "添加文字", onPress: handleAddText },
-        { text: "取消", style: "cancel" },
-      ]
-    );
+      ]);
+    } catch (error: any) {
+      console.error("❌ 创建纯图片日记失败:", error);
+      Alert.alert("保存失败", error.message || "请重试");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // ========== 渲染 ==========
@@ -184,21 +226,28 @@ export default function ImageDiaryModal({
    */
   const renderHeader = () => (
     <View style={styles.header}>
-      <TouchableOpacity onPress={handleCancel}>
-        <Text style={styles.headerButton}>取消</Text>
+      <TouchableOpacity onPress={handleCancel} disabled={isSaving}>
+        <Text
+          style={[styles.headerButton, isSaving && styles.headerButtonDisabled]}
+        >
+          取消
+        </Text>
       </TouchableOpacity>
       <Text style={styles.headerTitle}>
-        已选择 {selectedImages.length}/{maxImages}
+        {isSaving
+          ? "保存中..."
+          : `已选择 ${selectedImages.length}/${maxImages}`}
       </Text>
       <TouchableOpacity
         onPress={handleComplete}
-        disabled={selectedImages.length === 0}
+        disabled={isSaving || selectedImages.length === 0}
       >
         <Text
           style={[
             styles.headerButton,
             styles.headerButtonPrimary,
-            selectedImages.length === 0 && styles.headerButtonDisabled,
+            (isSaving || selectedImages.length === 0) &&
+              styles.headerButtonDisabled,
           ]}
         >
           完成
