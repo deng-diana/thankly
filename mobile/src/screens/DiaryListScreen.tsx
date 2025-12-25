@@ -45,6 +45,7 @@ import { getGreeting } from "../config/greetings";
 import * as SecureStore from "expo-secure-store";
 import RecordingModal from "../components/RecordingModal";
 import TextInputModal from "../components/TextInputModal";
+import { ImagePickerModal } from "../components/ImagePickerModal";
 
 // ============================================================================
 // 🌍 导入翻译函数
@@ -148,6 +149,8 @@ export default function DiaryListScreen() {
   const [recordingModalVisible, setRecordingModalVisible] = useState(false);
   // ✅ 新增:文字输入Modal状态
   const [textInputModalVisible, setTextInputModalVisible] = useState(false);
+  // ✅ 新增:图片选择Modal状态
+  const [imagePickerModalVisible, setImagePickerModalVisible] = useState(false);
 
   // ✅ 录音计时器相关状态
   const [isRecording, setIsRecording] = useState(false);
@@ -572,8 +575,21 @@ export default function DiaryListScreen() {
    */
 
   const handleImageUpload = () => {
-    Alert.alert(t("home.imageFeatureTitle"), t("home.imageFeatureMessage"));
-    // TODO: 实现图片上传功能
+    console.log("📸 打开图片选择Modal");
+    setImagePickerModalVisible(true);
+  };
+
+  /**
+   * 图片选择完成回调
+   */
+  const handleImagesSelected = async (imageUris: string[]) => {
+    console.log("📸 用户选择了图片:", imageUris);
+    Alert.alert(
+      "功能提示",
+      `你选择了${imageUris.length}张图片。\n\n接下来将实现：\n1. 上传图片到S3\n2. 显示预览\n3. 可以继续添加语音或文字`,
+      [{ text: "好的" }]
+    );
+    // TODO: 实现上传到S3和后续流程
   };
 
   /**
@@ -1559,6 +1575,14 @@ export default function DiaryListScreen() {
         visible={textInputModalVisible}
         onSuccess={handleTextInputSuccess}
         onCancel={handleTextInputCancel}
+      />
+
+      {/* ✅ 新增:图片选择Modal */}
+      <ImagePickerModal
+        visible={imagePickerModalVisible}
+        onClose={() => setImagePickerModalVisible(false)}
+        onImagesSelected={handleImagesSelected}
+        maxImages={9}
       />
 
       {/* Diary Detail Modal */}

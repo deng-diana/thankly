@@ -25,6 +25,7 @@ export interface Diary {
   ai_feedback: string; // AI反馈
   audio_url?: string; // ← 新增：音频URL（可选）
   audio_duration?: number; // ← 新增：音频时长（可选）
+  image_urls?: string[]; // ← 新增：图片URL数组（可选，最多9张）
 }
 
 /**
@@ -114,19 +115,19 @@ export async function createVoiceDiary(
     const { getCurrentUser } = await import("./authService");
     const currentUser = await getCurrentUser();
     const userName = currentUser?.name?.trim();
-    
+
     // 发送请求的封装（方便重试）
     const sendWithToken = async (token: string) => {
       const headers: Record<string, string> = {
         Authorization: `Bearer ${token}`,
       };
-      
+
       // ✅ 如果JWT token中没有名字，通过请求头传递（作为备用方案）
       if (userName) {
         headers["X-User-Name"] = userName;
         console.log(`📤 通过请求头传递用户名字: ${userName}`);
       }
-      
+
       const resp = await fetch(`${API_BASE_URL}/diary/voice`, {
         method: "POST",
         headers,
@@ -186,7 +187,7 @@ export async function createVoiceDiary(
       ) {
         errorMessage = "登录已过期，请重新登录";
       }
-      
+
       // 创建错误对象，携带错误码
       const error = new Error(errorMessage) as any;
       error.code = errorCode;
@@ -198,6 +199,115 @@ export async function createVoiceDiary(
     return diary;
   } catch (error: any) {
     console.log("⚠️ 创建语音日记失败:", error);
+    throw error;
+  }
+}
+
+/**
+ * 上传图片到服务器
+ *
+ * @param imageUris - 本地图片URI数组（最多9张）
+ * @returns S3 URL数组
+ */
+export async function uploadDiaryImages(
+  imageUris: string[]
+): Promise<string[]> {
+  console.log("📸 上传图片");
+  console.log("图片URI:", imageUris);
+  console.log("数量:", imageUris.length);
+
+  try {
+    // 验证图片数量
+    if (imageUris.length === 0) {
+      throw new Error("请至少选择一张图片");
+    }
+    if (imageUris.length > 9) {
+      throw new Error("最多只能上传9张图片");
+    }
+
+    // 第1步：创建FormData
+    const formData = new FormData();
+
+    // 添加每张图片到FormData
+    imageUris.forEach((uri, index) => {
+      // 检测图片类型（从URI中获取）
+      let mimeType = "image/jpeg"; // 默认JPEG
+      let extension = "jpg";
+      
+      if (uri.toLowerCase().endsWith(".png")) {
+        mimeType = "image/png";
+        extension = "png";
+      } else if (uri.toLowerCase().endsWith(".heic")) {
+        mimeType = "image/heic";
+        extension = "heic";
+      }
+
+      formData.append("images", {
+        uri: uri,
+        type: mimeType,
+        name: `photo_${index + 1}.${extension}`,
+      } as any);
+    });
+
+    // 第2步：获取access token
+    const accessToken = await getAccessToken();
+    if (!accessToken) {
+      throw new Error("Not logged in");
+    }
+
+    // 发送请求的封装（方便重试）
+    const sendWithToken = async (token: string) => {
+      return await fetch(`${API_BASE_URL}/diary/images`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+      });
+    };
+
+    // 第3步：上传到后端
+    console.log("📤 发送上传请求...");
+    let response = await sendWithToken(accessToken);
+
+    // 如果401，尝试刷新token后重试一次
+    if (response.status === 401) {
+      console.log("🔄 图片上传遇到401，尝试刷新token后重试...");
+      try {
+        await refreshAccessToken();
+        const newToken = await getAccessToken();
+        if (!newToken) {
+          throw new Error("刷新后无法获取新token");
+        }
+        response = await sendWithToken(newToken);
+      } catch (e) {
+        throw new Error("登录已过期，请重新登录");
+      }
+    }
+
+    if (!response.ok) {
+      // 尝试解析友好的错误
+      let errorMessage = "图片上传失败";
+      try {
+        const error = await response.json();
+        if (error.detail) {
+          errorMessage = error.detail;
+        } else if (error.error) {
+          errorMessage = error.error;
+        }
+      } catch (_) {
+        errorMessage = `上传失败: ${response.status}`;
+      }
+
+      throw new Error(errorMessage);
+    }
+
+    const data = await response.json();
+    console.log("✅ 图片上传成功:", data.image_urls);
+
+    return data.image_urls; // 返回S3 URL数组
+  } catch (error: any) {
+    console.log("⚠️ 图片上传失败:", error);
     throw error;
   }
 }
@@ -215,7 +325,7 @@ export async function updateDiary(
   title?: string
 ): Promise<Diary> {
   console.log("✏️ 更新日记", diaryId);
-  
+
   const body: { content?: string; title?: string } = {};
   if (content !== undefined) {
     body.content = content;
