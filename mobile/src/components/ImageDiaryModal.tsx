@@ -1,8 +1,8 @@
 /**
  * 图片日记 Modal 组件
- * 
+ *
  * 设计理念：与 RecordingModal 和 TextInputModal 保持一致
- * 
+ *
  * 功能：
  * 1. 显示已选择的图片缩略图（顶部）
  * 2. 底部工具栏：继续添加图片、语音、文字
@@ -26,7 +26,6 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
-import { uploadDiaryImages } from "../services/diaryService";
 
 // 导入图标
 import ImageInputIcon from "../assets/icons/addImageIcon.svg";
@@ -52,18 +51,14 @@ export default function ImageDiaryModal({
 }: ImageDiaryModalProps) {
   // ========== 状态管理 ==========
   const [selectedImages, setSelectedImages] = useState<string[]>(initialImages);
-  const [isUploading, setIsUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
 
   // ========== 重置状态（Modal 关闭时） ==========
   const resetState = () => {
     setSelectedImages(initialImages);
-    setIsUploading(false);
-    setUploadProgress(0);
   };
 
   // ========== 图片操作 ==========
-  
+
   /**
    * 删除图片
    */
@@ -100,7 +95,8 @@ export default function ImageDiaryModal({
 
     try {
       // 请求相册权限
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      const { status } =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== "granted") {
         Alert.alert("需要相册权限", "请在设置中允许访问相册");
         return;
@@ -148,66 +144,37 @@ export default function ImageDiaryModal({
   };
 
   /**
-   * 完成 - 上传图片并创建日记
+   * 完成 - 将图片URI数组传递给父组件
+   * ⚠️ 注意：这里不上传到S3，只是收集用户选择的内容
+   * 真正的上传会在用户添加完所有内容（图片+语音/文字）后统一处理
    */
-  const handleComplete = async () => {
+  const handleComplete = () => {
     if (selectedImages.length === 0) {
       Alert.alert("提示", "请至少选择一张图片");
       return;
     }
 
-    try {
-      setIsUploading(true);
-      setUploadProgress(0);
-
-      console.log("📤 开始上传图片...");
-      
-      // 模拟上传进度（实际上传时会很快）
-      const progressInterval = setInterval(() => {
-        setUploadProgress((prev) => {
-          if (prev >= 90) {
-            clearInterval(progressInterval);
-            return 90;
-          }
-          return prev + 10;
-        });
-      }, 200);
-
-      // 上传图片到 S3
-      const imageUrls = await uploadDiaryImages(selectedImages);
-      
-      clearInterval(progressInterval);
-      setUploadProgress(100);
-
-      console.log("✅ 图片上传成功:", imageUrls);
-
-      // TODO: 创建日记记录（目前只上传图片，不创建日记）
-      // 因为用户可能还想添加语音或文字
-      
-      // 暂时延迟一下让用户看到100%
-      setTimeout(() => {
-        Alert.alert(
-          "上传成功",
-          `${imageUrls.length}张图片已上传到云端\n\n图片URL:\n${imageUrls.join("\n")}`,
-          [
-            {
-              text: "好的",
-              onPress: () => {
-                resetState();
-                onSuccess();
-              },
-            },
-          ]
-        );
-      }, 500);
-
-    } catch (error: any) {
-      console.error("❌ 上传失败:", error);
-      Alert.alert("上传失败", error.message || "请重试");
-      setUploadProgress(0);
-    } finally {
-      setIsUploading(false);
-    }
+    // TODO: 这里应该打开下一步的流程
+    // 比如：询问用户是否继续添加语音或文字
+    // 目前先临时用 Alert 提示
+    Alert.alert(
+      "下一步",
+      "图片已准备好，接下来可以：\n1. 继续添加语音\n2. 继续添加文字\n3. 直接保存（仅图片日记）",
+      [
+        {
+          text: "直接保存",
+          onPress: () => {
+            // TODO: 调用创建纯图片日记的接口
+            console.log("📸 创建纯图片日记:", selectedImages);
+            resetState();
+            onSuccess();
+          },
+        },
+        { text: "添加语音", onPress: handleAddVoice },
+        { text: "添加文字", onPress: handleAddText },
+        { text: "取消", style: "cancel" },
+      ]
+    );
   };
 
   // ========== 渲染 ==========
@@ -217,23 +184,24 @@ export default function ImageDiaryModal({
    */
   const renderHeader = () => (
     <View style={styles.header}>
-      <TouchableOpacity onPress={handleCancel} disabled={isUploading}>
-        <Text style={[styles.headerButton, isUploading && styles.headerButtonDisabled]}>
-          取消
-        </Text>
+      <TouchableOpacity onPress={handleCancel}>
+        <Text style={styles.headerButton}>取消</Text>
       </TouchableOpacity>
       <Text style={styles.headerTitle}>
         已选择 {selectedImages.length}/{maxImages}
       </Text>
-      <TouchableOpacity onPress={handleComplete} disabled={isUploading || selectedImages.length === 0}>
+      <TouchableOpacity
+        onPress={handleComplete}
+        disabled={selectedImages.length === 0}
+      >
         <Text
           style={[
             styles.headerButton,
             styles.headerButtonPrimary,
-            (isUploading || selectedImages.length === 0) && styles.headerButtonDisabled,
+            selectedImages.length === 0 && styles.headerButtonDisabled,
           ]}
         >
-          {isUploading ? "上传中..." : "完成"}
+          完成
         </Text>
       </TouchableOpacity>
     </View>
@@ -252,19 +220,17 @@ export default function ImageDiaryModal({
         <View key={index} style={styles.imageWrapper}>
           <Image source={{ uri }} style={styles.thumbnail} />
           {/* 删除按钮 */}
-          {!isUploading && (
-            <TouchableOpacity
-              style={styles.removeButton}
-              onPress={() => handleRemoveImage(index)}
-            >
-              <Ionicons name="close-circle" size={24} color="#fff" />
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity
+            style={styles.removeButton}
+            onPress={() => handleRemoveImage(index)}
+          >
+            <Ionicons name="close-circle" size={24} color="#fff" />
+          </TouchableOpacity>
         </View>
       ))}
 
       {/* 添加更多按钮 */}
-      {selectedImages.length < maxImages && !isUploading && (
+      {selectedImages.length < maxImages && (
         <TouchableOpacity
           style={styles.addMoreButton}
           onPress={handleAddMoreImages}
@@ -277,22 +243,6 @@ export default function ImageDiaryModal({
   );
 
   /**
-   * 渲染上传进度
-   */
-  const renderUploadProgress = () => {
-    if (!isUploading) return null;
-
-    return (
-      <View style={styles.progressContainer}>
-        <View style={styles.progressBar}>
-          <View style={[styles.progressFill, { width: `${uploadProgress}%` }]} />
-        </View>
-        <Text style={styles.progressText}>上传中 {uploadProgress}%</Text>
-      </View>
-    );
-  };
-
-  /**
    * 渲染底部工具栏
    */
   const renderBottomToolbar = () => (
@@ -301,35 +251,26 @@ export default function ImageDiaryModal({
       <TouchableOpacity
         style={styles.toolbarButton}
         onPress={handleAddMoreImages}
-        disabled={isUploading || selectedImages.length >= maxImages}
+        disabled={selectedImages.length >= maxImages}
       >
         <ImageInputIcon
           width={28}
           height={28}
-          fill={isUploading || selectedImages.length >= maxImages ? "#CCC" : "#332824"}
+          fill={selectedImages.length >= maxImages ? "#CCC" : "#332824"}
         />
       </TouchableOpacity>
 
       {/* 语音按钮 - 主按钮 */}
       <TouchableOpacity
-        style={[styles.toolbarButtonMain, isUploading && styles.toolbarButtonDisabled]}
+        style={styles.toolbarButtonMain}
         onPress={handleAddVoice}
-        disabled={isUploading}
       >
         <Ionicons name="mic" size={24} color="#fff" />
       </TouchableOpacity>
 
       {/* 文字按钮 */}
-      <TouchableOpacity
-        style={styles.toolbarButton}
-        onPress={handleAddText}
-        disabled={isUploading}
-      >
-        <TextInputIcon
-          width={28}
-          height={28}
-          fill={isUploading ? "#CCC" : "#332824"}
-        />
+      <TouchableOpacity style={styles.toolbarButton} onPress={handleAddText}>
+        <TextInputIcon width={28} height={28} fill="#332824" />
       </TouchableOpacity>
     </View>
   );
@@ -348,9 +289,6 @@ export default function ImageDiaryModal({
 
           {/* 图片网格 */}
           {renderImageGrid()}
-
-          {/* 上传进度 */}
-          {renderUploadProgress()}
 
           {/* 底部工具栏 */}
           {renderBottomToolbar()}
@@ -455,29 +393,6 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 
-  // ===== 上传进度 =====
-  progressContainer: {
-    paddingHorizontal: 20,
-    paddingBottom: 16,
-  },
-  progressBar: {
-    height: 8,
-    backgroundColor: "#E8DFD0",
-    borderRadius: 4,
-    overflow: "hidden",
-  },
-  progressFill: {
-    height: "100%",
-    backgroundColor: "#E56C45",
-    borderRadius: 4,
-  },
-  progressText: {
-    fontSize: 12,
-    color: "#999",
-    textAlign: "center",
-    marginTop: 8,
-  },
-
   // ===== 底部工具栏 =====
   bottomToolbar: {
     flexDirection: "row",
@@ -522,8 +437,4 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 6,
   },
-  toolbarButtonDisabled: {
-    backgroundColor: "#CCC",
-  },
 });
-
