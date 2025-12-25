@@ -376,7 +376,94 @@ async def create_voice_diary(
             status_code=500,
             detail=f"处理语音失败: {str(e)}"
         )
-
+@router.post("/images", summary="Upload images for diary")
+async def upload_diary_images(
+    images: List[UploadFile] = File(...),
+    user: Dict = Depends(get_current_user)
+):
+    """
+    Upload multiple images for diary entry (max 9 images)
+    
+    Flow:
+    1. Validate image files (max 9 images)
+    2. Upload each image to S3
+    3. Return list of image URLs
+    
+    Args:
+        images: List of image files (JPEG, PNG, etc.) - max 9 images
+        user: Current authenticated user
+    
+    Returns:
+        List of uploaded image URLs
+    """
+    try:
+        # Step 1: Validate number of images
+        if len(images) > 9:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Too many images. Maximum is 9 images, you uploaded {len(images)}"
+            )
+        
+        if len(images) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="No images provided"
+            )
+        
+        print(f"📸 Uploading {len(images)} image(s)...")
+        
+        uploaded_urls = []
+        
+        # Step 2: Upload each image
+        for idx, image in enumerate(images, 1):
+            # Validate image file type
+            if not image.content_type or not image.content_type.startswith("image/"):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"File {idx} is not an image: {image.filename}"
+                )
+            
+            # Read image content
+            image_content = await image.read()
+            
+            # Validate image size (max 10MB per image)
+            image_size_mb = len(image_content) / (1024 * 1024)
+            if image_size_mb > 10:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Image {idx} too large ({image_size_mb:.1f}MB). Maximum size is 10MB per image"
+                )
+            
+            print(f"  📤 Uploading image {idx}/{len(images)}: {image.filename}, size: {image_size_mb:.2f}MB")
+            
+            # Upload to S3
+            image_url = s3_service.upload_image(
+                file_content=image_content,
+                file_name=image.filename or f"photo{idx}.jpg",
+                content_type=image.content_type or "image/jpeg"
+            )
+            
+            uploaded_urls.append(image_url)
+            print(f"  ✅ Image {idx} uploaded: {image_url}")
+        
+        print(f"✅ All {len(uploaded_urls)} images uploaded successfully")
+        
+        # Step 3: Return URLs
+        return {
+            "image_urls": uploaded_urls,
+            "count": len(uploaded_urls)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Image upload failed: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to upload images: {str(e)}"
+        )
 
 @router.get("/list", response_model=List[DiaryResponse], summary="获取日记列表")
 async def get_diaries(

@@ -40,7 +40,8 @@ class DynamoDBService:
         language: str = "zh",                 # ← 新增：语言
         title: str = "日记",                  # ← 新增：标题
         audio_url: Optional[str] = None,      # ← 新增
-        audio_duration: Optional[int] = None  # ← 新增
+        audio_duration: Optional[int] = None,  # ← 新增
+        image_urls: Optional[List[str]] = None  # ← 添加这行
     ) -> dict:
         """ 创建日记
         
@@ -75,8 +76,10 @@ class DynamoDBService:
             item['audioUrl'] = audio_url
         if audio_duration:
             item['audioDuration'] = audio_duration
+         # ✅ 如果有图片，添加到item
+        if image_urls:
+            item['imageUrls'] = image_urls  # ← 添加这3行
         # 保存到DynamoDB
-
         try:
             self.table.put_item(Item=item)
             # 返回给前端的格式(转成下划线命名)
@@ -91,7 +94,8 @@ class DynamoDBService:
                 'polished_content': polished_content,
                 'ai_feedback': ai_feedback,
                 'audio_url':audio_url,
-                'audio_duration':audio_duration
+                'audio_duration':audio_duration,
+                'image_urls': image_urls  # ← 添加这行
             }
         except Exception as e:
             print(f"保存日记失败:{str(e)}")
@@ -154,7 +158,8 @@ class DynamoDBService:
                     'polished_content': item.get('polishedContent', ''),
                     'ai_feedback': item.get('aiFeedback', ''),
                     'audio_url': item.get('audioUrl'),
-                    'audio_duration': item.get('audioDuration')
+                    'audio_duration': item.get('audioDuration'),
+                    'image_urls': item.get('imageUrls')  # ← 添加这行
                 })
             
             print(f"✅ DynamoDB查询成功 - 转换后日记数: {len(diaries)}")
@@ -206,7 +211,8 @@ class DynamoDBService:
                 'polished_content': item.get('polishedContent', ''),
                 'ai_feedback': item.get('aiFeedback', ''),
                 'audio_url': item.get('audioUrl'),
-                'audio_duration': item.get('audioDuration')
+                'audio_duration': item.get('audioDuration'),
+                'image_urls': item.get('imageUrls')  # ← 添加这行
             }
             
         except Exception as e:
@@ -298,7 +304,8 @@ class DynamoDBService:
                 'polished_content': updated_item.get('polishedContent', diary_item.get('polishedContent', '')),
                 'ai_feedback': updated_item.get('aiFeedback', diary_item.get('aiFeedback', '')),
                 'audio_url': updated_item.get('audioUrl', diary_item.get('audioUrl')),
-                'audio_duration': updated_item.get('audioDuration', diary_item.get('audioDuration'))
+                'audio_duration': updated_item.get('audioDuration', diary_item.get('audioDuration')),
+                'image_urls': updated_item.get('imageUrls', diary_item.get('imageUrls'))  # ← 添加这行
             }
             
         except Exception as e:

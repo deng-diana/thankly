@@ -74,6 +74,46 @@ class S3Service:
         except Exception as e:
             print(f"❌ S3上传失败: {str(e)}")
             raise
+    def upload_image(
+        self,
+        file_content: bytes,
+        file_name: str,
+        content_type: str = 'image/jpeg'
+    ) -> str:
+        """
+        Upload image file to S3
+        
+        Args:
+            file_content: Binary content of the image file
+            file_name: Original filename (e.g., photo.jpg)
+            content_type: File type (default: image/jpeg)
+        
+        Returns:
+            Public URL of the uploaded image
+        """
+        # Step 1: Generate unique filename
+        # Example: images/abc123-photo.jpg
+        unique_id = str(uuid.uuid4())[:8]
+        s3_key = f"images/{unique_id}-{file_name}"
+        
+        try:
+            # Step 2: Upload to S3 (public readable)
+            self.s3_client.put_object(
+                Bucket=self.bucket_name,
+                Key=s3_key,
+                Body=file_content,
+                ContentType=content_type,
+            )
+            
+            # Step 3: Generate public URL
+            url = f"https://{self.bucket_name}.s3.amazonaws.com/{s3_key}"
+            
+            print(f"✅ Image uploaded successfully: {url}")
+            return url
+            
+        except Exception as e:
+            print(f"❌ S3 upload failed: {str(e)}")
+            raise
 
     def delete_objects_by_urls(self, urls: List[str]) -> None:
         """根据URL删除对象"""

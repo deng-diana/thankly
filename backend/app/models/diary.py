@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 
 class DiaryCreate(BaseModel):
@@ -43,7 +43,7 @@ class DiaryResponse(BaseModel):
     # ✅ 新增：音频相关字段
     audio_url: Optional[str] = Field(None, description="音频文件S3 URL")
     audio_duration: Optional[int] = Field(None, description="音频时长(秒)")
-    
+    image_urls: Optional[List[str]] = None  # List of image URLs (max 9)
 
 
     class Config:
@@ -59,6 +59,10 @@ class DiaryResponse(BaseModel):
                 "polished_content": "今天同事帮我解决了一个棘手的bug,我很感激他的帮助。",
                 "ai_feedback": "能遇到愿意伸出援手的同事真的很幸运呢!🙂",
                 "audio_url": "https://s3.amazonaws.com/.../audio.m4a",
-                "audio_duration": 45
+                "audio_duration": 45,
+                "image_urls": [
+                    "https://s3.amazonaws.com/.../image1.jpg",
+                    "https://s3.amazonaws.com/.../image2.jpg"
+                ]
             }
         }
