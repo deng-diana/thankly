@@ -55,8 +55,8 @@ jobs:
       - name: Install EAS CLI
         run: npm install -g eas-cli@latest
 
-      # 步骤 6: 登录 Expo（使用 EAS CLI）
-      - name: Login to Expo
+      # 步骤 6: 验证 EXPO_TOKEN（可选，用于调试）
+      - name: Verify Expo Token
         working-directory: ./mobile
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
@@ -67,8 +67,9 @@ jobs:
             echo "获取方法: https://expo.dev/accounts/[your-account]/settings/access-tokens"
             exit 1
           fi
-          echo "✅ EXPO_TOKEN 已配置，开始登录..."
-          eas login
+          echo "✅ EXPO_TOKEN 已配置"
+          echo "验证账户信息..."
+          eas whoami
 
       # 步骤 7: 构建应用（根据输入选择平台）
       - name: Build iOS App
