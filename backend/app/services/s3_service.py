@@ -115,6 +115,60 @@ class S3Service:
             print(f"❌ S3 upload failed: {str(e)}")
             raise
 
+    def generate_presigned_url(
+        self,
+        file_name: str,
+        content_type: str = 'image/jpeg',
+        expiration: int = 3600
+    ) -> dict:
+        """
+        Generate presigned URL for direct S3 upload (bypass Lambda size limit)
+        
+        This allows frontend to upload images directly to S3 without going through Lambda.
+        Lambda has a 6MB payload limit, but S3 can handle much larger files.
+        
+        Args:
+            file_name: Original filename (e.g., photo.jpg)
+            content_type: File MIME type (default: image/jpeg)
+            expiration: URL expiration time in seconds (default: 1 hour)
+        
+        Returns:
+            Dictionary with:
+                - presigned_url: URL for direct upload
+                - s3_key: S3 object key (for reference)
+                - final_url: Final public URL after upload
+        """
+        # Generate unique S3 key
+        unique_id = str(uuid.uuid4())[:8]
+        s3_key = f"images/{unique_id}-{file_name}"
+        
+        try:
+            # Generate presigned POST URL (allows direct upload from browser)
+            presigned_url = self.s3_client.generate_presigned_url(
+                'put_object',
+                Params={
+                    'Bucket': self.bucket_name,
+                    'Key': s3_key,
+                    'ContentType': content_type,
+                },
+                ExpiresIn=expiration
+            )
+            
+            # Final public URL (after upload)
+            final_url = f"https://{self.bucket_name}.s3.amazonaws.com/{s3_key}"
+            
+            print(f"✅ Generated presigned URL for: {s3_key}")
+            
+            return {
+                "presigned_url": presigned_url,
+                "s3_key": s3_key,
+                "final_url": final_url
+            }
+            
+        except Exception as e:
+            print(f"❌ Failed to generate presigned URL: {str(e)}")
+            raise
+
     def delete_objects_by_urls(self, urls: List[str]) -> None:
         """根据URL删除对象"""
         if not urls:

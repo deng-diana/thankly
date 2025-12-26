@@ -76,12 +76,12 @@ export async function createTextDiary(
 
 /**
  * 创建纯图片日记
- * 
+ *
  * Flow:
  * 1. Upload images to S3 via uploadDiaryImages()
  * 2. Get image URLs
  * 3. Call this function with URLs to create diary
- * 
+ *
  * @param imageUris - Local image URIs (file:// paths from camera/gallery)
  * @returns Created diary entry
  */
@@ -90,22 +90,21 @@ export async function createImageOnlyDiary(
 ): Promise<Diary> {
   console.log("📸 创建纯图片日记");
   console.log("图片数量:", imageUris.length);
-  
+
   try {
     // Step 1: Upload all images to S3
     console.log("📤 Step 1: 上传图片到 S3...");
     const imageUrls = await uploadDiaryImages(imageUris);
     console.log("✅ 图片上传成功，URLs:", imageUrls);
-    
+
     // Step 2: Create diary with image URLs
     console.log("📝 Step 2: 创建日记记录...");
     const response = await apiService.post<Diary>("/diary/image-only", {
       body: { image_urls: imageUrls },
     });
-    
+
     console.log("✅ 纯图片日记创建成功:", response.diary_id);
     return response;
-    
   } catch (error: any) {
     console.error("❌ 创建纯图片日记失败:", error);
     throw new Error(error.message || "创建日记失败，请重试");
@@ -113,26 +112,31 @@ export async function createImageOnlyDiary(
 }
 
 /**
- * 上传多张图片到 S3
- * 
+ * 上传多张图片到 S3（使用预签名 URL，绕过 Lambda 6MB 限制）
+ *
+ * Flow:
+ * 1. 获取预签名 URL（从后端）
+ * 2. 直接上传到 S3（使用预签名 URL）
+ * 3. 返回最终的 S3 URL 列表
+ *
  * @param imageUris - Local image file URIs
  * @returns Array of S3 URLs
  */
 export async function uploadDiaryImages(
   imageUris: string[]
 ): Promise<string[]> {
-  console.log("📤 上传图片到 S3，数量:", imageUris.length);
-  
+  console.log("📤 上传图片到 S3（使用预签名 URL），数量:", imageUris.length);
+
   if (!imageUris || imageUris.length === 0) {
     throw new Error("没有选择图片");
   }
-  
+
   if (imageUris.length > 9) {
     throw new Error("最多只能上传9张图片");
   }
-  
+
   try {
-    // Get auth token with refresh
+    // Step 1: Get auth token
     let token = await getAccessToken();
     if (!token) {
       console.log("🔄 Token 不存在，尝试刷新...");
@@ -142,71 +146,168 @@ export async function uploadDiaryImages(
         throw new Error("未登录，请先登录");
       }
     }
-    
-    // Create FormData
-    const formData = new FormData();
-    
+
+    // Step 2: Extract file names and content types
+    const fileNames: string[] = [];
+    const contentTypes: string[] = [];
+
     imageUris.forEach((uri, index) => {
-      // Extract filename from URI
       const filename = uri.split("/").pop() || `image${index + 1}.jpg`;
-      
-      formData.append("images", {
-        uri: uri,
-        type: "image/jpeg", // Assume JPEG, could be improved
-        name: filename,
-      } as any);
-      
-      console.log(`  📎 添加图片 ${index + 1}/${imageUris.length}: ${filename}`);
+      fileNames.push(filename);
+
+      // Detect content type from filename
+      let contentType = "image/jpeg"; // default
+      if (filename.toLowerCase().endsWith(".png")) {
+        contentType = "image/png";
+      } else if (filename.toLowerCase().endsWith(".heic")) {
+        contentType = "image/heic";
+      }
+      contentTypes.push(contentType);
+
+      console.log(
+        `  📎 准备图片 ${index + 1}/${
+          imageUris.length
+        }: ${filename} (${contentType})`
+      );
     });
-    
-    // Upload to backend
-    console.log("📤 发送上传请求...");
-    const response = await fetch(`${API_BASE_URL}/diary/images`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-      body: formData,
-    });
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("❌ 上传失败:", response.status, errorText);
-      
-      // If token expired, try refresh once
-      if (response.status === 401) {
+
+    // Step 3: Get presigned URLs from backend
+    console.log("📤 Step 1: 获取预签名 URL...");
+    const presignedResponse = await fetch(
+      `${API_BASE_URL}/diary/images/presigned-urls`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          file_names: fileNames,
+          content_types: contentTypes,
+        }),
+      }
+    );
+
+    if (!presignedResponse.ok) {
+      // Handle token refresh
+      if (presignedResponse.status === 401) {
         console.log("🔄 Token 过期，刷新后重试...");
         await refreshAccessToken();
         token = await getAccessToken();
-        
+
         if (!token) {
           throw new Error("登录已过期，请重新登录");
         }
-        
-        const retryResponse = await fetch(`${API_BASE_URL}/diary/images`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-          body: formData,
-        });
-        
+
+        const retryResponse = await fetch(
+          `${API_BASE_URL}/diary/images/presigned-urls`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              file_names: fileNames,
+              content_types: contentTypes,
+            }),
+          }
+        );
+
         if (!retryResponse.ok) {
-          throw new Error(`上传失败: ${retryResponse.status}`);
+          const errorText = await retryResponse.text();
+          throw new Error(
+            `获取预签名 URL 失败: ${retryResponse.status} - ${errorText}`
+          );
         }
-        
+
         const retryData = await retryResponse.json();
-        return retryData.image_urls;
+        // Continue with retryData below
+        const presignedUrls = retryData.presigned_urls;
+
+        // Step 4: Upload each image directly to S3
+        console.log("📤 Step 2: 直接上传到 S3...");
+        const finalUrls: string[] = [];
+
+        for (let i = 0; i < imageUris.length; i++) {
+          const uri = imageUris[i];
+          const presignedData = presignedUrls[i];
+
+          console.log(`  📤 上传图片 ${i + 1}/${imageUris.length} 到 S3...`);
+
+          // Read image file
+          const response = await fetch(uri);
+          const blob = await response.blob();
+
+          // Upload to S3 using presigned URL
+          const uploadResponse = await fetch(presignedData.presigned_url, {
+            method: "PUT",
+            headers: {
+              "Content-Type": presignedData.content_type || contentTypes[i],
+            },
+            body: blob,
+          });
+
+          if (!uploadResponse.ok) {
+            throw new Error(
+              `上传图片 ${i + 1} 到 S3 失败: ${uploadResponse.status}`
+            );
+          }
+
+          finalUrls.push(presignedData.final_url);
+          console.log(
+            `  ✅ 图片 ${i + 1} 上传成功: ${presignedData.final_url}`
+          );
+        }
+
+        console.log("✅ 所有图片上传成功:", finalUrls);
+        return finalUrls;
       }
-      
-      throw new Error(`上传失败: ${response.status}`);
+
+      const errorText = await presignedResponse.text();
+      throw new Error(
+        `获取预签名 URL 失败: ${presignedResponse.status} - ${errorText}`
+      );
     }
-    
-    const data = await response.json();
-    console.log("✅ 图片上传成功:", data);
-    
-    return data.image_urls;
-    
+
+    const presignedData = await presignedResponse.json();
+    const presignedUrls = presignedData.presigned_urls;
+
+    // Step 4: Upload each image directly to S3
+    console.log("📤 Step 2: 直接上传到 S3...");
+    const finalUrls: string[] = [];
+
+    for (let i = 0; i < imageUris.length; i++) {
+      const uri = imageUris[i];
+      const presignedData = presignedUrls[i];
+
+      console.log(`  📤 上传图片 ${i + 1}/${imageUris.length} 到 S3...`);
+
+      // Read image file
+      const response = await fetch(uri);
+      const blob = await response.blob();
+
+      // Upload to S3 using presigned URL
+      const uploadResponse = await fetch(presignedData.presigned_url, {
+        method: "PUT",
+        headers: {
+          "Content-Type": contentTypes[i],
+        },
+        body: blob,
+      });
+
+      if (!uploadResponse.ok) {
+        throw new Error(
+          `上传图片 ${i + 1} 到 S3 失败: ${uploadResponse.status}`
+        );
+      }
+
+      finalUrls.push(presignedData.final_url);
+      console.log(`  ✅ 图片 ${i + 1} 上传成功: ${presignedData.final_url}`);
+    }
+
+    console.log("✅ 所有图片上传成功:", finalUrls);
+    return finalUrls;
   } catch (error: any) {
     console.error("❌ 上传图片失败:", error);
     throw new Error(error.message || "上传失败，请重试");

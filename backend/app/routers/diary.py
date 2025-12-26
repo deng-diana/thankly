@@ -14,7 +14,7 @@ import re
 import json
 from datetime import datetime, timezone
 
-from ..models.diary import DiaryCreate, DiaryResponse, DiaryUpdate, ImageOnlyDiaryCreate
+from ..models.diary import DiaryCreate, DiaryResponse, DiaryUpdate, ImageOnlyDiaryCreate, PresignedUrlRequest
 from ..services.openai_service import OpenAIService
 from ..services.dynamodb_service import DynamoDBService
 from ..services.s3_service import S3Service
@@ -376,6 +376,92 @@ async def create_voice_diary(
             status_code=500,
             detail=f"处理语音失败: {str(e)}"
         )
+@router.post("/images/presigned-urls", summary="Get presigned URLs for direct S3 upload")
+async def get_presigned_urls(
+    data: PresignedUrlRequest,
+    user: Dict = Depends(get_current_user)
+):
+    """
+    Generate presigned URLs for direct image upload to S3
+    
+    This bypasses Lambda's 6MB payload limit by allowing frontend
+    to upload directly to S3.
+    
+    Flow:
+    1. Frontend calls this endpoint with file names
+    2. Backend generates presigned URLs
+    3. Frontend uploads directly to S3 using presigned URLs
+    4. Frontend calls /diary/image-only with final URLs
+    
+    Args:
+        file_names: List of image file names (max 9)
+        content_types: Optional list of MIME types (default: image/jpeg)
+        user: Current authenticated user
+    
+    Returns:
+        List of presigned URL objects with:
+            - presigned_url: URL for direct upload
+            - s3_key: S3 object key
+            - final_url: Final public URL after upload
+    """
+    try:
+        file_names = data.file_names
+        content_types = data.content_types
+        
+        # Validate number of files
+        if len(file_names) > 9:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Too many files. Maximum is 9, you requested {len(file_names)}"
+            )
+        
+        if len(file_names) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="No file names provided"
+            )
+        
+        # Default content types
+        if not content_types:
+            content_types = ["image/jpeg"] * len(file_names)
+        elif len(content_types) != len(file_names):
+            raise HTTPException(
+                status_code=400,
+                detail="content_types length must match file_names length"
+            )
+        
+        print(f"📸 Generating {len(file_names)} presigned URL(s)...")
+        
+        presigned_urls = []
+        for idx, file_name in enumerate(file_names, 1):
+            content_type = content_types[idx - 1] or "image/jpeg"
+            
+            presigned_data = s3_service.generate_presigned_url(
+                file_name=file_name,
+                content_type=content_type
+            )
+            
+            presigned_urls.append(presigned_data)
+            print(f"  ✅ Generated presigned URL {idx}/{len(file_names)}: {presigned_data['s3_key']}")
+        
+        print(f"✅ All {len(presigned_urls)} presigned URLs generated")
+        
+        return {
+            "presigned_urls": presigned_urls,
+            "count": len(presigned_urls)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Failed to generate presigned URLs: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate presigned URLs: {str(e)}"
+        )
+
 @router.post("/images", summary="Upload images for diary")
 async def upload_diary_images(
     images: List[UploadFile] = File(...),

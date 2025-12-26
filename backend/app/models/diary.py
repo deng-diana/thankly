@@ -26,6 +26,19 @@ class DiaryUpdate(BaseModel):
             }
         }
 
+class PresignedUrlRequest(BaseModel):
+    """请求预签名 URL 的数据"""
+    file_names: List[str] = Field(..., min_items=1, max_items=9, description="文件名列表（最多9个）")
+    content_types: Optional[List[str]] = Field(None, description="MIME 类型列表（可选，默认 image/jpeg）")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "file_names": ["photo1.jpg", "photo2.jpg"],
+                "content_types": ["image/jpeg", "image/png"]
+            }
+        }
+
 class ImageOnlyDiaryCreate(BaseModel):
     """创建纯图片日记的请求数据"""
     image_urls: List[str] = Field(..., min_items=1, max_items=9, description="图片URL列表（最多9张）")
