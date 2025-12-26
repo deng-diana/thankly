@@ -75,6 +75,145 @@ export async function createTextDiary(
 }
 
 /**
+ * 创建纯图片日记
+ * 
+ * Flow:
+ * 1. Upload images to S3 via uploadDiaryImages()
+ * 2. Get image URLs
+ * 3. Call this function with URLs to create diary
+ * 
+ * @param imageUris - Local image URIs (file:// paths from camera/gallery)
+ * @returns Created diary entry
+ */
+export async function createImageOnlyDiary(
+  imageUris: string[]
+): Promise<Diary> {
+  console.log("📸 创建纯图片日记");
+  console.log("图片数量:", imageUris.length);
+  
+  try {
+    // Step 1: Upload all images to S3
+    console.log("📤 Step 1: 上传图片到 S3...");
+    const imageUrls = await uploadDiaryImages(imageUris);
+    console.log("✅ 图片上传成功，URLs:", imageUrls);
+    
+    // Step 2: Create diary with image URLs
+    console.log("📝 Step 2: 创建日记记录...");
+    const response = await apiService.post<Diary>("/diary/image-only", {
+      body: { image_urls: imageUrls },
+    });
+    
+    console.log("✅ 纯图片日记创建成功:", response.diary_id);
+    return response;
+    
+  } catch (error: any) {
+    console.error("❌ 创建纯图片日记失败:", error);
+    throw new Error(error.message || "创建日记失败，请重试");
+  }
+}
+
+/**
+ * 上传多张图片到 S3
+ * 
+ * @param imageUris - Local image file URIs
+ * @returns Array of S3 URLs
+ */
+export async function uploadDiaryImages(
+  imageUris: string[]
+): Promise<string[]> {
+  console.log("📤 上传图片到 S3，数量:", imageUris.length);
+  
+  if (!imageUris || imageUris.length === 0) {
+    throw new Error("没有选择图片");
+  }
+  
+  if (imageUris.length > 9) {
+    throw new Error("最多只能上传9张图片");
+  }
+  
+  try {
+    // Get auth token with refresh
+    let token = await getAccessToken();
+    if (!token) {
+      console.log("🔄 Token 不存在，尝试刷新...");
+      await refreshAccessToken();
+      token = await getAccessToken();
+      if (!token) {
+        throw new Error("未登录，请先登录");
+      }
+    }
+    
+    // Create FormData
+    const formData = new FormData();
+    
+    imageUris.forEach((uri, index) => {
+      // Extract filename from URI
+      const filename = uri.split("/").pop() || `image${index + 1}.jpg`;
+      
+      formData.append("images", {
+        uri: uri,
+        type: "image/jpeg", // Assume JPEG, could be improved
+        name: filename,
+      } as any);
+      
+      console.log(`  📎 添加图片 ${index + 1}/${imageUris.length}: ${filename}`);
+    });
+    
+    // Upload to backend
+    console.log("📤 发送上传请求...");
+    const response = await fetch(`${API_BASE_URL}/diary/images`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("❌ 上传失败:", response.status, errorText);
+      
+      // If token expired, try refresh once
+      if (response.status === 401) {
+        console.log("🔄 Token 过期，刷新后重试...");
+        await refreshAccessToken();
+        token = await getAccessToken();
+        
+        if (!token) {
+          throw new Error("登录已过期，请重新登录");
+        }
+        
+        const retryResponse = await fetch(`${API_BASE_URL}/diary/images`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          body: formData,
+        });
+        
+        if (!retryResponse.ok) {
+          throw new Error(`上传失败: ${retryResponse.status}`);
+        }
+        
+        const retryData = await retryResponse.json();
+        return retryData.image_urls;
+      }
+      
+      throw new Error(`上传失败: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    console.log("✅ 图片上传成功:", data);
+    
+    return data.image_urls;
+    
+  } catch (error: any) {
+    console.error("❌ 上传图片失败:", error);
+    throw new Error(error.message || "上传失败，请重试");
+  }
+}
+
+/**
  * 创建语音日记
  *
  * @param audioUri - 本地音频文件URI
@@ -199,115 +338,6 @@ export async function createVoiceDiary(
     return diary;
   } catch (error: any) {
     console.log("⚠️ 创建语音日记失败:", error);
-    throw error;
-  }
-}
-
-/**
- * 上传图片到服务器
- *
- * @param imageUris - 本地图片URI数组（最多9张）
- * @returns S3 URL数组
- */
-export async function uploadDiaryImages(
-  imageUris: string[]
-): Promise<string[]> {
-  console.log("📸 上传图片");
-  console.log("图片URI:", imageUris);
-  console.log("数量:", imageUris.length);
-
-  try {
-    // 验证图片数量
-    if (imageUris.length === 0) {
-      throw new Error("请至少选择一张图片");
-    }
-    if (imageUris.length > 9) {
-      throw new Error("最多只能上传9张图片");
-    }
-
-    // 第1步：创建FormData
-    const formData = new FormData();
-
-    // 添加每张图片到FormData
-    imageUris.forEach((uri, index) => {
-      // 检测图片类型（从URI中获取）
-      let mimeType = "image/jpeg"; // 默认JPEG
-      let extension = "jpg";
-
-      if (uri.toLowerCase().endsWith(".png")) {
-        mimeType = "image/png";
-        extension = "png";
-      } else if (uri.toLowerCase().endsWith(".heic")) {
-        mimeType = "image/heic";
-        extension = "heic";
-      }
-
-      formData.append("images", {
-        uri: uri,
-        type: mimeType,
-        name: `photo_${index + 1}.${extension}`,
-      } as any);
-    });
-
-    // 第2步：获取access token
-    const accessToken = await getAccessToken();
-    if (!accessToken) {
-      throw new Error("Not logged in");
-    }
-
-    // 发送请求的封装（方便重试）
-    const sendWithToken = async (token: string) => {
-      return await fetch(`${API_BASE_URL}/diary/images`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-        body: formData,
-      });
-    };
-
-    // 第3步：上传到后端
-    console.log("📤 发送上传请求...");
-    let response = await sendWithToken(accessToken);
-
-    // 如果401，尝试刷新token后重试一次
-    if (response.status === 401) {
-      console.log("🔄 图片上传遇到401，尝试刷新token后重试...");
-      try {
-        await refreshAccessToken();
-        const newToken = await getAccessToken();
-        if (!newToken) {
-          throw new Error("刷新后无法获取新token");
-        }
-        response = await sendWithToken(newToken);
-      } catch (e) {
-        throw new Error("登录已过期，请重新登录");
-      }
-    }
-
-    if (!response.ok) {
-      // 尝试解析友好的错误
-      let errorMessage = "图片上传失败";
-      try {
-        const error = await response.json();
-        if (error.detail) {
-          errorMessage = error.detail;
-        } else if (error.error) {
-          errorMessage = error.error;
-        }
-      } catch (_) {
-        errorMessage = `上传失败: ${response.status}`;
-      }
-
-      throw new Error(errorMessage);
-    }
-
-    const data = await response.json();
-    console.log("✅ 图片上传成功:", data.image_urls);
-
-    return data.image_urls; // 返回S3 URL数组
-  } catch (error: any) {
-    console.log("⚠️ 图片上传失败:", error);
     throw error;
   }
 }

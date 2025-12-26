@@ -465,6 +465,81 @@ async def upload_diary_images(
             detail=f"Failed to upload images: {str(e)}"
         )
 
+@router.post("/image-only", response_model=DiaryResponse, summary="Create image-only diary")
+async def create_image_only_diary(
+    image_urls: List[str],
+    user: Dict = Depends(get_current_user)
+):
+    """
+    Create a diary entry with images only (no text or voice)
+    
+    Flow:
+    1. User uploads images via /images endpoint → get image_urls
+    2. Call this endpoint with image_urls to create diary entry
+    3. Auto-generate title and content based on detected language
+    4. No AI processing (cost-effective for image-only diaries)
+    
+    Args:
+        image_urls: List of S3 image URLs (from /images endpoint)
+        user: Current authenticated user
+    
+    Returns:
+        Created diary entry with auto-generated title/content
+    """
+    try:
+        user_id = user.get('user_id')
+        user_name = user.get('name', 'User')
+        
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid user")
+        
+        if not image_urls or len(image_urls) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="No image URLs provided"
+            )
+        
+        print(f"📸 Creating image-only diary for user {user_id}, images: {len(image_urls)}")
+        
+        # Detect language from user's existing diaries (default to Chinese)
+        # For simplicity, we'll use a simple heuristic based on user's name
+        import re
+        has_chinese = bool(re.search(r'[\u4e00-\u9fff]', user_name))
+        
+        # Generate default title and content based on language
+        if has_chinese:
+            title = "今日随拍"
+            content = f"分享了 {len(image_urls)} 张照片"
+        else:
+            title = "Today's Moments"
+            content = f"Shared {len(image_urls)} photo{'s' if len(image_urls) > 1 else ''}"
+        
+        # Create diary entry in database
+        diary = db_service.create_diary(
+            user_id=user_id,
+            content=content,
+            polished_content=content,
+            title=title,
+            ai_feedback="",  # No AI feedback for image-only diaries
+            audio_url=None,
+            image_urls=image_urls
+        )
+        
+        print(f"✅ Image-only diary created: {diary['diary_id']}")
+        
+        return diary
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Failed to create image-only diary: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create diary: {str(e)}"
+        )
+
 @router.get("/list", response_model=List[DiaryResponse], summary="获取日记列表")
 async def get_diaries(
     limit: int = 20,
