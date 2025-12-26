@@ -55,43 +55,38 @@ jobs:
       - name: Install EAS CLI
         run: npm install -g eas-cli@latest
 
-      # 步骤 6: 登录 Expo（使用 EAS CLI 直接登录，而不是过时的 expo-cli）
+      # 步骤 6: 登录 Expo（使用 EAS CLI）
       - name: Login to Expo
         working-directory: ./mobile
         run: |
           if [ -z "${{ secrets.EXPO_TOKEN }}" ]; then
-            echo "⚠️ EXPO_TOKEN 未配置，跳过登录"
-            echo "如果需要自动构建，请在 GitHub Secrets 中配置 EXPO_TOKEN"
-            exit 0
+            echo "❌ EXPO_TOKEN 未配置，无法继续"
+            echo "请在 GitHub Settings > Secrets > Actions 中添加 EXPO_TOKEN"
+            echo "获取方法: https://expo.dev/accounts/[your-account]/settings/access-tokens"
+            exit 1
           fi
-          eas login --non-interactive --token ${{ secrets.EXPO_TOKEN }}
+          echo "✅ EXPO_TOKEN 已配置，开始登录..."
+          eas login --token ${{ secrets.EXPO_TOKEN }}
 
       # 步骤 7: 构建应用（根据输入选择平台）
       - name: Build iOS App
-        if: github.event.inputs.platform == 'ios' || github.event.inputs.platform == 'both' || (github.event.inputs.platform == '' && github.event_name == 'push')
+        if: |
+          github.event.inputs.platform == 'ios' || 
+          github.event.inputs.platform == 'both' || 
+          (github.event.inputs.platform == null && github.event_name == 'push')
         working-directory: ./mobile
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-        run: |
-          if [ -z "$EXPO_TOKEN" ]; then
-            echo "❌ EXPO_TOKEN 未配置，无法构建"
-            echo "请在 GitHub Secrets 中配置 EXPO_TOKEN"
-            exit 1
-          fi
-          eas build --platform ios --non-interactive
+        run: eas build --platform ios --non-interactive
 
       - name: Build Android App
-        if: github.event.inputs.platform == 'android' || github.event.inputs.platform == 'both'
+        if: |
+          github.event.inputs.platform == 'android' || 
+          github.event.inputs.platform == 'both'
         working-directory: ./mobile
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-        run: |
-          if [ -z "$EXPO_TOKEN" ]; then
-            echo "❌ EXPO_TOKEN 未配置，无法构建"
-            echo "请在 GitHub Secrets 中配置 EXPO_TOKEN"
-            exit 1
-          fi
-          eas build --platform android --non-interactive
+        run: eas build --platform android --non-interactive
 
       # 步骤 8: 构建完成通知
       - name: Build success
