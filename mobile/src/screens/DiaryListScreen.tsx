@@ -1376,6 +1376,25 @@ export default function DiaryListScreen() {
           {item.polished_content}
         </Text>
 
+        {/* 图片缩略图（如果有） */}
+        {item.image_urls && item.image_urls.length > 0 && (
+          <View style={styles.imageGrid}>
+            {item.image_urls.slice(0, 3).map((url, index) => (
+              <Image
+                key={index}
+                source={{ uri: url }}
+                style={styles.imageThumbnail}
+                resizeMode="cover"
+              />
+            ))}
+            {item.image_urls.length > 3 && (
+              <View style={[styles.imageThumbnail, styles.moreBadge]}>
+                <Text style={styles.moreText}>+{item.image_urls.length - 3}</Text>
+              </View>
+            )}
+          </View>
+        )}
+
         {/* ✅ 使用统一的音频播放器组件 */}
         <AudioPlayer
           audioUrl={item.audio_url}
@@ -1799,6 +1818,29 @@ const styles = StyleSheet.create({
     ...Typography.body,
     color: "#1A1A1A",
     marginBottom: 12,
+  },
+  
+  // 图片网格样式
+  imageGrid: {
+    flexDirection: "row",
+    marginBottom: 12,
+    gap: 8,
+  },
+  imageThumbnail: {
+    width: (Dimensions.get("window").width - 80) / 3.3, // 3张缩略图 + 间距
+    height: (Dimensions.get("window").width - 80) / 3.3,
+    borderRadius: 8,
+    backgroundColor: "#f0f0f0",
+  },
+  moreBadge: {
+    backgroundColor: "rgba(0, 0, 0, 0.7)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  moreText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
   },
 
   cardFooter: {
