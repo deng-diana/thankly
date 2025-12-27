@@ -18,9 +18,11 @@ import tempfile
 import os
 import json
 import asyncio  # 🔥 用于并行执行
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 from openai import OpenAI
 import io
+import base64
+import requests
 
 from ..config import get_settings
 
@@ -364,7 +366,8 @@ class OpenAIService:
     async def polish_content_multilingual(
         self, 
         text: str,
-        user_name: Optional[str] = None  # 用户名字，用于个性化反馈
+        user_name: Optional[str] = None,  # 用户名字，用于个性化反馈
+        image_urls: Optional[List[str]] = None  # 图片URL列表，用于vision分析
     ) -> Dict[str, str]:
         """
         🔥 重大改动：从单一模型改为混合模型 + 并行执行
@@ -399,12 +402,14 @@ class OpenAIService:
             
             # 🔥 关键改动：并行执行两个任务
             print(f"🚀 启动并行处理...")
+            if image_urls and len(image_urls) > 0:
+                print(f"   - 检测到 {len(image_urls)} 张图片，将使用 Vision 能力分析图片+文字")
             print(f"   - 任务1: GPT-4o-mini 润色 + 标题（字段 haiku）")
             print(f"   - 任务2: GPT-4o-mini 暖心反馈（字段 sonnet，基于原始文本）")
             
             # 创建两个异步任务
-            polish_task = self._call_gpt4o_mini_for_polish_and_title(text, detected_lang)
-            feedback_task = self._call_gpt4o_mini_for_feedback(text, detected_lang, user_name)
+            polish_task = self._call_gpt4o_mini_for_polish_and_title(text, detected_lang, image_urls)
+            feedback_task = self._call_gpt4o_mini_for_feedback(text, detected_lang, user_name, image_urls)
             
             # 并行执行并等待结果
             polish_result, feedback = await asyncio.gather(
@@ -455,7 +460,8 @@ class OpenAIService:
     async def _call_gpt4o_mini_for_polish_and_title(
         self, 
         text: str,
-        language: str
+        language: str,
+        image_urls: Optional[List[str]] = None
     ) -> Dict[str, str]:
         """
         调用 GPT-4o-mini 进行润色和生成标题
@@ -510,32 +516,74 @@ Example (English input):
 Input: "today was good i went to park"
 Output: {"title": "A Day at the Park", "polished_content": "Today was good. I went to the park."}"""
 
-            user_prompt = f"Please polish this diary entry (preserve ALL content):\n\n{text}"
+            # 构建用户消息内容
+            user_content = []
+            
+            # 如果有图片，添加图片到消息中（使用vision能力）
+            if image_urls and len(image_urls) > 0:
+                print(f"🖼️ 添加 {len(image_urls)} 张图片到 Vision 请求...")
+                for image_url in image_urls:
+                    # 下载图片并转换为base64
+                    try:
+                        image_data = await self._download_and_encode_image(image_url)
+                        user_content.append({
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{image_data}"
+                            }
+                        })
+                    except Exception as e:
+                        print(f"⚠️ 下载图片失败 {image_url}: {e}")
+                        # 如果图片下载失败，继续处理，只使用文字
+                
+                # 添加文字内容
+                user_content.append({
+                    "type": "text",
+                    "text": f"Please polish this diary entry (preserve ALL content) and create a title. Consider both the images and the text:\n\n{text}"
+                })
+                user_prompt = user_content
+            else:
+                # 只有文字，使用纯文本
+                user_prompt = f"Please polish this diary entry (preserve ALL content):\n\n{text}"
             
             # ✅ 动态计算 max_tokens：确保足够输出完整内容
             # 原始文本长度 + 标题 + JSON 格式开销 + 安全边距
             original_length = len(text)
+            # 如果有图片，需要额外的tokens（每张图片约85 tokens）
+            image_tokens = len(image_urls) * 85 if image_urls else 0
             # 估算：原始文本 * 1.15（115%限制） + 标题（50字符） + JSON格式（100字符） + 安全边距（500字符）
             estimated_output_length = int(original_length * 1.15) + 50 + 100 + 500
             # max_tokens 大约是字符数的 0.75（中文）到 1.5（英文），取中间值 1.0
-            max_tokens = max(2000, int(estimated_output_length * 1.0))
+            max_tokens = max(2000, int(estimated_output_length * 1.0) + image_tokens)
             # 但不要超过 OpenAI 的限制（GPT-4o-mini 支持 16384 tokens）
             max_tokens = min(max_tokens, 16000)
             
             print(f"📤 GPT-4o-mini: 发送请求到 OpenAI...")
             print(f"   模型: {self.MODEL_CONFIG['haiku']}")
             print(f"   原始文本长度: {original_length} 字符")
+            print(f"   图片数量: {len(image_urls) if image_urls else 0}")
             print(f"   估算输出长度: {estimated_output_length} 字符")
             print(f"   设置 max_tokens: {max_tokens}")
+            
+            # 构建消息
+            if image_urls and len(image_urls) > 0:
+                # 使用vision格式（包含图片）
+                messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ]
+            else:
+                # 纯文本格式
+                messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ]
             
             # 使用 OpenAI client（已经在 __init__ 中初始化）
             response = await asyncio.to_thread(
                 self.openai_client.chat.completions.create,
                 model=self.MODEL_CONFIG["haiku"],
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
+                messages=messages,
                 temperature=0.3,
                 max_tokens=max_tokens,
                 response_format={"type": "json_object"}  # 强制 JSON 格式
@@ -632,7 +680,8 @@ Output: {"title": "A Day at the Park", "polished_content": "Today was good. I we
         self, 
         text: str,
         language: str,
-        user_name: Optional[str] = None
+        user_name: Optional[str] = None,
+        image_urls: Optional[List[str]] = None
     ) -> str:
         """
         调用 GPT-4o-mini 生成温暖的 AI 反馈
@@ -732,28 +781,73 @@ Example responses (short and warm):
 Remember: Be warm, be brief, be personal. Quality over quantity."""
 
             # 构建个性化的用户提示
-            if user_name:
-                user_prompt = f"{user_name} just shared this with you:\n\n{text}\n\nRespond warmly and personally:"
+            user_content = []
+            
+            # 如果有图片，添加图片到消息中（使用vision能力）
+            if image_urls and len(image_urls) > 0:
+                print(f"🖼️ 添加 {len(image_urls)} 张图片到 Vision 反馈请求...")
+                for image_url in image_urls:
+                    # 下载图片并转换为base64
+                    try:
+                        image_data = await self._download_and_encode_image(image_url)
+                        user_content.append({
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{image_data}"
+                            }
+                        })
+                    except Exception as e:
+                        print(f"⚠️ 下载图片失败 {image_url}: {e}")
+                        # 如果图片下载失败，继续处理，只使用文字
+                
+                # 添加文字内容
+                if user_name:
+                    text_content = f"{user_name} just shared this with you (including images):\n\n{text}\n\nRespond warmly and personally, considering both the images and the text:"
+                else:
+                    text_content = f"Someone just shared this with you (including images):\n\n{text}\n\nRespond with warmth and empathy, considering both the images and the text:"
+                
+                user_content.append({
+                    "type": "text",
+                    "text": text_content
+                })
+                user_prompt = user_content
             else:
-                user_prompt = f"Someone just shared this with you:\n\n{text}\n\nRespond with warmth and empathy:"
+                # 只有文字，使用纯文本
+                if user_name:
+                    user_prompt = f"{user_name} just shared this with you:\n\n{text}\n\nRespond warmly and personally:"
+                else:
+                    user_prompt = f"Someone just shared this with you:\n\n{text}\n\nRespond with warmth and empathy:"
             
             # 调用 OpenAI Chat Completions API
             # 动态调整 max_tokens：根据用户输入长度，预留昵称与提示空间
             estimated_output_length = max_feedback_length + 40
-            max_tokens = max(200, min(int(estimated_output_length * 1.2), 800))
+            image_tokens = len(image_urls) * 85 if image_urls else 0
+            max_tokens = max(200, min(int(estimated_output_length * 1.2) + image_tokens, 800))
 
             print(f"📤 GPT-4o-mini: 发送请求到 OpenAI...")
             print(f"   模型: {self.MODEL_CONFIG['sonnet']}")
             print(f"   用户名字: {user_name if user_name else '未提供'}")
+            print(f"   图片数量: {len(image_urls) if image_urls else 0}")
             print(f"   System prompt 前100字符: {system_prompt[:100]}...")
+
+            # 构建消息
+            if image_urls and len(image_urls) > 0:
+                # 使用vision格式（包含图片）
+                messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ]
+            else:
+                # 纯文本格式
+                messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ]
 
             response = await asyncio.to_thread(
                 self.openai_client.chat.completions.create,
                 model=self.MODEL_CONFIG["sonnet"],
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
+                messages=messages,
                 temperature=0.7,
                 max_tokens=max_tokens,
             )
@@ -995,6 +1089,37 @@ Remember: Be warm, be brief, be personal. Quality over quantity."""
         return result["feedback"]
 
 
+    # ========================================================================
+    # 🔥 图片下载和编码（用于Vision API）
+    # ========================================================================
+    
+    async def _download_and_encode_image(self, image_url: str) -> str:
+        """
+        下载图片并转换为base64编码（用于OpenAI Vision API）
+        
+        Args:
+            image_url: 图片的URL（S3 URL或HTTP URL）
+        
+        Returns:
+            base64编码的图片数据
+        """
+        try:
+            print(f"📥 下载图片: {image_url[:50]}...")
+            
+            # 下载图片
+            response = await asyncio.to_thread(requests.get, image_url, timeout=10)
+            response.raise_for_status()
+            
+            # 转换为base64
+            image_base64 = base64.b64encode(response.content).decode('utf-8')
+            
+            print(f"✅ 图片下载并编码完成，大小: {len(image_base64)} 字符")
+            return image_base64
+            
+        except Exception as e:
+            print(f"❌ 下载图片失败: {e}")
+            raise
+
 # 🎯 使用示例
 """
 # 1. 初始化服务
@@ -1010,4 +1135,10 @@ result = await service.polish_content_multilingual(text)
 print(f"标题: {result['title']}")        # GPT-4o-mini（haiku 字段）生成
 print(f"内容: {result['polished_content']}")  # GPT-4o-mini（haiku 字段）润色
 print(f"反馈: {result['feedback']}")      # GPT-4o-mini（sonnet 字段）生成
+
+# 5. 图片+文字处理（新功能）
+result = await service.polish_content_multilingual(
+    text="今天去了公园",
+    image_urls=["https://s3.../image1.jpg", "https://s3.../image2.jpg"]
+)
 """

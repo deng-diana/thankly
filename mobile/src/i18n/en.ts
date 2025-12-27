@@ -21,6 +21,7 @@ export default {
     close: "Close",
     done: "Done",
     rerecord: "Record Again",
+    saving: "Saving...",
     useTextInput: "Use Text Input",
     show: "Show",
   },
@@ -192,6 +193,16 @@ export default {
     emptyContentToast: "Nothing yet, write a few words first 💭",
     needMoreChars: "Need at least ",
     moreChars: " more characters",
+  },
+
+  // Image diary
+  createImageDiary: {
+    title: "Capture This Moment",
+    textPlaceholder: "Write the story behind these moments...",
+    submitButton: "Done",
+    confirmMessage: "Add words or voice to capture how you feel in this moment",
+    saveAsIs: "Save as is",
+    addContent: "Add content",
   },
 
   // 日记通用（创建后的结果页面）

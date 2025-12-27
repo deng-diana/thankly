@@ -86,10 +86,12 @@ export async function createTextDiary(
  * @returns Created diary entry
  */
 export async function createImageOnlyDiary(
-  imageUris: string[]
+  imageUris: string[],
+  content?: string
 ): Promise<Diary> {
-  console.log("📸 创建纯图片日记");
+  console.log("📸 创建图片日记");
   console.log("图片数量:", imageUris.length);
+  console.log("是否有文字:", !!content);
 
   try {
     // Step 1: Upload all images to S3
@@ -97,16 +99,25 @@ export async function createImageOnlyDiary(
     const imageUrls = await uploadDiaryImages(imageUris);
     console.log("✅ 图片上传成功，URLs:", imageUrls);
 
-    // Step 2: Create diary with image URLs
+    // Step 2: Create diary with image URLs (and optional content)
     console.log("📝 Step 2: 创建日记记录...");
+    const requestBody: { image_urls: string[]; content?: string } = {
+      image_urls: imageUrls,
+    };
+
+    // Add content if provided
+    if (content && content.trim()) {
+      requestBody.content = content.trim();
+    }
+
     const response = await apiService.post<Diary>("/diary/image-only", {
-      body: { image_urls: imageUrls },
+      body: requestBody,
     });
 
-    console.log("✅ 纯图片日记创建成功:", response.diary_id);
+    console.log("✅ 图片日记创建成功:", response.diary_id);
     return response;
   } catch (error: any) {
-    console.error("❌ 创建纯图片日记失败:", error);
+    console.error("❌ 创建图片日记失败:", error);
     throw new Error(error.message || "创建日记失败，请重试");
   }
 }
@@ -471,11 +482,13 @@ export interface ProgressCallback {
 export async function createVoiceDiaryStream(
   audioUri: string,
   duration: number,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  imageUrls?: string[] // ✅ 新增：图片URL列表（用于图片+语音日记）
 ): Promise<Diary> {
   console.log("🎤 创建语音日记（实时进度版 - 轮询模式）");
   console.log("音频URI:", audioUri);
   console.log("时长:", duration, "秒");
+  console.log("图片数量:", imageUrls?.length || 0);
 
   try {
     // 第1步：创建FormData
@@ -486,6 +499,11 @@ export async function createVoiceDiaryStream(
       name: "recording.m4a",
     } as any);
     formData.append("duration", duration.toString());
+
+    // ✅ 如果有图片，添加图片URL列表（JSON字符串）
+    if (imageUrls && imageUrls.length > 0) {
+      formData.append("image_urls", JSON.stringify(imageUrls));
+    }
 
     // 第2步：获取认证token
     const accessToken = await getAccessToken();

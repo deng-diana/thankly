@@ -456,7 +456,8 @@ async def process_voice_diary_async(
     audio_content_type: str,
     duration: int,
     user: Dict,
-    request: Optional[Request]
+    request: Optional[Request],
+    image_urls: Optional[List[str]] = None  # ✅ 新增：图片URL列表（用于图片+语音日记）
 ):
     """异步处理语音日记（后台任务）"""
     try:
@@ -533,9 +534,11 @@ async def process_voice_diary_async(
         update_task_progress(task_id, "processing", 60, 3, "AI润色", "正在优化表达...")
         await asyncio.sleep(0.3)
         
+        # ✅ 如果有图片，将图片URL传递给AI，让AI同时分析图片和转录文字
         ai_result = await openai_service.polish_content_multilingual(
             transcription, 
-            user_name=user_display_name
+            user_name=user_display_name,
+            image_urls=image_urls  # 传递图片URL，AI会使用Vision能力分析
         )
         
         update_task_progress(task_id, "processing", 65, 3, "AI润色", "文字润色完成")
@@ -572,7 +575,8 @@ async def process_voice_diary_async(
             language=ai_result.get("language", "zh"),
             title=ai_result["title"],
             audio_url=audio_url,
-            audio_duration=duration
+            audio_duration=duration,
+            image_urls=image_urls  # ✅ 新增：保存图片URL
         )
         
         # 更新进度：完成（分两步，让进度更平滑）
@@ -854,10 +858,11 @@ async def create_voice_diary_stream(
     )
 
 
-@router.post("/voice/async", summary="创建语音日记（异步任务版）")
+@router.post("/voice/async", summary="创建语音日记（异步任务版，支持图片+语音）")
 async def create_voice_diary_async(
     audio: UploadFile = File(...),
     duration: int = Form(...),
+    image_urls: Optional[str] = Form(None),  # ✅ 新增：图片URL列表（JSON字符串）
     user: Dict = Depends(get_current_user),
     request: Request = None
 ):
@@ -889,6 +894,19 @@ async def create_voice_diary_async(
         # 验证音频质量
         validate_audio_quality(duration, len(audio_content))
         
+        # ✅ 解析图片URL列表（如果有）
+        parsed_image_urls = None
+        if image_urls:
+            try:
+                import json
+                parsed_image_urls = json.loads(image_urls)
+                if not isinstance(parsed_image_urls, list):
+                    parsed_image_urls = None
+                print(f"📸 图片+语音模式，图片数量: {len(parsed_image_urls) if parsed_image_urls else 0}")
+            except Exception as e:
+                print(f"⚠️ 解析图片URL失败: {e}")
+                parsed_image_urls = None
+        
         # 生成任务ID
         task_id = str(uuid.uuid4())
         
@@ -911,7 +929,8 @@ async def create_voice_diary_async(
                 audio_content_type=audio_content_type,
                 duration=duration,
                 user=user,
-                request=request
+                request=request,
+                image_urls=parsed_image_urls  # ✅ 传递图片URL
             )
         )
         
@@ -1155,26 +1174,27 @@ async def upload_diary_images(
             detail=f"Failed to upload images: {str(e)}"
         )
 
-@router.post("/image-only", response_model=DiaryResponse, summary="Create image-only diary")
+@router.post("/image-only", response_model=DiaryResponse, summary="Create image diary (with optional text)")
 async def create_image_only_diary(
     data: ImageOnlyDiaryCreate,
     user: Dict = Depends(get_current_user)
 ):
     """
-    Create a diary entry with images only (no text or voice)
+    Create a diary entry with images (optionally with text)
     
     Flow:
     1. User uploads images via /images endpoint → get image_urls
-    2. Call this endpoint with image_urls to create diary entry
-    3. Auto-generate title and content based on detected language
-    4. No AI processing (cost-effective for image-only diaries)
+    2. Call this endpoint with image_urls (and optional content) to create diary entry
+    3. If content provided: AI processing (polish, title, feedback)
+    4. If no content: minimal diary (images only)
     
     Args:
         image_urls: List of S3 image URLs (from /images endpoint)
+        content: Optional text content (if provided, will be processed by AI)
         user: Current authenticated user
     
     Returns:
-        Created diary entry with auto-generated title/content
+        Created diary entry with images (and optionally AI-processed text)
     """
     try:
         user_id = user.get('user_id')
@@ -1184,6 +1204,7 @@ async def create_image_only_diary(
             raise HTTPException(status_code=401, detail="Invalid user")
         
         image_urls = data.image_urls
+        content = data.content  # Optional text content
         
         if not image_urls or len(image_urls) == 0:
             raise HTTPException(
@@ -1191,33 +1212,61 @@ async def create_image_only_diary(
                 detail="No image URLs provided"
             )
         
-        print(f"📸 Creating image-only diary for user {user_id}, images: {len(image_urls)}")
+        print(f"📸 Creating image diary for user {user_id}, images: {len(image_urls)}, has_text: {bool(content)}")
         
-        # For pure image diaries, keep it minimal - no title or content
-        # Images speak for themselves
-        title = ""
-        content = ""
-        
-        # Create diary entry in database
-        diary = db_service.create_diary(
-            user_id=user_id,
-            original_content=content,
-            polished_content=content,
-            ai_feedback="",  # No AI feedback for image-only diaries
-            language="zh",  # Default language (not critical for image-only)
-            title=title,
-            audio_url=None,
-            image_urls=image_urls
-        )
-        
-        print(f"✅ Image-only diary created: {diary['diary_id']}")
+        # If content is provided, process it with AI (similar to text diary)
+        if content and content.strip():
+            openai_service = get_openai_service()
+            
+            # Get user display name for personalized feedback
+            import re
+            user_display_name = re.split(r'\s+', user_name.strip())[0] if user_name else None
+            
+            print(f"✨ Processing text content with AI...")
+            # ✅ 重要：如果有图片，将图片URL传递给AI，让AI同时分析图片和文字
+            ai_result = await openai_service.polish_content_multilingual(
+                content, 
+                user_name=user_display_name,
+                image_urls=image_urls  # 传递图片URL，AI会使用Vision能力分析
+            )
+            
+            # Create diary with AI-processed content
+            diary = db_service.create_diary(
+                user_id=user_id,
+                original_content=content,
+                polished_content=ai_result["polished_content"],
+                ai_feedback=ai_result["feedback"],
+                language=ai_result.get("language", "zh"),
+                title=ai_result["title"],
+                audio_url=None,
+                image_urls=image_urls
+            )
+            
+            print(f"✅ Image diary with text created: {diary['diary_id']}")
+        else:
+            # Pure image diary - no AI processing
+            title = ""
+            content = ""
+            
+            diary = db_service.create_diary(
+                user_id=user_id,
+                original_content=content,
+                polished_content=content,
+                ai_feedback="",
+                language="zh",
+                title=title,
+                audio_url=None,
+                image_urls=image_urls
+            )
+            
+            print(f"✅ Image-only diary created: {diary['diary_id']}")
         
         return diary
         
     except HTTPException:
         raise
     except Exception as e:
-        print(f"❌ Failed to create image-only diary: {str(e)}")
+        print(f"❌ Failed to create image diary: {str(e)}")
         import traceback
         traceback.print_exc()
         raise HTTPException(

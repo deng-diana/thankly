@@ -151,6 +151,10 @@ export default function DiaryListScreen() {
   const [textInputModalVisible, setTextInputModalVisible] = useState(false);
   // ✅ 新增:图片日记Modal状态
   const [imageDiaryModalVisible, setImageDiaryModalVisible] = useState(false);
+  // ✅ 新增:图片+语音模式的状态
+  const [imageUrlsForVoice, setImageUrlsForVoice] = useState<
+    string[] | undefined
+  >(undefined);
 
   // ✅ 录音计时器相关状态
   const [isRecording, setIsRecording] = useState(false);
@@ -1623,9 +1627,16 @@ export default function DiaryListScreen() {
       {/* ✅ 新增:录音Modal */}
       <RecordingModal
         visible={recordingModalVisible}
-        onSuccess={handleRecordingSuccess}
-        onCancel={handleRecordingCancel}
+        onSuccess={() => {
+          setImageUrlsForVoice(undefined); // 清除图片URL
+          handleRecordingSuccess();
+        }}
+        onCancel={() => {
+          setImageUrlsForVoice(undefined); // 清除图片URL
+          handleRecordingCancel();
+        }}
         onDiscard={loadDiaries}
+        imageUrls={imageUrlsForVoice} // ✅ 传递图片URL列表
       />
 
       {/* ✅ 新增:文字输入Modal */}
@@ -1648,7 +1659,9 @@ export default function DiaryListScreen() {
           // 在 ImageDiaryModal 内部已经处理了添加图片的逻辑
           // 这里可以留空，或者添加额外的逻辑
         }}
-        onAddVoice={() => {
+        onAddVoice={(imageUrls) => {
+          // ✅ 保存图片URL列表，然后打开语音Modal
+          setImageUrlsForVoice(imageUrls);
           setImageDiaryModalVisible(false);
           setRecordingModalVisible(true);
         }}

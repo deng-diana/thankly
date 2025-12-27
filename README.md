@@ -17,6 +17,7 @@ A modern, AI-powered gratitude journaling application built with React Native an
 ### Tech Stack
 
 **Frontend:**
+
 - React Native with Expo
 - TypeScript
 - React Navigation
@@ -25,6 +26,7 @@ A modern, AI-powered gratitude journaling application built with React Native an
 - Expo Image Picker
 
 **Backend:**
+
 - Python FastAPI
 - AWS Lambda (Serverless)
 - AWS DynamoDB (Database)
@@ -33,6 +35,7 @@ A modern, AI-powered gratitude journaling application built with React Native an
 - OpenAI API (Whisper, GPT-4o-mini)
 
 **Infrastructure:**
+
 - AWS Lambda for serverless backend
 - GitHub Actions for CI/CD
 - Docker for containerization
@@ -95,6 +98,7 @@ pip install -r requirements.txt
 Create `.env` files in both `backend/` and `mobile/` directories with required credentials:
 
 **Backend `.env`:**
+
 ```
 OPENAI_API_KEY=your_openai_key
 AWS_ACCESS_KEY_ID=your_aws_key
@@ -104,6 +108,7 @@ COGNITO_CLIENT_ID=your_client_id
 ```
 
 **Mobile `.env`:**
+
 ```
 EXPO_PUBLIC_API_BASE_URL=your_api_url
 ```
@@ -113,6 +118,7 @@ EXPO_PUBLIC_API_BASE_URL=your_api_url
 ### Running Locally
 
 **Frontend:**
+
 ```bash
 cd mobile
 npm start
@@ -120,6 +126,7 @@ npm start
 ```
 
 **Backend:**
+
 ```bash
 cd backend
 uvicorn app.main:app --reload
@@ -128,6 +135,7 @@ uvicorn app.main:app --reload
 ### Building for Production
 
 **Mobile App:**
+
 ```bash
 cd mobile
 eas build --platform ios
@@ -135,6 +143,7 @@ eas build --platform android
 ```
 
 **Backend:**
+
 ```bash
 cd backend
 ./deploy.sh
@@ -153,6 +162,7 @@ cd backend
 ### CI/CD
 
 GitHub Actions workflows are configured for:
+
 - Automatic backend deployment to Lambda
 - Mobile app builds via EAS
 
@@ -177,12 +187,14 @@ A pre-commit hook is configured to automatically check these settings. If you se
 ## 🧪 Testing
 
 ### Frontend
+
 ```bash
 cd mobile
 npm test
 ```
 
 ### Backend
+
 ```bash
 cd backend
 pytest
@@ -203,4 +215,3 @@ Built with ❤️ for capturing life's meaningful moments
 ---
 
 **Note**: This project is currently live on the iOS App Store. For production deployment, ensure all environment variables and AWS credentials are properly configured.
-

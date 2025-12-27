@@ -20,6 +20,7 @@ export default {
     close: "关闭",
     done: "完成",
     rerecord: "重录",
+    saving: "保存中...",
     useTextInput: "改用文字输入",
     show: "显示",
   },
@@ -190,6 +191,16 @@ export default {
     emptyContentToast: "还没写呢，先写下几个字吧 💭",
     needMoreChars: "至少再写",
     moreChars: "个字",
+  },
+
+  // 图片日记
+  createImageDiary: {
+    title: "记录此刻",
+    textPlaceholder: "为这些瞬间写下你的故事...",
+    submitButton: "完成",
+    confirmMessage: "用文字或语音记录这一刻的感受，让回忆更完整",
+    saveAsIs: "直接保存",
+    addContent: "添加内容",
   },
 
   // 日记通用（创建后的结果页面）

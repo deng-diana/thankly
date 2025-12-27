@@ -26,8 +26,15 @@ import {
   Platform, // ✅ 添加
   Image, // ✅ 添加：用于显示图片
   FlatList, // ✅ 添加：用于图片轮播
+  Modal, // ✅ 添加：用于全屏图片查看器
 } from "react-native";
+import {
+  GestureHandlerRootView,
+  GestureDetector,
+  Gesture,
+} from "react-native-gesture-handler";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
 import { Audio } from "expo-av";
 import { getDiaryDetail } from "../services/diaryService";
@@ -443,6 +450,18 @@ export default function DiaryDetailScreen({
   // 图片轮播当前索引状态
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
+  // ✅ 全屏图片查看器状态
+  const [fullScreenImageVisible, setFullScreenImageVisible] = useState(false);
+  const [fullScreenImageIndex, setFullScreenImageIndex] = useState(0);
+  // ✅ 新增：缩略图位置信息（用于动画）
+  const [thumbnailLayout, setThumbnailLayout] = useState<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const thumbnailRefs = useRef<{ [key: number]: View | null }>({});
+
   const renderDiaryDetail = () => {
     if (!diary) return null;
 
@@ -545,6 +564,60 @@ export default function DiaryDetailScreen({
     // 普通日记：显示文字内容
     return (
       <>
+        {/* ✅ 图片缩略图（如果有图片）- 一行3个 */}
+        {diary.image_urls && diary.image_urls.length > 0 && (
+          <View style={styles.imageThumbnailContainer}>
+            <View style={styles.imageThumbnailGrid}>
+              {diary.image_urls.map((url, index) => (
+                <TouchableOpacity
+                  key={`${url}-${index}`}
+                  style={[
+                    styles.imageThumbnailWrapper,
+                    (index + 1) % 3 === 0 && styles.imageThumbnailLastInRow, // 每行最后一个
+                  ]}
+                  onPress={() => {
+                    // ✅ 获取缩略图位置信息（用于动画）
+                    const thumbnailRef = thumbnailRefs.current[index];
+                    if (thumbnailRef) {
+                      thumbnailRef.measure(
+                        (x, y, width, height, pageX, pageY) => {
+                          setThumbnailLayout({
+                            x: pageX,
+                            y: pageY,
+                            width,
+                            height,
+                          });
+                          setFullScreenImageIndex(index);
+                          setFullScreenImageVisible(true);
+                        }
+                      );
+                    } else {
+                      // 如果 measure 失败，直接打开（无动画）
+                      setThumbnailLayout(null);
+                      setFullScreenImageIndex(index);
+                      setFullScreenImageVisible(true);
+                    }
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <View
+                    ref={(ref) => {
+                      thumbnailRefs.current[index] = ref;
+                    }}
+                    collapsable={false}
+                  >
+                    <Image
+                      source={{ uri: url }}
+                      style={styles.imageThumbnail}
+                      resizeMode="cover"
+                    />
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        )}
+
         {/* 音频播放器 */}
         {diary.audio_url && (
           <AudioPlayer
@@ -749,9 +822,647 @@ export default function DiaryDetailScreen({
           </View>
         </View>
       )}
+
+      {/* ✅ 全屏图片查看器 */}
+      {diary && diary.image_urls && diary.image_urls.length > 0 && (
+        <FullScreenImageViewer
+          visible={fullScreenImageVisible}
+          imageUrls={diary.image_urls}
+          initialIndex={fullScreenImageIndex}
+          thumbnailLayout={thumbnailLayout}
+          onClose={() => {
+            setFullScreenImageVisible(false);
+            // 延迟清除布局信息，确保关闭动画完成
+            setTimeout(() => setThumbnailLayout(null), 300);
+          }}
+          onIndexChange={setFullScreenImageIndex}
+        />
+      )}
     </View>
   );
 }
+
+// ========== 全屏图片查看器组件 ==========
+interface FullScreenImageViewerProps {
+  visible: boolean;
+  imageUrls: string[];
+  initialIndex: number;
+  thumbnailLayout: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null; // ✅ 新增：缩略图位置信息
+  onClose: () => void;
+  onIndexChange?: (index: number) => void;
+}
+
+const FullScreenImageViewer: React.FC<FullScreenImageViewerProps> = ({
+  visible,
+  imageUrls,
+  initialIndex,
+  thumbnailLayout,
+  onClose,
+  onIndexChange,
+}) => {
+  const [currentIndex, setCurrentIndex] = useState(initialIndex);
+  const flatListRef = useRef<FlatList>(null);
+  const windowWidth = Dimensions.get("window").width;
+  const windowHeight = Dimensions.get("window").height;
+  // ✅ 新增：存储每张图片的尺寸信息（用于等比显示）
+  const [imageDimensions, setImageDimensions] = useState<{
+    [key: number]: { width: number; height: number };
+  }>({});
+
+  // ✅ 动画值：用于平滑过渡
+  const scaleAnim = useRef(new Animated.Value(0)).current;
+  const translateXAnim = useRef(new Animated.Value(0)).current;
+  const translateYAnim = useRef(new Animated.Value(0)).current;
+  const opacityAnim = useRef(new Animated.Value(0)).current;
+  const backgroundOpacityAnim = useRef(new Animated.Value(0)).current;
+  const [isAnimating, setIsAnimating] = useState(false); // ✅ 跟踪动画状态
+
+  // ✅ 新增：手势缩放相关状态和动画值
+  const [zoomScale, setZoomScale] = useState<{ [key: number]: number }>({});
+  const [translateX, setTranslateX] = useState<{ [key: number]: number }>({});
+  const [translateY, setTranslateY] = useState<{ [key: number]: number }>({});
+  const scaleAnims = useRef<{ [key: number]: Animated.Value }>({});
+  const translateXAnims = useRef<{ [key: number]: Animated.Value }>({});
+  const translateYAnims = useRef<{ [key: number]: Animated.Value }>({});
+
+  // ✅ 计算动画的起始和结束值
+  const getAnimationValues = () => {
+    if (!thumbnailLayout) {
+      // 无缩略图信息：使用淡入淡出
+      return {
+        startScale: 0.8,
+        endScale: 1,
+        startX: 0,
+        endX: 0,
+        startY: 0,
+        endY: 0,
+      };
+    }
+
+    // 计算缩略图中心点（相对于屏幕）
+    const thumbnailCenterX = thumbnailLayout.x + thumbnailLayout.width / 2;
+    const thumbnailCenterY = thumbnailLayout.y + thumbnailLayout.height / 2;
+
+    // 计算屏幕中心点
+    const screenCenterX = windowWidth / 2;
+    const screenCenterY = windowHeight / 2;
+
+    // 计算需要移动的距离（从缩略图中心移动到屏幕中心）
+    const translateX = screenCenterX - thumbnailCenterX;
+    const translateY = screenCenterY - thumbnailCenterY;
+
+    // 计算缩放比例：从缩略图尺寸放大到全屏尺寸
+    // 使用较大的比例，确保图片能够填充屏幕（但保持 contain 模式）
+    const scaleX = windowWidth / thumbnailLayout.width;
+    const scaleY = windowHeight / thumbnailLayout.height;
+    // 使用较大的比例，让图片能够放大到全屏
+    const scale = Math.max(scaleX, scaleY) * 1.1; // 稍微放大一点，确保填充效果
+
+    return {
+      startScale: 1, // 从原始尺寸开始
+      endScale: scale, // 放大到全屏
+      startX: 0, // 从缩略图位置开始（translateX 会处理位置）
+      endX: translateX, // 移动到屏幕中心
+      startY: 0,
+      endY: translateY,
+    };
+  };
+
+  // ✅ 打开动画：从缩略图位置放大到全屏
+  useEffect(() => {
+    if (visible) {
+      setIsAnimating(true);
+      const { startScale, endScale, startX, endX, startY, endY } =
+        getAnimationValues();
+
+      // ✅ 关键修复：确保初始值正确设置
+      // 如果是从缩略图开始的动画，初始 scale 应该是缩略图相对于全屏的比例
+      if (thumbnailLayout) {
+        // 计算缩略图相对于全屏的初始缩放比例
+        const initialScale = Math.min(
+          thumbnailLayout.width / windowWidth,
+          thumbnailLayout.height / windowHeight
+        );
+        scaleAnim.setValue(initialScale);
+        // 初始位置：需要将图片从屏幕中心移动到缩略图位置
+        // 所以 translate 应该是负的移动距离
+        const thumbnailCenterX = thumbnailLayout.x + thumbnailLayout.width / 2;
+        const thumbnailCenterY = thumbnailLayout.y + thumbnailLayout.height / 2;
+        const screenCenterX = windowWidth / 2;
+        const screenCenterY = windowHeight / 2;
+        translateXAnim.setValue(screenCenterX - thumbnailCenterX);
+        translateYAnim.setValue(screenCenterY - thumbnailCenterY);
+      } else {
+        scaleAnim.setValue(startScale);
+        translateXAnim.setValue(startX);
+        translateYAnim.setValue(startY);
+      }
+      opacityAnim.setValue(0);
+      backgroundOpacityAnim.setValue(0);
+
+      // 执行动画（250ms，行业标准）
+      Animated.parallel([
+        Animated.timing(scaleAnim, {
+          toValue: endScale,
+          duration: 250,
+          easing: Easing.out(Easing.cubic), // 使用 cubic 缓动，更自然
+          useNativeDriver: true,
+        }),
+        Animated.timing(translateXAnim, {
+          toValue: endX,
+          duration: 250,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(translateYAnim, {
+          toValue: endY,
+          duration: 250,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacityAnim, {
+          toValue: 1,
+          duration: 250,
+          easing: Easing.out(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(backgroundOpacityAnim, {
+          toValue: 1,
+          duration: 250,
+          easing: Easing.out(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ]).start(() => {
+        setIsAnimating(false);
+      });
+    }
+  }, [visible, thumbnailLayout]);
+
+  // ✅ 关闭动画：从全屏缩小回缩略图位置
+  const handleClose = () => {
+    setIsAnimating(true);
+    const { startScale, startX, startY } = getAnimationValues();
+
+    // ✅ 计算关闭时的目标值
+    let targetScale = startScale;
+    let targetX = startX;
+    let targetY = startY;
+
+    if (thumbnailLayout) {
+      // ✅ 计算缩略图相对于全屏的缩放比例
+      // 参考微信朋友圈逻辑：宽度固定，所以缩放比例 = 缩略图宽度 / 屏幕宽度
+      targetScale = thumbnailLayout.width / windowWidth;
+      // 计算需要移动回缩略图位置的距离
+      const thumbnailCenterX = thumbnailLayout.x + thumbnailLayout.width / 2;
+      const thumbnailCenterY = thumbnailLayout.y + thumbnailLayout.height / 2;
+      const screenCenterX = windowWidth / 2;
+      const screenCenterY = windowHeight / 2;
+      targetX = screenCenterX - thumbnailCenterX;
+      targetY = screenCenterY - thumbnailCenterY;
+    }
+
+    Animated.parallel([
+      Animated.timing(scaleAnim, {
+        toValue: targetScale,
+        duration: 250,
+        easing: Easing.in(Easing.cubic), // 关闭时使用 ease-in
+        useNativeDriver: true,
+      }),
+      Animated.timing(translateXAnim, {
+        toValue: targetX,
+        duration: 250,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(translateYAnim, {
+        toValue: targetY,
+        duration: 250,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(opacityAnim, {
+        toValue: 0,
+        duration: 200, // 背景稍快一点
+        easing: Easing.in(Easing.ease),
+        useNativeDriver: true,
+      }),
+      Animated.timing(backgroundOpacityAnim, {
+        toValue: 0,
+        duration: 200,
+        easing: Easing.in(Easing.ease),
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setIsAnimating(false);
+      onClose();
+    });
+  };
+
+  // 当 initialIndex 变化时，更新当前索引并滚动到对应位置
+  useEffect(() => {
+    if (visible && initialIndex !== currentIndex) {
+      setCurrentIndex(initialIndex);
+      flatListRef.current?.scrollToIndex({
+        index: initialIndex,
+        animated: false,
+      });
+    }
+  }, [visible, initialIndex]);
+
+  // 当索引变化时，通知父组件
+  useEffect(() => {
+    if (onIndexChange) {
+      onIndexChange(currentIndex);
+    }
+  }, [currentIndex, onIndexChange]);
+
+  const handleScroll = (event: any) => {
+    const offsetX = event.nativeEvent.contentOffset.x;
+    const index = Math.round(offsetX / windowWidth);
+    if (index !== currentIndex && index >= 0 && index < imageUrls.length) {
+      setCurrentIndex(index);
+    }
+  };
+
+  // ✅ 计算当前图片的动画样式
+  const getImageAnimatedStyle = () => {
+    if (!thumbnailLayout) {
+      // 无缩略图信息：使用淡入淡出
+      return {
+        opacity: opacityAnim,
+        transform: [
+          {
+            scale: scaleAnim.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0.8, 1],
+            }),
+          },
+        ],
+      };
+    }
+
+    // 有缩略图信息：使用位置和缩放动画
+    // 关键：transform 的顺序很重要！先 translate 再 scale
+    return {
+      opacity: opacityAnim,
+      transform: [
+        { translateX: translateXAnim },
+        { translateY: translateYAnim },
+        { scale: scaleAnim },
+      ],
+    };
+  };
+
+  return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <Modal
+        visible={visible}
+        transparent
+        animationType="none" // ✅ 禁用默认动画，使用自定义动画
+        onRequestClose={handleClose}
+        statusBarTranslucent
+      >
+        <StatusBar hidden />
+        <View style={fullScreenStyles.container}>
+          {/* 黑色背景 - 带透明度动画 */}
+          <Animated.View
+            style={[
+              fullScreenStyles.background,
+              { opacity: backgroundOpacityAnim },
+            ]}
+          />
+
+          {/* 顶部关闭按钮 - 更细的outline风格，更大的间距 */}
+          <Animated.View
+            style={[fullScreenStyles.headerWrapper, { opacity: opacityAnim }]}
+          >
+            <SafeAreaView style={fullScreenStyles.header} edges={["top"]}>
+              <TouchableOpacity
+                style={fullScreenStyles.closeButton}
+                onPress={handleClose}
+                activeOpacity={0.7}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                accessibilityLabel={t("common.close")}
+                accessibilityHint={t("accessibility.button.closeHint")}
+                accessibilityRole="button"
+              >
+                <Ionicons name="close-outline" size={24} color="#fff" />
+              </TouchableOpacity>
+            </SafeAreaView>
+          </Animated.View>
+
+          {/* 图片轮播 - 支持点击图片关闭（模仿微信） */}
+          <FlatList
+            ref={flatListRef}
+            data={imageUrls}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            keyExtractor={(item, index) => `${item}-${index}`}
+            initialScrollIndex={initialIndex}
+            getItemLayout={(data, index) => ({
+              length: windowWidth,
+              offset: windowWidth * index,
+              index,
+            })}
+            onScroll={handleScroll}
+            scrollEventThrottle={16}
+            scrollEnabled={!isAnimating} // ✅ 动画期间禁用滚动
+            renderItem={({ item, index }) => {
+              // ✅ 只有当前索引的图片才显示动画
+              const isCurrentImage = index === currentIndex;
+              const animatedStyle =
+                isCurrentImage && thumbnailLayout
+                  ? getImageAnimatedStyle()
+                  : { opacity: opacityAnim };
+
+              // ✅ 初始化手势动画值
+              if (!scaleAnims.current[index]) {
+                scaleAnims.current[index] = new Animated.Value(1);
+                translateXAnims.current[index] = new Animated.Value(0);
+                translateYAnims.current[index] = new Animated.Value(0);
+              }
+
+              // ✅ 计算图片尺寸（等比例，宽度固定为屏幕宽度，高度根据比例计算但不超过屏幕高度）
+              const dimensions = imageDimensions[index];
+              let imageWidth = windowWidth;
+              let imageHeight = windowHeight;
+              if (dimensions) {
+                const aspectRatio = dimensions.height / dimensions.width;
+                const calculatedHeight = windowWidth * aspectRatio;
+                // ✅ 如果计算出的高度超过屏幕高度，则限制为屏幕高度（图片会在容器内居中显示）
+                imageHeight = Math.min(calculatedHeight, windowHeight);
+              }
+
+              // ✅ 创建手势
+              const pinchGesture = Gesture.Pinch()
+                .onUpdate((event) => {
+                  const newScale = Math.max(1, Math.min(event.scale, 5)); // 限制缩放范围 1-5倍
+                  scaleAnims.current[index].setValue(newScale);
+                  setZoomScale((prev) => ({ ...prev, [index]: newScale }));
+                })
+                .onEnd(() => {
+                  // 缩放结束后，如果小于1，则重置为1
+                  const currentScale = zoomScale[index] || 1;
+                  if (currentScale < 1) {
+                    Animated.spring(scaleAnims.current[index], {
+                      toValue: 1,
+                      useNativeDriver: true,
+                    }).start();
+                    setZoomScale((prev) => ({ ...prev, [index]: 1 }));
+                  }
+                });
+
+              const panGesture = Gesture.Pan()
+                .enabled((zoomScale[index] || 1) > 1) // 只有在放大时才允许拖动
+                .onUpdate((event) => {
+                  const currentScale = zoomScale[index] || 1;
+                  if (currentScale > 1) {
+                    // 限制拖动范围，防止图片移出屏幕
+                    const maxTranslateX =
+                      (imageWidth * currentScale - windowWidth) / 2;
+                    const maxTranslateY =
+                      (imageHeight * currentScale - windowHeight) / 2;
+                    const newTranslateX = Math.max(
+                      -maxTranslateX,
+                      Math.min(maxTranslateX, event.translationX)
+                    );
+                    const newTranslateY = Math.max(
+                      -maxTranslateY,
+                      Math.min(maxTranslateY, event.translationY)
+                    );
+                    translateXAnims.current[index].setValue(newTranslateX);
+                    translateYAnims.current[index].setValue(newTranslateY);
+                    setTranslateX((prev) => ({
+                      ...prev,
+                      [index]: newTranslateX,
+                    }));
+                    setTranslateY((prev) => ({
+                      ...prev,
+                      [index]: newTranslateY,
+                    }));
+                  }
+                })
+                .onEnd(() => {
+                  // 拖动结束后，如果缩放回到1，重置位置
+                  const currentScale = zoomScale[index] || 1;
+                  if (currentScale <= 1) {
+                    Animated.parallel([
+                      Animated.spring(translateXAnims.current[index], {
+                        toValue: 0,
+                        useNativeDriver: true,
+                      }),
+                      Animated.spring(translateYAnims.current[index], {
+                        toValue: 0,
+                        useNativeDriver: true,
+                      }),
+                    ]).start();
+                    setTranslateX((prev) => ({ ...prev, [index]: 0 }));
+                    setTranslateY((prev) => ({ ...prev, [index]: 0 }));
+                  }
+                });
+
+              // ✅ 组合手势：同时支持缩放和拖动
+              const composedGesture = Gesture.Simultaneous(
+                pinchGesture,
+                panGesture
+              );
+
+              // ✅ 双击手势：双击放大/缩小
+              const doubleTapGesture = Gesture.Tap()
+                .numberOfTaps(2)
+                .onEnd(() => {
+                  const currentScale = zoomScale[index] || 1;
+                  const targetScale = currentScale > 1 ? 1 : 2; // 双击在1倍和2倍之间切换
+                  Animated.spring(scaleAnims.current[index], {
+                    toValue: targetScale,
+                    useNativeDriver: true,
+                  }).start();
+                  setZoomScale((prev) => ({ ...prev, [index]: targetScale }));
+                  // 如果缩小到1倍，重置位置
+                  if (targetScale === 1) {
+                    Animated.parallel([
+                      Animated.spring(translateXAnims.current[index], {
+                        toValue: 0,
+                        useNativeDriver: true,
+                      }),
+                      Animated.spring(translateYAnims.current[index], {
+                        toValue: 0,
+                        useNativeDriver: true,
+                      }),
+                    ]).start();
+                    setTranslateX((prev) => ({ ...prev, [index]: 0 }));
+                    setTranslateY((prev) => ({ ...prev, [index]: 0 }));
+                  }
+                });
+
+              // ✅ 单击手势：只有在未缩放时才能关闭
+              const singleTapGesture = Gesture.Tap()
+                .numberOfTaps(1)
+                .onEnd(() => {
+                  const currentScale = zoomScale[index] || 1;
+                  if (currentScale <= 1 && !isAnimating) {
+                    handleClose();
+                  }
+                });
+
+              const tapGesture = Gesture.Race(
+                doubleTapGesture,
+                singleTapGesture
+              );
+              const finalGesture = Gesture.Simultaneous(
+                composedGesture,
+                tapGesture
+              );
+
+              return (
+                <View
+                  style={[
+                    fullScreenStyles.imageContainer,
+                    { width: windowWidth },
+                  ]}
+                >
+                  <GestureDetector gesture={finalGesture}>
+                    <Animated.View
+                      style={[
+                        fullScreenStyles.imageWrapper,
+                        {
+                          transform: [
+                            { scale: scaleAnims.current[index] },
+                            { translateX: translateXAnims.current[index] },
+                            { translateY: translateYAnims.current[index] },
+                          ],
+                        },
+                      ]}
+                    >
+                      <Animated.Image
+                        source={{ uri: item }}
+                        style={[
+                          fullScreenStyles.image,
+                          // ✅ 等比例显示：宽度固定为屏幕宽度，高度根据图片比例自动计算
+                          // 如果高度超过屏幕，则限制为屏幕高度，图片会在容器内居中显示
+                          {
+                            width: imageWidth,
+                            height: imageHeight,
+                          },
+                          animatedStyle,
+                        ]}
+                        resizeMode="contain" // ✅ 使用 contain，确保图片完整显示，不裁切，在容器内居中
+                        onLoad={(event) => {
+                          // ✅ 获取图片实际尺寸，用于计算等比高度
+                          const { width, height } = event.nativeEvent.source;
+                          if (width && height) {
+                            console.log(
+                              `📐 图片 ${index} 实际尺寸: ${width}x${height}, 宽高比: ${(
+                                height / width
+                              ).toFixed(2)}`
+                            );
+                            setImageDimensions((prev) => ({
+                              ...prev,
+                              [index]: { width, height },
+                            }));
+                          }
+                        }}
+                      />
+                    </Animated.View>
+                  </GestureDetector>
+                </View>
+              );
+            }}
+          />
+
+          {/* 底部指示器（多张图片时显示） */}
+          {imageUrls.length > 1 && (
+            <Animated.View
+              style={[fullScreenStyles.footerWrapper, { opacity: opacityAnim }]}
+            >
+              <SafeAreaView style={fullScreenStyles.footer} edges={["bottom"]}>
+                <View style={fullScreenStyles.indicatorContainer}>
+                  <Text style={fullScreenStyles.indicatorText}>
+                    {currentIndex + 1} / {imageUrls.length}
+                  </Text>
+                </View>
+              </SafeAreaView>
+            </Animated.View>
+          )}
+        </View>
+      </Modal>
+    </GestureHandlerRootView>
+  );
+};
+
+// ========== 全屏图片查看器样式 ==========
+const fullScreenStyles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  background: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "#000",
+  },
+  headerWrapper: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+  },
+  header: {
+    paddingHorizontal: 20, // ✅ 增加右边距
+    paddingTop: 20, // ✅ 增加顶部间距
+    paddingBottom: 8,
+  },
+  closeButton: {
+    width: 36, // ✅ 稍微缩小，更精致
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(0, 0, 0, 0.4)", // ✅ 降低背景透明度，更精致
+    justifyContent: "center",
+    alignItems: "center",
+    alignSelf: "flex-end",
+  },
+  imageContainer: {
+    flex: 1,
+    justifyContent: "center", // ✅ 垂直居中
+    alignItems: "center", // ✅ 水平居中
+  },
+  imageWrapper: {
+    justifyContent: "center", // ✅ 垂直居中
+    alignItems: "center", // ✅ 水平居中
+  },
+  image: {
+    // ✅ 尺寸在 renderItem 中根据图片比例动态计算
+    // 宽度固定为屏幕宽度，高度根据图片宽高比自动计算
+  },
+  footerWrapper: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+  },
+  footer: {
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+  },
+  indicatorContainer: {
+    alignSelf: "center",
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  indicatorText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+});
 
 // ========== 样式定义 ==========
 const { width } = Dimensions.get("window");
@@ -1104,5 +1815,35 @@ const styles = StyleSheet.create({
     width: 24, // 活跃状态更长
     height: 8,
     borderRadius: 4,
+  },
+
+  // ===== 图片缩略图容器（图片+文字日记）- 一行3个 =====
+  imageThumbnailContainer: {
+    marginHorizontal: 20, // 左右各20px，总共40px
+    marginTop: 16,
+    marginBottom: 12,
+  },
+  imageThumbnailGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "flex-start",
+  },
+  imageThumbnailWrapper: {
+    marginRight: 8, // 图片之间的间距
+    marginBottom: 8, // 行之间的间距
+    borderRadius: 8,
+    overflow: "hidden",
+    backgroundColor: "#F5F5F5",
+    // 动态计算宽度：(屏幕宽度 - 左右margin 40px - 间距 8*2) / 3
+    width: Math.floor((Dimensions.get("window").width - 40 - 16) / 3),
+    height: Math.floor((Dimensions.get("window").width - 40 - 16) / 3),
+  },
+  imageThumbnailLastInRow: {
+    marginRight: 0, // 每行最后一个没有右边距
+  },
+  imageThumbnail: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 8,
   },
 });

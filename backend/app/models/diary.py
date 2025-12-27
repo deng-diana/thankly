@@ -40,8 +40,9 @@ class PresignedUrlRequest(BaseModel):
         }
 
 class ImageOnlyDiaryCreate(BaseModel):
-    """创建纯图片日记的请求数据"""
+    """创建图片日记的请求数据（支持可选文字）"""
     image_urls: List[str] = Field(..., min_items=1, max_items=9, description="图片URL列表（最多9张）")
+    content: Optional[str] = Field(None, min_length=1, max_length=5000, description="可选的文字内容")
     
     class Config:
         json_schema_extra = {
@@ -49,7 +50,8 @@ class ImageOnlyDiaryCreate(BaseModel):
                 "image_urls": [
                     "https://s3.amazonaws.com/.../image1.jpg",
                     "https://s3.amazonaws.com/.../image2.jpg"
-                ]
+                ],
+                "content": "今天和朋友一起去了公园，拍了很多照片"
             }
         }
 
