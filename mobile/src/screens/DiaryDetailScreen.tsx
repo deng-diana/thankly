@@ -36,6 +36,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
+import PreciousMomentsIcon from "../assets/icons/preciousMomentsIcon.svg";
 import { Audio } from "expo-av";
 import { getDiaryDetail } from "../services/diaryService";
 import { updateDiary } from "../services/diaryService"; // ✅ 添加
@@ -849,7 +850,7 @@ export default function DiaryDetailScreen({
         {!isEditingTitle && !isEditingContent && (
           <View style={styles.feedbackCard}>
             <View style={styles.feedbackHeader}>
-              <Ionicons name="sparkles" size={18} color="#E56C45" />
+              <PreciousMomentsIcon width={20} height={20} />
               <Text
                 style={[
                   styles.feedbackTitle,
@@ -1816,7 +1817,7 @@ const styles = StyleSheet.create({
   // ===== 音频区域 =====
   audioSection: {
     marginHorizontal: 20,
-    marginTop: 8, // ✅ 减少顶部间距，让图片和音频更紧凑
+    marginTop: 16, // ✅ 增大顶部间距，让语音条与header之间有更多空间
     marginBottom: 12, // 减少底部间距，让音频和内容卡片更近
   },
 
@@ -1867,7 +1868,7 @@ const styles = StyleSheet.create({
     ...Typography.sectionTitle,
     fontSize: 16,
     color: "#E56C45",
-    marginLeft: 6,
+    marginLeft: 8,
   },
 
   feedbackText: {

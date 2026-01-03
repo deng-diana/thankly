@@ -10,7 +10,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Audio } from "expo-av";
-import { Alert } from "react-native";
+import { Alert, AppState } from "react-native";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 
 export interface UseVoiceRecordingReturn {
@@ -29,6 +29,8 @@ export interface UseVoiceRecordingReturn {
 export function useVoiceRecording(
   maxDurationSeconds: number = 600
 ): UseVoiceRecordingReturn {
+  const KEEP_AWAKE_TAG = "voice-recording-session";
+
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [duration, setDuration] = useState(0);
@@ -39,6 +41,30 @@ export function useVoiceRecording(
   const durationIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const hasShownWarningRef = useRef(false);
 
+  const startDurationTimer = useCallback(() => {
+    if (durationIntervalRef.current) {
+      clearInterval(durationIntervalRef.current);
+    }
+    durationIntervalRef.current = setInterval(async () => {
+      if (recordingRef.current) {
+        const status = await recordingRef.current.getStatusAsync();
+        if (status.isRecording) {
+          const seconds = Math.floor(status.durationMillis / 1000);
+          setDuration(seconds);
+
+          if (seconds >= maxDurationSeconds - 60 && !hasShownWarningRef.current) {
+            hasShownWarningRef.current = true;
+            setNearLimit(true);
+          }
+
+          if (seconds >= maxDurationSeconds) {
+            stopRecording();
+          }
+        }
+      }
+    }, 1000);
+  }, [maxDurationSeconds]);
+
   // 清理资源
   useEffect(() => {
     return () => {
@@ -48,9 +74,38 @@ export function useVoiceRecording(
       if (durationIntervalRef.current) {
         clearInterval(durationIntervalRef.current);
       }
-      deactivateKeepAwake();
+      deactivateKeepAwake(KEEP_AWAKE_TAG);
     };
   }, []);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", async (state) => {
+      if (state !== "active" || !recordingRef.current) {
+        return;
+      }
+
+      try {
+        const status = await recordingRef.current.getStatusAsync();
+        const seconds = Math.floor(status.durationMillis / 1000);
+        setDuration(seconds);
+
+        if (status.isRecording) {
+          setIsRecording(true);
+          setIsPaused(false);
+          startDurationTimer();
+          await activateKeepAwakeAsync(KEEP_AWAKE_TAG);
+        } else if (status.canRecord) {
+          setIsRecording(true);
+          setIsPaused(true);
+          await activateKeepAwakeAsync(KEEP_AWAKE_TAG);
+        }
+      } catch (error) {
+        console.log("恢复录音状态失败:", error);
+      }
+    });
+
+    return () => subscription.remove();
+  }, [startDurationTimer]);
 
   const configureAudioMode = async () => {
     try {
@@ -147,7 +202,7 @@ export function useVoiceRecording(
       // ✅ 额外等待，确保所有音频播放器已完全停止
       await new Promise(resolve => setTimeout(resolve, 150));
       
-      await activateKeepAwakeAsync();
+      await activateKeepAwakeAsync(KEEP_AWAKE_TAG);
 
       const { recording } = await Audio.Recording.createAsync({
         android: {
@@ -182,31 +237,7 @@ export function useVoiceRecording(
       setNearLimit(false);
       hasShownWarningRef.current = false;
 
-      const interval = setInterval(async () => {
-        if (recordingRef.current) {
-          const status = await recordingRef.current.getStatusAsync();
-          if (status.isRecording) {
-            const seconds = Math.floor(status.durationMillis / 1000);
-            setDuration(seconds);
-
-            // 接近上限警告 (9分钟)
-            if (
-              seconds >= maxDurationSeconds - 60 &&
-              !hasShownWarningRef.current
-            ) {
-              hasShownWarningRef.current = true;
-              setNearLimit(true);
-            }
-
-            // 达到上限自动停止
-            if (seconds >= maxDurationSeconds) {
-              stopRecording();
-            }
-          }
-        }
-      }, 1000);
-
-      durationIntervalRef.current = interval;
+      startDurationTimer();
     } catch (error) {
       console.error("Failed to start recording:", error);
       Alert.alert("错误", "启动录音失败，请重试");
@@ -235,16 +266,7 @@ export function useVoiceRecording(
       await recordingRef.current.startAsync();
       setIsPaused(false);
 
-      const interval = setInterval(async () => {
-        if (recordingRef.current) {
-          const status = await recordingRef.current.getStatusAsync();
-          if (status.isRecording) {
-            const seconds = Math.floor(status.durationMillis / 1000);
-            setDuration(seconds);
-          }
-        }
-      }, 1000);
-      durationIntervalRef.current = interval;
+      startDurationTimer();
     } catch (error) {
       console.error("Failed to resume recording:", error);
     }
@@ -264,7 +286,7 @@ export function useVoiceRecording(
 
       setIsRecording(false);
       setIsPaused(false);
-      deactivateKeepAwake();
+      deactivateKeepAwake(KEEP_AWAKE_TAG);
 
       return uri;
     } catch (error) {
@@ -286,7 +308,7 @@ export function useVoiceRecording(
     setIsRecording(false);
     setIsPaused(false);
     setDuration(0);
-    deactivateKeepAwake();
+    deactivateKeepAwake(KEEP_AWAKE_TAG);
   };
 
   return {

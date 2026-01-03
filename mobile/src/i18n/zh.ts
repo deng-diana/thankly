@@ -120,8 +120,8 @@ export default {
   // 首页/日记列表
   home: {
     welcome: "Hi {name}",
-    subtitle: "这是属于你的温柔角落，记录生活的每一个瞬间",
-    myDiary: "我留住的时刻",
+    subtitle: "今天，有什么想感谢的，或想留下些什么吗？",
+    myDiary: "我珍藏的片刻",
     noDiaries: "要不要暂停一下，记录今天？开启属于你的故事",
     refreshing: "刷新中...",
     signOut: "退出登录",
@@ -135,6 +135,7 @@ export default {
     // 无障碍标签
     profileMenuButton: "打开个人资料菜单",
     diaryOptionsButton: "日记选项",
+    actionSheetTitle: "选项",
     addImageButton: "添加照片日记",
     recordVoiceButton: "录制语音日记",
     writeTextButton: "撰写文字日记",
@@ -202,6 +203,9 @@ export default {
     saveAsIs: "直接保存",
     addContent: "添加内容",
     textPreview: "已输入文字",
+    selectImage: "选择图片",
+    takePhoto: "拍照",
+    selectFromAlbum: "从相册选择",
   },
 
   // 日记通用（创建后的结果页面）
@@ -290,6 +294,7 @@ export default {
     saved: "✅ 保存成功",
     deleted: "✅ 日记删除成功",
     updated: "更新成功",
+    copied: "✅ 已复制",
     diaryCreated: "✅ 感恩时刻已保存",
     accountDeleted: "✅ 账号已删除",
   },

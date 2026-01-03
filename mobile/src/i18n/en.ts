@@ -122,8 +122,8 @@ export default {
   // 首页/日记列表
   home: {
     welcome: "Hi {name}",
-    subtitle: "This is your gentle space for life's moments",
-    myDiary: "Moments I've Kept",
+    subtitle: "Anything you’d like to appreciate, or gently share today?",
+    myDiary: "My precious moments",
     noDiaries: "Ready to pause and capture your day? Your story begins here",
     refreshing: "Refreshing...",
     signOut: "Sign out",
@@ -137,6 +137,7 @@ export default {
     // Accessibility labels
     profileMenuButton: "Open profile menu",
     diaryOptionsButton: "Diary options",
+    actionSheetTitle: "Options",
     addImageButton: "Add photo diary",
     recordVoiceButton: "Record voice diary",
     writeTextButton: "Write text diary",
@@ -204,6 +205,9 @@ export default {
     saveAsIs: "Save as is",
     addContent: "Add content",
     textPreview: "Entered Text",
+    selectImage: "Select Photo",
+    takePhoto: "Take a Picture",
+    selectFromAlbum: "Select from Album",
   },
 
   // 日记通用（创建后的结果页面）
@@ -298,6 +302,7 @@ export default {
     saved: "✅ Saved successfully",
     deleted: "✅ Entry deleted successfully",
     updated: "Updated successfully",
+    copied: "✅ Copied",
     diaryCreated: "✅ Gratitude moment saved",
     accountDeleted: "✅ Account deleted",
   },

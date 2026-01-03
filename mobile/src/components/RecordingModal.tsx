@@ -49,6 +49,8 @@ const { width } = Dimensions.get("window");
 import { t, getCurrentLocale } from "../i18n";
 import { Typography, getFontFamilyForText } from "../styles/typography";
 import ProcessingModal from "./ProcessingModal";
+import VoiceRecordingPanel from "./VoiceRecordingPanel";
+import PreciousMomentsIcon from "../assets/icons/preciousMomentsIcon.svg";
 
 interface RecordingModalProps {
   visible: boolean;
@@ -298,15 +300,6 @@ export default function RecordingModal({
 
   // ✅ 新增:手势拖动
   const dragY = useRef(new Animated.Value(0)).current;
-
-  // ✅ 格式化时间
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, "0")}:${secs
-      .toString()
-      .padStart(2, "0")}`;
-  };
 
   // ✅ 录音动画
   useEffect(() => {
@@ -1138,192 +1131,27 @@ export default function RecordingModal({
         <View style={styles.headerRight} />
       </View>
 
-      {/* 录音动画区域 */}
-      <View style={styles.animationArea}>
-        {!isProcessing && (
-          <>
-            {isRecording && !isPaused && (
-              <>
-                <Animated.View
-                  style={[
-                    styles.wave,
-                    {
-                      transform: [{ scale: waveAnim1 }],
-                      opacity: waveAnim1.interpolate({
-                        inputRange: [0, 3],
-                        outputRange: [0.7, 0],
-                      }),
-                    },
-                  ]}
-                />
-                <Animated.View
-                  style={[
-                    styles.wave,
-                    {
-                      transform: [{ scale: waveAnim2 }],
-                      opacity: waveAnim2.interpolate({
-                        inputRange: [0, 3],
-                        outputRange: [0.7, 0],
-                      }),
-                    },
-                  ]}
-                />
-                <Animated.View
-                  style={[
-                    styles.wave,
-                    {
-                      transform: [{ scale: waveAnim3 }],
-                      opacity: waveAnim3.interpolate({
-                        inputRange: [0, 3],
-                        outputRange: [0.7, 0],
-                      }),
-                    },
-                  ]}
-                />
-              </>
-            )}
-
-            <Animated.View
-              style={[
-                styles.iconContainer,
-                {
-                  transform: [{ scale: pulseAnim }],
-                },
-              ]}
-            >
-              <Ionicons
-                name={isPaused ? "pause" : "mic"}
-                size={44}
-                color="#E56C45"
-              />
-            </Animated.View>
-
-            <Text
-              style={[
-                styles.statusText,
-                {
-                  fontFamily: getFontFamilyForText(
-                    isPaused
-                      ? t("diary.pauseRecording")
-                      : nearLimit
-                      ? t("recording.nearLimit")
-                      : "",
-                    "regular"
-                  ),
-                },
-              ]}
-            >
-              {isPaused
-                ? t("diary.pauseRecording")
-                : nearLimit
-                ? t("recording.nearLimit")
-                : ""}
-            </Text>
-
-            <View style={styles.timeRow}>
-              <Text
-                style={[
-                  styles.durationText,
-                  {
-                    fontFamily: getFontFamilyForText(
-                      formatTime(duration),
-                      "regular"
-                    ),
-                  },
-                ]}
-              >
-                {formatTime(duration)}
-              </Text>
-              <Text
-                style={[
-                  styles.maxDuration,
-                  {
-                    fontFamily: getFontFamilyForText(" / 10:00", "regular"),
-                  },
-                ]}
-              >
-                {" / 10:00"}
-              </Text>
-            </View>
-          </>
-        )}
-      </View>
-
-      {/* 底部控制按钮 */}
-      <View style={styles.controls}>
-        {isProcessing ? (
-          <View style={{ height: 72 }} />
-        ) : (
-          <>
-            <TouchableOpacity
-              style={styles.cancelButton}
-              onPress={handleCancelRecording}
-              accessibilityLabel={t("common.cancel")}
-              accessibilityHint={t("accessibility.button.cancelHint")}
-              accessibilityRole="button"
-            >
-              <Text
-                style={[
-                  styles.cancelText,
-                  {
-                    fontFamily: getFontFamilyForText(
-                      t("common.cancel"),
-                      "regular"
-                    ),
-                  },
-                ]}
-              >
-                {t("common.cancel")}
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.pauseButton}
-              onPress={isPaused ? resumeRecording : pauseRecording}
-              accessibilityLabel={
-                isPaused
-                  ? t("createVoiceDiary.resumeRecording")
-                  : t("createVoiceDiary.pauseRecording")
-              }
-              accessibilityHint={
-                isPaused
-                  ? t("accessibility.button.recordHint")
-                  : t("accessibility.button.stopHint")
-              }
-              accessibilityRole="button"
-              accessibilityState={{ selected: !isPaused }}
-            >
-              <Ionicons
-                name={isPaused ? "play" : "pause"}
-                size={32}
-                color="#fff"
-              />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.finishButton}
-              onPress={handleFinishRecording}
-              accessibilityLabel={t("common.done")}
-              accessibilityHint={t("accessibility.button.continueHint")}
-              accessibilityRole="button"
-            >
-              <Text
-                style={[
-                  styles.finishText,
-                  {
-                    fontFamily: getFontFamilyForText(
-                      t("common.done"),
-                      "semibold"
-                    ),
-                  },
-                ]}
-              >
-                {t("common.done")}
-              </Text>
-            </TouchableOpacity>
-          </>
-        )}
-      </View>
+      {!isProcessing ? (
+        <VoiceRecordingPanel
+          isRecording={isRecording}
+          isPaused={isPaused}
+          duration={duration}
+          nearLimit={nearLimit}
+          waveAnim1={waveAnim1}
+          waveAnim2={waveAnim2}
+          waveAnim3={waveAnim3}
+          pulseAnim={pulseAnim}
+          onCancel={handleCancelRecording}
+          onTogglePause={isPaused ? resumeRecording : pauseRecording}
+          onFinish={handleFinishRecording}
+        />
+      ) : (
+        <View style={styles.animationArea}>
+          <View style={styles.processingContent}>
+            <ProcessingAnimation />
+          </View>
+        </View>
+      )}
     </>
   );
 
@@ -1553,7 +1381,7 @@ export default function RecordingModal({
               !!resultDiary?.ai_feedback && (
                 <View style={styles.resultFeedbackCard}>
                   <View style={styles.resultFeedbackHeader}>
-                    <Ionicons name="sparkles" size={18} color="#E56C45" />
+                    <PreciousMomentsIcon width={20} height={20} />
                     <Text
                       style={[
                         styles.resultFeedbackTitle,
@@ -1849,7 +1677,7 @@ const styles = StyleSheet.create({
     ...Typography.sectionTitle,
     fontSize: 16,
     color: "#E56C45",
-    marginLeft: 6,
+    marginLeft: 8,
   },
   resultFeedbackText: {
     ...Typography.body,

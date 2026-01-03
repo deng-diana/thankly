@@ -12,6 +12,7 @@ import {
   StyleSheet,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import PreciousMomentsIcon from "../assets/icons/preciousMomentsIcon.svg";
 import { Typography, getFontFamilyForText } from "../styles/typography";
 import { t } from "../i18n";
 
@@ -96,7 +97,7 @@ export default function DiaryResultView({
       {!isEditing && !!aiFeedback && (
         <View style={styles.resultFeedbackCard}>
           <View style={styles.resultFeedbackHeader}>
-            <Ionicons name="sparkles" size={18} color="#E56C45" />
+            <PreciousMomentsIcon width={20} height={20} />
             <Text
               style={[
                 styles.resultFeedbackTitle,
@@ -182,7 +183,7 @@ const styles = StyleSheet.create({
     ...Typography.sectionTitle,
     fontSize: 16,
     color: "#E56C45",
-    marginLeft: 6,
+    marginLeft: 8,
   },
 
   resultFeedbackText: {

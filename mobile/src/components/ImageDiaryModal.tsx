@@ -41,8 +41,13 @@ import {
 import { uploadDiaryImages } from "../services/diaryService";
 import ImageInputIcon from "../assets/icons/addImageIcon.svg";
 import TextInputIcon from "../assets/icons/textInputIcon.svg";
+import CameraIcon from "../assets/icons/cameraIcon.svg";
+import AlbumIcon from "../assets/icons/albumIcon.svg";
+import PreciousMomentsIcon from "../assets/icons/preciousMomentsIcon.svg";
+import MicIcon from "../assets/icons/micIcon.svg";
 import { t } from "../i18n";
 import ProcessingModal from "./ProcessingModal";
+import VoiceRecordingPanel from "./VoiceRecordingPanel";
 import AudioPlayer from "./AudioPlayer";
 import { Typography, getFontFamilyForText } from "../styles/typography";
 
@@ -560,17 +565,6 @@ export default function ImageDiaryModal({
     setResultCurrentTime(0);
     setResultDuration(0);
     onClose();
-  };
-
-  /**
-   * 格式化时间
-   */
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, "0")}:${secs
-      .toString()
-      .padStart(2, "0")}`;
   };
 
   /**
@@ -1197,7 +1191,7 @@ export default function ImageDiaryModal({
               !!resultDiary?.ai_feedback && (
                 <View style={styles.resultFeedbackCard}>
                   <View style={styles.resultFeedbackHeader}>
-                    <Ionicons name="sparkles" size={18} color="#E56C45" />
+                    <PreciousMomentsIcon width={20} height={20} />
                     <Text
                       style={[
                         styles.resultFeedbackTitle,
@@ -1335,65 +1329,82 @@ export default function ImageDiaryModal({
             onPress={(e) => e.stopPropagation()}
           >
             <View style={styles.pickerContainer}>
-              <Text
-                style={[
-                  styles.pickerTitle,
-                  {
-                    fontFamily: getFontFamilyForText("选择图片", "medium"),
-                  },
-                ]}
-              >
-                选择图片
-              </Text>
+              {/* 顶部Header: 标题 + 关闭按钮 */}
+              <View style={styles.pickerHeader}>
+                <Text
+                  style={[
+                    styles.pickerTitle,
+                    {
+                      fontFamily: getFontFamilyForText(
+                        t("createImageDiary.selectImage"),
+                        "medium"
+                      ),
+                    },
+                  ]}
+                >
+                  {t("createImageDiary.selectImage")}
+                </Text>
+                <TouchableOpacity
+                  style={styles.pickerCloseButton}
+                  onPress={handlePickerCancel}
+                  accessibilityLabel={t("common.close")}
+                  accessibilityHint={t("accessibility.button.closeHint")}
+                  accessibilityRole="button"
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Ionicons name="close-outline" size={24} color="#666" />
+                </TouchableOpacity>
+              </View>
 
+              {/* 标题下方的分割线 */}
+              <View style={styles.pickerHeaderDivider} />
+
+              {/* 拍照选项 */}
               <TouchableOpacity
                 style={styles.pickerOption}
                 onPress={handleTakePhoto}
               >
-                <Text
-                  style={[
-                    styles.pickerOptionText,
-                    {
-                      fontFamily: getFontFamilyForText("📷 拍照", "regular"),
-                    },
-                  ]}
-                >
-                  📷 拍照
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.pickerOption}
-                onPress={handlePickFromGallery}
-              >
+                <View style={styles.pickerOptionIcon}>
+                  <CameraIcon width={32} height={32} />
+                </View>
                 <Text
                   style={[
                     styles.pickerOptionText,
                     {
                       fontFamily: getFontFamilyForText(
-                        "🖼️ 从相册选择",
+                        t("createImageDiary.takePhoto"),
                         "regular"
                       ),
                     },
                   ]}
                 >
-                  🖼️ 从相册选择
+                  {t("createImageDiary.takePhoto")}
                 </Text>
               </TouchableOpacity>
 
+              {/* 分隔线 */}
+              <View style={styles.pickerDivider} />
+
+              {/* 从相册选择选项 */}
               <TouchableOpacity
-                style={styles.pickerCancel}
-                onPress={handlePickerCancel}
+                style={styles.pickerOption}
+                onPress={handlePickFromGallery}
               >
+                <View style={styles.pickerOptionIcon}>
+                  <AlbumIcon width={32} height={32} />
+                </View>
                 <Text
                   style={[
-                    styles.pickerCancelText,
+                    styles.pickerOptionText,
                     {
-                      fontFamily: getFontFamilyForText("取消", "regular"),
+                      fontFamily: getFontFamilyForText(
+                        t("createImageDiary.selectFromAlbum"),
+                        "regular"
+                      ),
                     },
                   ]}
                 >
-                  取消
+                  {t("createImageDiary.selectFromAlbum")}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -1563,6 +1574,55 @@ export default function ImageDiaryModal({
                           accessibilityHint={t("accessibility.input.textHint")}
                           accessibilityRole="text"
                         />
+                        {/* 语音按钮 - 放在输入框左下角 */}
+                        <TouchableOpacity
+                          style={styles.inputVoiceButton}
+                          onPress={async () => {
+                            // ✅ 进入录音模式
+                            try {
+                              setIsRecordingMode(true);
+
+                              // ✅ 关键修复1：先停止并清理所有音频播放器
+                              if (resultSoundRef.current) {
+                                try {
+                                  await resultSoundRef.current.stopAsync();
+                                  await resultSoundRef.current.unloadAsync();
+                                } catch (error) {
+                                  console.log("清理音频播放器时出错（可忽略）:", error);
+                                }
+                                resultSoundRef.current = null;
+                                setIsPlayingResult(false);
+                              }
+
+                              // ✅ 关键修复2：先取消之前的录音，确保录音对象被完全清理
+                              try {
+                                await cancelRecording();
+                              } catch (error) {
+                                console.log("取消之前的录音时出错（可忽略）:", error);
+                              }
+
+                              // ✅ 关键修复3：增加等待时间，确保音频系统完全准备好
+                              // 先等待 200ms 让音频播放器完全停止
+                              await new Promise((resolve) => setTimeout(resolve, 200));
+                              // 再等待 100ms 让音频系统完全重置
+                              await new Promise((resolve) => setTimeout(resolve, 100));
+
+                              // ✅ 现在可以安全地开始录音
+                              await startRecording();
+                            } catch (error) {
+                              console.error("启动录音失败:", error);
+                              Alert.alert("错误", "启动录音失败，请重试");
+                              setIsRecordingMode(false);
+                            }
+                          }}
+                          activeOpacity={0.8}
+                          accessibilityLabel={t("diary.startRecording")}
+                          accessibilityHint={t("accessibility.button.recordHint")}
+                          accessibilityRole="button"
+                        >
+                          <MicIcon width={16} height={16} />
+                        </TouchableOpacity>
+                        {/* 字符计数器 - 放在输入框右下角 */}
                         <Text
                           style={[
                             styles.charCount,
@@ -1629,243 +1689,22 @@ export default function ImageDiaryModal({
           {/* ✅ 录音模式时，显示底部面板 */}
           {!isProcessing && isRecordingMode && images.length > 0 && (
             <View style={styles.recordingOverlay}>
-              {/* 录音动画区域 - 只在录音模式时显示 */}
-              <View style={styles.recordingAnimationArea}>
-                <>
-                  {/* 录音波纹动画 */}
-                  {isRecording && !isPaused && (
-                    <>
-                      <Animated.View
-                        style={[
-                          styles.wave,
-                          {
-                            transform: [{ scale: waveAnim1 }],
-                            opacity: waveAnim1.interpolate({
-                              inputRange: [0, 3],
-                              outputRange: [0.7, 0],
-                            }),
-                          },
-                        ]}
-                      />
-                      <Animated.View
-                        style={[
-                          styles.wave,
-                          {
-                            transform: [{ scale: waveAnim2 }],
-                            opacity: waveAnim2.interpolate({
-                              inputRange: [0, 3],
-                              outputRange: [0.7, 0],
-                            }),
-                          },
-                        ]}
-                      />
-                      <Animated.View
-                        style={[
-                          styles.wave,
-                          {
-                            transform: [{ scale: waveAnim3 }],
-                            opacity: waveAnim3.interpolate({
-                              inputRange: [0, 3],
-                              outputRange: [0.7, 0],
-                            }),
-                          },
-                        ]}
-                      />
-                    </>
-                  )}
-
-                  {/* 麦克风图标 */}
-                  <Animated.View
-                    style={[
-                      styles.iconContainer,
-                      { transform: [{ scale: pulseAnim }] },
-                    ]}
-                  >
-                    <Ionicons
-                      name={isPaused ? "pause" : "mic"}
-                      size={44}
-                      color="#E56C45"
-                    />
-                  </Animated.View>
-
-                  {/* 状态文字 */}
-                  <Text
-                    style={[
-                      styles.recordingStatusText,
-                      {
-                        fontFamily: getFontFamilyForText(
-                          isPaused
-                            ? t("diary.pauseRecording")
-                            : nearLimit
-                            ? t("recording.nearLimit")
-                            : "",
-                          "regular"
-                        ),
-                      },
-                    ]}
-                  >
-                    {isPaused
-                      ? t("diary.pauseRecording")
-                      : nearLimit
-                      ? t("recording.nearLimit")
-                      : ""}
-                  </Text>
-
-                  {/* 时间显示 */}
-                  <View style={styles.timeRow}>
-                    <Text
-                      style={[
-                        styles.durationText,
-                        {
-                          fontFamily: getFontFamilyForText(
-                            formatTime(recordingDuration),
-                            "regular"
-                          ),
-                        },
-                      ]}
-                    >
-                      {formatTime(recordingDuration)}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.maxDuration,
-                        {
-                          fontFamily: getFontFamilyForText(
-                            " / 10:00",
-                            "regular"
-                          ),
-                        },
-                      ]}
-                    >
-                      {" / 10:00"}
-                    </Text>
-                  </View>
-                </>
-              </View>
-
-              {/* 录音控制按钮 */}
-              {!isProcessing && (
-                <View style={styles.recordingControls}>
-                  <TouchableOpacity
-                    style={styles.cancelButton}
-                    onPress={handleCancelRecording}
-                    accessibilityLabel={t("common.cancel")}
-                    accessibilityHint={t("accessibility.button.cancelHint")}
-                    accessibilityRole="button"
-                  >
-                    <Text
-                      style={[
-                        styles.cancelText,
-                        {
-                          fontFamily: getFontFamilyForText(
-                            t("common.cancel"),
-                            "regular"
-                          ),
-                        },
-                      ]}
-                    >
-                      {t("common.cancel")}
-                    </Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.pauseButton}
-                    onPress={isPaused ? resumeRecording : pauseRecording}
-                    accessibilityLabel={
-                      isPaused
-                        ? t("createVoiceDiary.resumeRecording")
-                        : t("createVoiceDiary.pauseRecording")
-                    }
-                    accessibilityHint={
-                      isPaused
-                        ? t("accessibility.button.recordHint")
-                        : t("accessibility.button.stopHint")
-                    }
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: !isPaused }}
-                  >
-                    <Ionicons
-                      name={isPaused ? "play" : "pause"}
-                      size={32}
-                      color="#fff"
-                    />
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.finishButton}
-                    onPress={finishRecording}
-                    accessibilityLabel={t("common.done")}
-                    accessibilityHint={t("accessibility.button.continueHint")}
-                    accessibilityRole="button"
-                  >
-                    <Text
-                      style={[
-                        styles.finishText,
-                        {
-                          fontFamily: getFontFamilyForText(
-                            t("common.done"),
-                            "semibold"
-                          ),
-                        },
-                      ]}
-                    >
-                      {t("common.done")}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              )}
+              <VoiceRecordingPanel
+                isRecording={isRecording}
+                isPaused={isPaused}
+                duration={recordingDuration}
+                nearLimit={nearLimit}
+                waveAnim1={waveAnim1}
+                waveAnim2={waveAnim2}
+                waveAnim3={waveAnim3}
+                pulseAnim={pulseAnim}
+                onCancel={handleCancelRecording}
+                onTogglePause={isPaused ? resumeRecording : pauseRecording}
+                onFinish={finishRecording}
+              />
             </View>
           )}
 
-          {/* 底部工具栏 - 只保留语音按钮，居中显示（非录音模式时） */}
-          {images.length > 0 && !isRecordingMode && (
-            <View style={styles.bottomToolbar}>
-              <TouchableOpacity
-                style={styles.toolbarRecordButton}
-                onPress={async () => {
-                  // ✅ 进入录音模式
-                  try {
-                    setIsRecordingMode(true);
-
-                    // ✅ 关键修复1：先停止并清理所有音频播放器
-                    if (resultSoundRef.current) {
-                      try {
-                        await resultSoundRef.current.stopAsync();
-                        await resultSoundRef.current.unloadAsync();
-                      } catch (error) {
-                        console.log("清理音频播放器时出错（可忽略）:", error);
-                      }
-                      resultSoundRef.current = null;
-                      setIsPlayingResult(false);
-                    }
-
-                    // ✅ 关键修复2：先取消之前的录音，确保录音对象被完全清理
-                    try {
-                      await cancelRecording();
-                    } catch (error) {
-                      console.log("取消之前的录音时出错（可忽略）:", error);
-                    }
-
-                    // ✅ 关键修复3：增加等待时间，确保音频系统完全准备好
-                    // 先等待 200ms 让音频播放器完全停止
-                    await new Promise((resolve) => setTimeout(resolve, 200));
-                    // 再等待 100ms 让音频系统完全重置
-                    await new Promise((resolve) => setTimeout(resolve, 100));
-
-                    // ✅ 现在可以安全地开始录音
-                    await startRecording();
-                  } catch (error) {
-                    console.error("启动录音失败:", error);
-                    Alert.alert("错误", "启动录音失败，请重试");
-                    setIsRecordingMode(false);
-                  }
-                }}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="mic" size={26} color="#fff" />
-              </TouchableOpacity>
-            </View>
-          )}
         </View>
 
         {/* 确认弹窗 */}
@@ -1996,33 +1835,51 @@ const styles = StyleSheet.create({
     paddingTop: 20,
     paddingBottom: Platform.OS === "ios" ? 40 : 20,
   },
+  pickerHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 16,
+  },
   pickerTitle: {
     fontSize: 18,
     fontWeight: "600",
-    textAlign: "center",
-    marginBottom: 20,
+    textAlign: "left",
     color: "#333",
+    flex: 1,
+  },
+  pickerCloseButton: {
+    padding: 4,
+  },
+  pickerHeaderDivider: {
+    height: 1,
+    backgroundColor: "#F0F0F0",
+    marginBottom: 4,
   },
   pickerOption: {
-    backgroundColor: "#F5F5F5",
-    padding: 18,
-    borderRadius: 12,
-    marginBottom: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 18,
+    paddingHorizontal: 0,
+  },
+  pickerOptionIcon: {
+    width: 28,
+    height: 28,
+    marginRight: 12,
+    alignItems: "center",
+    justifyContent: "center",
   },
   pickerOptionText: {
     fontSize: 16,
-    fontWeight: "500",
-    textAlign: "center",
-    color: "#333",
+    fontWeight: "400",
+    textAlign: "left",
+    color: "#1A1A1A",
+    flex: 1,
   },
-  pickerCancel: {
-    marginTop: 8,
-    padding: 18,
-  },
-  pickerCancelText: {
-    fontSize: 16,
-    textAlign: "center",
-    color: "#999",
+  pickerDivider: {
+    height: 1,
+    backgroundColor: "#F0F0F0",
+    marginVertical: 0,
   },
 
   // 图片预览界面样式
@@ -2108,10 +1965,30 @@ const styles = StyleSheet.create({
     backgroundColor: "#FAF6ED",
     borderRadius: 12,
     padding: 16,
-    paddingBottom: 40, // 为字符计数留出空间
+    paddingLeft: 64, // 为左下角语音按钮留出空间
+    paddingBottom: 40, // 为字符计数和按钮留出空间
     color: "#1A1A1A",
     textAlignVertical: "top",
     minHeight: 200,
+  },
+  inputVoiceButton: {
+    position: "absolute",
+    left: 12,
+    bottom: 12,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#E56C45",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#E56C45",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 4,
   },
   charCount: {
     position: "absolute",
@@ -2553,7 +2430,7 @@ const styles = StyleSheet.create({
     ...Typography.sectionTitle,
     fontSize: 16,
     color: "#E56C45",
-    marginLeft: 6,
+    marginLeft: 8,
   },
   resultFeedbackText: {
     ...Typography.body,

@@ -8,6 +8,72 @@ import apiService from "./apiService";
 import { getAccessToken } from "./authService"; // ← 需要这个
 import { refreshAccessToken } from "./authService"; // ← 自动刷新
 import { API_BASE_URL } from "../config/aws-config"; // ← 需要这个
+import * as FileSystem from "expo-file-system";
+
+type PreparedImage = {
+  uri: string;
+  fileName: string;
+  contentType: string;
+};
+
+const MAX_SKIP_COMPRESSION_BYTES = 800 * 1024;
+const JPEG_QUALITY = 0.7;
+const PNG_QUALITY = 0.8;
+
+async function prepareImageForUpload(
+  uri: string,
+  index: number
+): Promise<PreparedImage> {
+  const rawFileName = uri.split("/").pop() || `image${index + 1}.jpg`;
+  const lower = rawFileName.toLowerCase();
+  const ext = lower.includes(".") ? lower.slice(lower.lastIndexOf(".")) : "";
+
+  let contentType = "image/jpeg";
+  if (ext === ".png") {
+    contentType = "image/png";
+  } else if (ext === ".heic") {
+    contentType = "image/heic";
+  } else if (ext === ".jpeg" || ext === ".jpg") {
+    contentType = "image/jpeg";
+  }
+
+  let size: number | null = null;
+  try {
+    const info = await FileSystem.getInfoAsync(uri, { size: true });
+    if (info.exists && typeof info.size === "number") {
+      size = info.size;
+    }
+  } catch (_) {
+    // 读取大小失败时继续压缩流程
+  }
+
+  const shouldCompress = size === null || size >= MAX_SKIP_COMPRESSION_BYTES;
+  if (!shouldCompress) {
+    return { uri, fileName: rawFileName, contentType };
+  }
+
+  try {
+    const { manipulateAsync, SaveFormat } = await import(
+      "expo-image-manipulator"
+    );
+    const targetFormat = ext === ".png" ? SaveFormat.PNG : SaveFormat.JPEG;
+    const compress = ext === ".png" ? PNG_QUALITY : JPEG_QUALITY;
+    const result = await manipulateAsync(uri, [], {
+      compress,
+      format: targetFormat,
+    });
+
+    const outputExt = targetFormat === SaveFormat.PNG ? ".png" : ".jpg";
+    const fileNameBase = rawFileName.replace(/\.[^/.]+$/, "") || `image${index + 1}`;
+    const fileName = `${fileNameBase}${outputExt}`;
+    const outputType = targetFormat === SaveFormat.PNG ? "image/png" : "image/jpeg";
+
+    return { uri: result.uri, fileName, contentType: outputType };
+  } catch (error) {
+    console.log("图片压缩失败，使用原图:", error);
+    return { uri, fileName: rawFileName, contentType };
+  }
+}
 
 /**
  * 日记数据类型（后端返回的格式）
@@ -117,10 +183,18 @@ export async function createImageOnlyDiary(
     // ✅ 判断是URL还是本地URI
     // URL格式：https:// 或 http://
     // 本地URI格式：file:// 或 content://
-    const isUrl = imageUrlsOrUris.length > 0 && (
-      imageUrlsOrUris[0].startsWith("http://") || 
-      imageUrlsOrUris[0].startsWith("https://")
+    const hasUrls = imageUrlsOrUris.some(
+      (uri) => uri.startsWith("http://") || uri.startsWith("https://")
     );
+    const hasLocalUris = imageUrlsOrUris.some(
+      (uri) => uri.startsWith("file://") || uri.startsWith("content://")
+    );
+
+    if (hasUrls && hasLocalUris) {
+      throw new Error("图片来源不一致，请全部使用本地图片或已上传的URL");
+    }
+
+    const isUrl = hasUrls;
 
     let imageUrls: string[];
     
@@ -206,27 +280,17 @@ export async function uploadDiaryImages(
       }
     }
 
-    // Step 2: Extract file names and content types
-    const fileNames: string[] = [];
-    const contentTypes: string[] = [];
+    // Step 2: Prepare images (compress if needed)
+    const preparedImages = await Promise.all(
+      imageUris.map((uri, index) => prepareImageForUpload(uri, index))
+    );
 
-    imageUris.forEach((uri, index) => {
-      const filename = uri.split("/").pop() || `image${index + 1}.jpg`;
-      fileNames.push(filename);
+    const fileNames = preparedImages.map((img) => img.fileName);
+    const contentTypes = preparedImages.map((img) => img.contentType);
 
-      // Detect content type from filename
-      let contentType = "image/jpeg"; // default
-      if (filename.toLowerCase().endsWith(".png")) {
-        contentType = "image/png";
-      } else if (filename.toLowerCase().endsWith(".heic")) {
-        contentType = "image/heic";
-      }
-      contentTypes.push(contentType);
-
+    preparedImages.forEach((img, index) => {
       console.log(
-        `  📎 准备图片 ${index + 1}/${
-          imageUris.length
-        }: ${filename} (${contentType})`
+        `  📎 准备图片 ${index + 1}/${preparedImages.length}: ${img.fileName} (${img.contentType})`
       );
     });
 
@@ -288,8 +352,8 @@ export async function uploadDiaryImages(
         console.log("📤 Step 2: 直接上传到 S3...");
         const finalUrls: string[] = [];
 
-        for (let i = 0; i < imageUris.length; i++) {
-          const uri = imageUris[i];
+        for (let i = 0; i < preparedImages.length; i++) {
+          const uri = preparedImages[i].uri;
           const presignedData = presignedUrls[i];
 
           console.log(`  📤 上传图片 ${i + 1}/${imageUris.length} 到 S3...`);
@@ -336,9 +400,9 @@ export async function uploadDiaryImages(
     console.log("📤 Step 2: 直接上传到 S3...");
     const finalUrls: string[] = [];
 
-    for (let i = 0; i < imageUris.length; i++) {
-      const uri = imageUris[i];
-      const presignedData = presignedUrls[i];
+        for (let i = 0; i < preparedImages.length; i++) {
+          const uri = preparedImages[i].uri;
+          const presignedData = presignedUrls[i];
 
       console.log(`  📤 上传图片 ${i + 1}/${imageUris.length} 到 S3...`);
       console.log(`  📎 图片URI: ${uri}`);
@@ -356,11 +420,11 @@ export async function uploadDiaryImages(
         console.log(`  📎 图片大小: ${blob.size} bytes`);
 
         // Upload to S3 using presigned URL
-        const uploadResponse = await fetch(presignedData.presigned_url, {
-          method: "PUT",
-          headers: {
-            "Content-Type": contentTypes[i],
-          },
+          const uploadResponse = await fetch(presignedData.presigned_url, {
+            method: "PUT",
+            headers: {
+              "Content-Type": contentTypes[i],
+            },
           body: blob,
         });
 
