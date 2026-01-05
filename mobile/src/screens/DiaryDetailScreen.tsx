@@ -720,7 +720,7 @@ export default function DiaryDetailScreen({
                       isChineseTitle ? "bold" : "semibold"
                     ),
                     fontWeight: isChineseTitle ? "700" : "600",
-                    fontSize: isChineseTitle ? 18 : 20,
+                    fontSize: isChineseTitle ? 16 : 18,
                     lineHeight: isChineseTitle ? 26 : 24,
                   },
                 ]}

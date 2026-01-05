@@ -995,6 +995,11 @@ export default function DiaryListScreen() {
     setProfileMenuVisible(false);
   };
 
+  const handleReminderSettings = () => {
+    setProfileMenuVisible(false);
+    navigation.navigate("ReminderSettings");
+  };
+
   const handleOpenPrivacyPolicy = () => {
     setProfileMenuVisible(false);
     navigation.navigate("PrivacyPolicy");
@@ -1305,6 +1310,31 @@ export default function DiaryListScreen() {
 
           {/* 分割线 */}
           <View style={styles.profileMenuDivider} />
+
+          {/* Reminder Settings */}
+          <TouchableOpacity
+            style={styles.profileMenuItem}
+            onPress={handleReminderSettings}
+            accessibilityLabel={t("home.reminderSettings")}
+            accessibilityHint={t("accessibility.button.openSettingsHint")}
+            accessibilityRole="button"
+          >
+            <Ionicons name="notifications-outline" size={20} color="#332824" />
+            <Text
+              style={[
+                styles.profileMenuItemText,
+                typography.body,
+                {
+                  fontFamily: getFontFamilyForText(
+                    t("home.reminderSettings"),
+                    "regular"
+                  ),
+                },
+              ]}
+            >
+              {t("home.reminderSettings")}
+            </Text>
+          </TouchableOpacity>
 
           {/* Support & Feedback */}
           <TouchableOpacity
@@ -1823,7 +1853,7 @@ export default function DiaryListScreen() {
                   {
                     fontFamily: titleFontFamily,
                     fontWeight: isChineseTitle ? "700" : "600",
-                    fontSize: isChineseTitle ? 18 : 20,
+                    fontSize: isChineseTitle ? 16 : 18,
                     lineHeight: isChineseTitle ? 26 : 24,
                   },
                 ]}

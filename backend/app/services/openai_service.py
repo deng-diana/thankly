@@ -375,13 +375,37 @@ class OpenAIService:
             
             print(f"✨ 开始AI处理（并行模式）: {text[:50]}...")
             
-            # 检测语言
+            # 🔥 优化语言检测：更准确地识别用户输入的主要语言
             import re
-            chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', text))
-            is_chinese = chinese_chars > len(text) * 0.2
-            detected_lang = "Chinese" if is_chinese else "English"
+            # 移除空白字符和标点，只统计实际内容字符
+            content_only = re.sub(r'[\s\W]', '', text)
+            chinese_chars = 0
+            english_words = 0
             
-            print(f"🌍 检测到语言: {detected_lang}")
+            if not content_only:
+                # 如果只有空白和标点，默认使用中文
+                detected_lang = "Chinese"
+            else:
+                # 统计中文字符
+                chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', content_only))
+                # 统计英文字符（单词）
+                english_words = len(re.findall(r'[a-zA-Z]+', content_only))
+                # 计算中文字符占比
+                chinese_ratio = chinese_chars / len(content_only) if len(content_only) > 0 else 0
+                # 计算英文单词占比（每个单词平均5个字符估算）
+                english_ratio = (english_words * 5) / len(content_only) if len(content_only) > 0 else 0
+                
+                # 🔥 关键逻辑：如果中文字符占比超过30%，或者中文字符数量明显多于英文单词，判定为中文
+                # 这样可以避免"少量中文+大量英文"被误判为英文的情况
+                if chinese_ratio > 0.3 or (chinese_chars > 5 and chinese_chars > english_words * 2):
+                    detected_lang = "Chinese"
+                elif english_ratio > 0.5 or english_words > 10:
+                    detected_lang = "English"
+                else:
+                    # 默认：如果中文字符存在且数量>=3，判定为中文
+                    detected_lang = "Chinese" if chinese_chars >= 3 else "English"
+            
+            print(f"🌍 检测到语言: {detected_lang} (中文字符={chinese_chars}, 英文单词={english_words})")
             
             # 🔥 关键改动：并行执行两个任务
             print(f"🚀 启动并行处理...")
@@ -480,27 +504,60 @@ class OpenAIService:
         try:
             print(f"🎨 GPT-4o-mini: 开始润色和生成标题...")
             
-            # ✅ 根据传入的 language 参数构建 prompt
-            # 如果 language 是 Chinese，强制使用中文；如果是 English，强制使用英文
-            # 如果内容中有其他语言（如日文），保持原样但不影响标题语言
+            # 🔥 优化：根据传入的 language 参数构建更严格的 prompt
+            # 核心原则：标题语言必须与用户输入内容的主要语言完全一致
             language_instruction = ""
             if language == "Chinese":
-                language_instruction = """Language: CRITICAL - You MUST respond in Chinese (简体中文). 
-- Title MUST be in Chinese, even if the content contains other languages (Japanese, Korean, etc.)
-- Polished content should preserve the original language of each part, but the title MUST be Chinese
-- Example: If content is "オレンジの魅力 Talking about orange...", title should be "橙子的魅力" (Chinese), not "オレンジの魅力" (Japanese)"""
+                language_instruction = """🚨 CRITICAL LANGUAGE RULE - YOU MUST FOLLOW:
+The user's content is primarily in CHINESE (简体中文). 
+
+MANDATORY REQUIREMENTS:
+1. **Title MUST be in Chinese (简体中文) ONLY** - NO English, NO Japanese, NO Korean
+2. **Title language must match the user's input language** - If user writes in Chinese, title MUST be Chinese
+3. Even if the content contains some English words or other languages, the title MUST be in Chinese
+4. Polished content should preserve the original language of each part, but the title MUST be Chinese
+
+WRONG Examples (DO NOT DO THIS):
+- User input in Chinese → Title: "Reflections on..." ❌
+- User input in Chinese → Title: "オレンジの魅力" ❌
+
+CORRECT Examples:
+- User input: "我先试一下语音输入，现在怎么样" → Title: "语音输入的尝试" ✅
+- User input: "オレンジの魅力 Talking about orange..." → Title: "橙子的魅力" ✅ (Chinese, not Japanese)"""
             elif language == "English":
-                language_instruction = """Language: CRITICAL - You MUST respond in English. 
-- Title MUST be in English, even if the content contains other languages (Japanese, Korean, Chinese, etc.)
-- Polished content should preserve the original language of each part, but the title MUST be English
-- Example: If content is "オレンジの魅力 Talking about orange...", title should be "The Charm of Oranges" (English), not "オレンジの魅力" (Japanese)"""
+                language_instruction = """🚨 CRITICAL LANGUAGE RULE - YOU MUST FOLLOW:
+The user's content is primarily in ENGLISH.
+
+MANDATORY REQUIREMENTS:
+1. **Title MUST be in English ONLY** - NO Chinese, NO Japanese, NO Korean
+2. **Title language must match the user's input language** - If user writes in English, title MUST be English
+3. Even if the content contains some Chinese words or other languages, the title MUST be in English
+4. Polished content should preserve the original language of each part, but the title MUST be English
+
+WRONG Examples (DO NOT DO THIS):
+- User input in English → Title: "今日记录" ❌
+- User input in English → Title: "オレンジの魅力" ❌
+
+CORRECT Examples:
+- User input: "today was good i went to park" → Title: "A Day at the Park" ✅
+- User input: "オレンジの魅力 Talking about orange..." → Title: "The Charm of Oranges" ✅ (English, not Japanese)"""
             else:
-                # 默认：检测语言，但优先中文或英文
-                language_instruction = """Language: Detect the user's primary language. 
-- If content is primarily Chinese, respond in Chinese
-- If content is primarily English, respond in English
-- If content contains mixed languages, use the language that appears most frequently
-- NEVER use Japanese or Korean for titles unless the ENTIRE content is in that language"""
+                # 默认：检测语言，但必须严格匹配
+                language_instruction = """🚨 CRITICAL LANGUAGE RULE - YOU MUST FOLLOW:
+Detect the user's PRIMARY language from their input content.
+
+MANDATORY REQUIREMENTS:
+1. **Title language MUST match the user's primary input language**
+2. If content is primarily Chinese → Title MUST be Chinese
+3. If content is primarily English → Title MUST be English
+4. If content contains mixed languages, use the language that appears MOST FREQUENTLY
+5. NEVER use Japanese or Korean for titles unless the ENTIRE content is in that language
+6. **DO NOT mix languages in the title** - Use ONE language only, matching the user's primary language
+
+Examples:
+- User input: "今天天气很好" (Chinese) → Title: "美好的天气" ✅ (Chinese)
+- User input: "today was good" (English) → Title: "A Good Day" ✅ (English)
+- User input: "今天天气很好 today was good" (mixed, more Chinese) → Title: "美好的一天" ✅ (Chinese, matching primary language)"""
             
             # 构建 prompt
             system_prompt = f"""You are a gentle diary editor. Your task is to polish the user's diary entry and create a title.
@@ -515,31 +572,41 @@ Your responsibilities:
 5. **Formatting: Preserve the user's line breaks, blank lines, and bullet/numbered lists. Do NOT merge everything into one paragraph.**
 6. **If the input is long and mostly one block (no line breaks), add clear paragraph breaks based on meaning.**
 7. **Avoid overly short paragraphs. Do NOT break right after the first sentence. Keep the first 3 sentences in the same paragraph when you add breaks.**
-8. Create a short, warm, poetic, meaningful title in the specified language (Chinese or English only)
+8. **🚨 MOST CRITICAL: Create a title in the EXACT SAME LANGUAGE as the user's primary input language**
+   - If user writes in Chinese → Title MUST be in Chinese
+   - If user writes in English → Title MUST be in English
+   - The title language must match the content language - NO EXCEPTIONS
+   - Title should be short, warm, poetic, and meaningful, but ALWAYS in the user's language
 
 Style: Natural, warm, authentic. Don't over-edit.
 
 Response format (JSON only):
 {{
-  "title": "Concise words in the specified language (Chinese or English only)",
+  "title": "Title in the EXACT SAME LANGUAGE as the user's primary input (Chinese or English only - MUST match user's language)",
   "polished_content": "fixed text, preserving original language AND original formatting (line breaks/lists) - MUST include all original content"
 }}
 
-Example (Chinese language, mixed content with Japanese):
-Input: "オレンジの魅力 Talking about the orange, I mean, orange is kind of one of my favorite fruits."
-Output: {{"title": "橙子的魅力", "polished_content": "オレンジの魅力 Talking about the orange, I mean, orange is kind of one of my favorite fruits."}}
+🚨 CRITICAL EXAMPLES - Study these carefully:
 
-Example (English language, mixed content with Japanese):
-Input: "オレンジの魅力 Talking about the orange, I mean, orange is kind of one of my favorite fruits."
-Output: {{"title": "The Charm of Oranges", "polished_content": "オレンジの魅力 Talking about the orange, I mean, orange is kind of one of my favorite fruits."}}
+Example 1 (User writes in Chinese - Title MUST be Chinese):
+Input: "我先试一下语音输入，现在怎么样。哎呀，就是有点失落，因为明明应该早点睡的。"
+Output: {{"title": "失眠的夜晚", "polished_content": "我先试一下语音输入，现在怎么样。哎呀，就是有点失落，因为明明应该早点睡的。"}}
+❌ WRONG: {{"title": "Reflections on Sleepless Nights"}} - This is English, but user wrote in Chinese!
 
-Example (Chinese language, pure Chinese):
-Input: "今天天气很好我去了公园看到了很多花"
-Output: {{"title": "公园里的花", "polished_content": "今天天气很好，我去了公园，看到了很多花。"}}
+Example 2 (User writes in English - Title MUST be English):
+Input: "today was good i went to park and saw many flowers"
+Output: {{"title": "A Day at the Park", "polished_content": "Today was good. I went to the park and saw many flowers."}}
+❌ WRONG: {{"title": "公园一日"}} - This is Chinese, but user wrote in English!
 
-Example (English language, pure English):
-Input: "today was good i went to park"
-Output: {{"title": "A Day at the Park", "polished_content": "Today was good. I went to the park."}}"""
+Example 3 (User writes in Chinese with some English words - Title MUST be Chinese):
+Input: "今天去了park，看到了很多flowers，心情很好"
+Output: {{"title": "公园里的花", "polished_content": "今天去了park，看到了很多flowers，心情很好。"}}
+✅ CORRECT: Title is in Chinese because user's primary language is Chinese
+
+Example 4 (User writes in English with some Chinese words - Title MUST be English):
+Input: "I went to 公园 today and saw many 花"
+Output: {{"title": "A Visit to the Park", "polished_content": "I went to 公园 today and saw many 花."}}
+✅ CORRECT: Title is in English because user's primary language is English"""
 
             # 构建用户消息内容
             user_content = []
@@ -905,16 +972,33 @@ Response format: Plain text only (NO JSON, NO quotes, NO markdown)."""
         polished = (result.get("polished_content", "") or "").strip()
         feedback = (result.get("feedback", "") or "").strip()
         
-        # 验证语言一致性
+        # 🔥 强化语言一致性验证：更准确地检测和修正
         title_has_chinese = bool(re.search(r'[\u4e00-\u9fff]', title))
+        title_has_english = bool(re.search(r'[a-zA-Z]', title))
         feedback_has_chinese = bool(re.search(r'[\u4e00-\u9fff]', feedback))
         
         used_fallback = False
         
-        if is_chinese != title_has_chinese:
-            print(f"⚠️ 标题语言不一致！")
+        # 🔥 更严格的标题语言检查
+        # 如果用户输入是中文，但标题包含英文且没有中文，判定为不一致
+        # 如果用户输入是英文，但标题包含中文且没有英文，判定为不一致
+        title_language_mismatch = False
+        if is_chinese:
+            # 用户输入是中文，标题应该是中文
+            if not title_has_chinese and title_has_english:
+                title_language_mismatch = True
+                print(f"⚠️ 标题语言不一致！用户输入是中文，但标题是英文: '{title}'")
+        else:
+            # 用户输入是英文，标题应该是英文
+            if not title_has_english and title_has_chinese:
+                title_language_mismatch = True
+                print(f"⚠️ 标题语言不一致！用户输入是英文，但标题是中文: '{title}'")
+        
+        if title_language_mismatch:
+            # 使用降级方案，确保语言一致
             title = "今日记录" if is_chinese else "Today's Reflection"
             used_fallback = True
+            print(f"✅ 已修正标题为: '{title}'")
         
         if is_chinese != feedback_has_chinese:
             print(f"⚠️ 反馈语言不一致！")

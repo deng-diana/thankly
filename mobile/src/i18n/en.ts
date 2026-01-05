@@ -144,6 +144,7 @@ export default {
     supportFeedback: "Support & Feedback",
     privacyPolicy: "Privacy Policy",
     termsOfService: "Terms of Service",
+    reminderSettings: "Daily Reminder",
     deleteAccount: "Delete Account",
   },
 
@@ -401,6 +402,7 @@ export default {
       showPasswordHint: "Double tap to show or hide password",
       supportHint: "Double tap to email support@thankly.app",
       privacyHint: "Double tap to open the privacy policy",
+      openSettingsHint: "Double tap to open reminder settings",
       deleteAccountHint: "Double tap to permanently delete your account",
       viewDetailHint: "Double tap to view diary details", // ✅ 新增
     },
@@ -434,6 +436,23 @@ export default {
         solution: "Please check your internet connection and try again",
       },
     },
+  },
+
+  reminder: {
+    title: "Daily Reminder",
+    enable: "Enable reminder",
+    time: "Reminder time",
+    note: "Turn it on to build a gentle journaling habit",
+    permissionTitle: "Notification permission needed",
+    permissionMessage:
+      "Please allow notifications in Settings to enable daily reminders.",
+    openSettings: "Open Settings",
+    onboardingTitle: "Enable daily reminders?",
+    onboardingMessage: "A gentle nudge to help you capture the day.",
+    onboardingAllow: "Enable",
+    onboardingSkip: "Not now",
+    testFailedTitle: "Test notification failed",
+    testFailedMessage: "Please try again later or test on a release build.",
   },
 
   privacyPolicyPage: {

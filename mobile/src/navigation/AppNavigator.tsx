@@ -15,8 +15,10 @@ import OnboardingScreen2 from "../screens/OnboardingScreen2";
 import OnboardingScreen3 from "../screens/OnboardingScreen3";
 import PrivacyPolicyScreen from "../screens/PrivacyPolicyScreen";
 import TermsOfServiceScreen from "../screens/TermsOfServiceScreen";
+import ReminderSettingsScreen from "../screens/ReminderSettingsScreen";
 import { getCurrentUser, signOut } from "../services/authService";
 import { apiService } from "../services/apiService";
+import { navigationRef } from "./navigationRef";
 
 export type RootStackParamList = {
   Welcome: undefined;
@@ -26,6 +28,7 @@ export type RootStackParamList = {
   Onboarding3: undefined;
   PrivacyPolicy: undefined;
   TermsOfService: undefined;
+  ReminderSettings: undefined;
   Login: undefined;
   DiaryList: undefined;
   CreateDiary: { inputMode?: "voice" | "text" };
@@ -139,7 +142,7 @@ export default function AppNavigator() {
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer ref={navigationRef}>
       <Stack.Navigator
         initialRouteName={getInitialRouteName()}
         screenOptions={{
@@ -165,6 +168,10 @@ export default function AppNavigator() {
           name="TermsOfService"
           component={TermsOfServiceScreen}
           options={{ presentation: "modal" }}
+        />
+        <Stack.Screen
+          name="ReminderSettings"
+          component={ReminderSettingsScreen}
         />
 
         {/* 主要功能页面 */}

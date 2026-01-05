@@ -11,7 +11,7 @@
       "fallbackToCacheTimeout": 0
     },
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/splash-logo.png",
       "resizeMode": "contain",
       "backgroundColor": "#FAF6ED"
     },
@@ -35,6 +35,10 @@
       "adaptiveIcon": {
         "foregroundImage": "./assets/app-icon.png",
         "backgroundColor": "#FAF6ED"
+      },
+      "notification": {
+        "icon": "./assets/notification-icon.png",
+        "color": "#E56C45"
       },
       "package": "com.stillkindailab.gratitudediary",
       "permissions": [
@@ -61,7 +65,8 @@
           "cameraPermission": "The app needs access to your camera to let you take photos for diary entries."
         }
       ],
-      "expo-audio"
+      "expo-audio",
+      "@react-native-community/datetimepicker"
     ],
     "extra": {
       "eas": {

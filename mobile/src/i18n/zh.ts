@@ -142,6 +142,7 @@ export default {
     supportFeedback: "支持与反馈",
     privacyPolicy: "隐私政策",
     termsOfService: "服务条款",
+    reminderSettings: "提醒设置",
     deleteAccount: "删除账号",
   },
 
@@ -384,6 +385,7 @@ export default {
       showPasswordHint: "双击显示或隐藏密码",
       supportHint: "双击发送邮件至 support@thankly.app",
       privacyHint: "双击打开隐私政策页面",
+      openSettingsHint: "双击打开提醒设置页面",
       deleteAccountHint: "双击永久删除账号",
       viewDetailHint: "双击查看日记详情", // ✅ 新增
     },
@@ -417,6 +419,22 @@ export default {
         solution: "请检查网络连接后重试",
       },
     },
+  },
+
+  reminder: {
+    title: "每日提醒",
+    enable: "开启提醒",
+    time: "提醒时间",
+    note: "开启提醒，帮你养成温柔的记录习惯",
+    permissionTitle: "需要通知权限",
+    permissionMessage: "请在系统设置中允许通知，以开启每日提醒。",
+    openSettings: "去设置",
+    onboardingTitle: "开启每日提醒吗？",
+    onboardingMessage: "每天一个小提醒，帮你把美好记下来。",
+    onboardingAllow: "开启提醒",
+    onboardingSkip: "稍后再说",
+    testFailedTitle: "测试提醒未发送",
+    testFailedMessage: "请稍后重试或用正式包测试通知效果。",
   },
 
   privacyPolicyPage: {

@@ -3,7 +3,7 @@
  * 最后一页，包含"Get Started"按钮
  */
 import React from "react";
-import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, Alert } from "react-native";
 import * as SecureStore from "expo-secure-store";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/AppNavigator";
@@ -11,6 +11,11 @@ import { useNavigation } from "@react-navigation/native";
 import { t } from "../i18n";
 import { getTypography } from "../styles/typography";
 import Onboarding3Icon from "../assets/icons/onboarding3.svg";
+import {
+  applyReminderSettings,
+  markReminderAutoPrompted,
+  requestNotificationPermission,
+} from "../services/notificationService";
 
 export default function OnboardingScreen3() {
   const navigation =
@@ -18,9 +23,37 @@ export default function OnboardingScreen3() {
   const typography = getTypography();
 
   const handleGetStarted = async () => {
-    // 标记Onboarding已完成
-    await SecureStore.setItemAsync("hasCompletedOnboarding", "true");
-    navigation.navigate("Login");
+    Alert.alert(
+      t("reminder.onboardingTitle"),
+      t("reminder.onboardingMessage"),
+      [
+        {
+          text: t("reminder.onboardingSkip"),
+          style: "cancel",
+          onPress: async () => {
+            await markReminderAutoPrompted();
+            await SecureStore.setItemAsync("hasCompletedOnboarding", "true");
+            navigation.navigate("Login");
+          },
+        },
+        {
+          text: t("reminder.onboardingAllow"),
+          onPress: async () => {
+            await markReminderAutoPrompted();
+            const granted = await requestNotificationPermission();
+            if (granted) {
+              await applyReminderSettings({
+                enabled: true,
+                hour: 20,
+                minute: 0,
+              });
+            }
+            await SecureStore.setItemAsync("hasCompletedOnboarding", "true");
+            navigation.navigate("Login");
+          },
+        },
+      ]
+    );
   };
 
   return (

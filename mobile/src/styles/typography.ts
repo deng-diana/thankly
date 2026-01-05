@@ -155,7 +155,7 @@ function getTypographyStyles(): {
   // ✅ 中文优化：字号与英文保持一致，行高适中
   const bodyFontSize = isChinese ? 16 : 16; // ✅ 中文字号从 14 增加到 16，提升可读性
   const bodyLineHeight = isChinese ? 28 : 24; // ✅ 中文行高 28px，保持合适的行高比例
-  const titleFontSize = isChinese ? 18 : 20; // 中文标题字号减小 2px
+  const titleFontSize = isChinese ? 16 : 18; // 中文标题字号减小 2px
   const titleLineHeight = isChinese ? 26 : 24; // 中文标题行高增加
 
   return {

@@ -138,7 +138,7 @@ const styles = StyleSheet.create({
 
   resultTitleText: {
     ...Typography.diaryTitle,
-    fontSize: 18,
+    fontSize: 16,
     color: "#1A1A1A",
     letterSpacing: -0.5,
     marginBottom: 12,
