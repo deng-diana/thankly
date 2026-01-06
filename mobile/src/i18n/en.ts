@@ -205,7 +205,7 @@ export default {
     saveAsIs: "Save as is",
     addContent: "Add content",
     textPreview: "Entered Text",
-    selectImage: "Select Photo",
+    selectImage: "Add photos",
     takePhoto: "Take a Picture",
     selectFromAlbum: "Select from Album",
   },

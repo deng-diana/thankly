@@ -78,6 +78,10 @@ export default function App() {
       if (!data?.screen) return;
       const params = data.inputMode ? { inputMode: data.inputMode } : undefined;
       setTimeout(() => {
+        if (data.screen === "DiaryList") {
+          navigate("MainDrawer", { screen: "Home", params: { screen: "DiaryList" } });
+          return;
+        }
         navigate(data.screen, params);
       }, 300);
     };

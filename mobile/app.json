@@ -25,9 +25,7 @@
         "NSPhotoLibraryUsageDescription": "We need photo library access to select photos for your diary entries.",
         "NSFaceIDUsageDescription": "Use Face ID to sign in quickly.",
         "ITSAppUsesNonExemptEncryption": false,
-        "UIBackgroundModes": [
-          "audio"
-        ]
+        "UIBackgroundModes": ["audio", "remote-notification"]
       }
     },
     "android": {
@@ -66,7 +64,15 @@
         }
       ],
       "expo-audio",
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#E56C45",
+          "sounds": []
+        }
+      ]
     ],
     "extra": {
       "eas": {

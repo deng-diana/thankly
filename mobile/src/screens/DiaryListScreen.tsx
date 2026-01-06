@@ -16,6 +16,7 @@ import DeleteIcon from "../assets/icons/deleteIcon.svg";
 import PreciousMomentsIcon from "../assets/icons/preciousMomentsIcon.svg";
 import EmptyStateIcon from "../assets/icons/empty-state.svg";
 import AppIconHomepage from "../assets/icons/app-icon-homepage.svg";
+import HamburgarMenuIcon from "../assets/icons/hamburgarMenu.svg";
 import {
   Typography,
   getTypography,
@@ -39,7 +40,6 @@ import {
   Platform,
   Dimensions,
   ToastAndroid,
-  Linking,
 } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -60,7 +60,6 @@ import ImageDiaryModal from "../components/ImageDiaryModal";
 // 🌍 导入翻译函数
 // ============================================================================
 import { t, getCurrentLocale } from "../i18n";
-import AvatarDefault from "../assets/icons/avatar-default.svg";
 
 // import * as ImagePicker from "expo-image-picker"; // ✅ 新增：图片选择器（稍后安装）
 import {
@@ -69,7 +68,6 @@ import {
   signOut,
   startAutoRefresh,
 } from "../services/authService";
-import { deleteAccount } from "../services/accountService";
 import { handleAuthErrorOnly } from "../utils/errorHandler";
 import {
   getDiaries,
@@ -80,7 +78,11 @@ import {
 import AudioPlayer from "../components/AudioPlayer";
 import DiaryDetailScreen from "./DiaryDetailScreen";
 
-import { useNavigation, useFocusEffect } from "@react-navigation/native";
+import {
+  useNavigation,
+  useFocusEffect,
+  DrawerActions,
+} from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/AppNavigator";
 
@@ -118,8 +120,6 @@ export default function DiaryListScreen() {
   const [user, setUser] = useState<User | null>(null);
 
   // ✅ 新增:用户菜单状态
-  const [profileMenuVisible, setProfileMenuVisible] = useState(false);
-  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
 
   // 日记列表
   const [diaries, setDiaries] = useState<Diary[]>([]);
@@ -197,6 +197,16 @@ export default function DiaryListScreen() {
   const [greetingWelcome, setGreetingWelcome] = useState("");
   const [greetingSubtitle, setGreetingSubtitle] = useState("");
   const [userDisplayName, setUserDisplayName] = useState<string | null>(null); // 用于高亮显示的用户名
+
+  const resetToRoot = (routeName: keyof RootStackParamList) => {
+    const parent = navigation.getParent?.();
+    const root = parent?.getParent?.();
+    const target = root || parent || navigation;
+    target.reset({
+      index: 0,
+      routes: [{ name: routeName }],
+    });
+  };
 
   // ========== 生命周期 ==========
   useEffect(() => {
@@ -315,10 +325,7 @@ export default function DiaryListScreen() {
           ) {
             console.log("🔒 Token已过期，静默跳转到登录页");
             await signOut();
-            navigation.reset({
-              index: 0,
-              routes: [{ name: "Login" }],
-            });
+            resetToRoot("Login");
             return;
           }
         }
@@ -505,10 +512,7 @@ export default function DiaryListScreen() {
       await handleAuthErrorOnly(error, async () => {
         // 认证过期回调：静默跳转到登录页
         console.log("🔒 Token已过期，静默跳转到登录页");
-        navigation.reset({
-          index: 0,
-          routes: [{ name: "Login" }],
-        });
+        resetToRoot("Login");
       });
 
       setDiaries([]);
@@ -973,82 +977,19 @@ export default function DiaryListScreen() {
     setTimeout(() => setToastVisible(false), 1500);
   };
 
-  const handleSupportFeedback = async () => {
-    const mailto = "mailto:support@thankly.app";
+  const handleOpenDrawer = () => {
+    console.log("🍔 点击汉堡菜单");
     try {
-      const canOpen = await Linking.canOpenURL(mailto);
-      if (!canOpen) {
-        Alert.alert(
-          t("error.supportUnavailableTitle"),
-          t("error.supportUnavailableMessage")
-        );
-        return;
-      }
-      await Linking.openURL(mailto);
+      // ✅ 使用 DrawerActions 分发打开指令，它会自动向上查找最近的 Drawer 导航器
+      navigation.dispatch(DrawerActions.openDrawer());
     } catch (error) {
-      console.error("❌ 打开邮件客户端失败:", error);
-      Alert.alert(
-        t("error.supportUnavailableTitle"),
-        t("error.supportUnavailableMessage")
-      );
-    }
-    setProfileMenuVisible(false);
-  };
-
-  const handleReminderSettings = () => {
-    setProfileMenuVisible(false);
-    navigation.navigate("ReminderSettings");
-  };
-
-  const handleOpenPrivacyPolicy = () => {
-    setProfileMenuVisible(false);
-    navigation.navigate("PrivacyPolicy");
-  };
-
-  const handleOpenTermsOfService = () => {
-    setProfileMenuVisible(false);
-    navigation.navigate("TermsOfService");
-  };
-
-  const confirmDeleteAccount = () => {
-    if (isDeletingAccount) {
-      return;
-    }
-
-    Alert.alert(
-      t("confirm.deleteAccountTitle"),
-      t("confirm.deleteAccountMessage"),
-      [
-        { text: t("common.cancel"), style: "cancel" },
-        {
-          text: t("confirm.deleteAccountConfirm"),
-          style: "destructive",
-          onPress: handleDeleteAccount,
-        },
-      ]
-    );
-  };
-
-  const handleDeleteAccount = async () => {
-    if (isDeletingAccount) {
-      return;
-    }
-
-    setIsDeletingAccount(true);
-    try {
-      await deleteAccount();
-      showToast(t("success.accountDeleted"));
-      await signOut();
-      navigation.reset({ index: 0, routes: [{ name: "Welcome" }] });
-    } catch (error: any) {
-      console.error("❌ 删除账号失败:", error);
-      Alert.alert(
-        t("error.deleteAccountTitle"),
-        t("error.deleteAccountFailed")
-      );
-    } finally {
-      setIsDeletingAccount(false);
-      setProfileMenuVisible(false);
+      console.error("❌ 打开侧边栏失败:", error);
+      // 后备方案：尝试直接调用 parent (兼容某些特殊结构)
+      try {
+        navigation.getParent()?.openDrawer();
+      } catch (e) {
+        console.warn("⚠️ 最终尝试打开侧边栏失败");
+      }
     }
   };
 
@@ -1242,244 +1183,6 @@ export default function DiaryListScreen() {
       </Modal>
     );
   };
-  /**
-   * 处理登出
-   */
-  const handleSignOut = async () => {
-    try {
-      console.log("🚪 用户登出");
-      setProfileMenuVisible(false);
-
-      await signOut();
-
-      // 跳转到登录页
-      navigation.reset({
-        index: 0,
-        routes: [{ name: "Login" }],
-      });
-    } catch (error) {
-      console.error("登出失败:", error);
-    }
-  };
-
-  /**
-   * 渲染用户菜单
-   */
-  const renderProfileMenu = () => (
-    <Modal
-      visible={profileMenuVisible}
-      transparent
-      animationType="fade"
-      onRequestClose={() => setProfileMenuVisible(false)}
-    >
-      <TouchableOpacity
-        style={styles.modalOverlay}
-        activeOpacity={1}
-        onPress={() => setProfileMenuVisible(false)}
-      >
-        <View style={styles.profileMenuContainer}>
-          {/* 用户信息 */}
-          {/* 用户信息 - 横向布局 */}
-
-          <View style={styles.profileMenuHeader}>
-            {user?.picture ? (
-              <Image
-                source={{ uri: user.picture }}
-                style={styles.profileMenuAvatar}
-              />
-            ) : (
-              <View style={styles.profileMenuAvatar}>
-                <AvatarDefault width={32} height={32} />
-              </View>
-            )}
-            <View style={styles.profileMenuInfo}>
-              <Text
-                style={[styles.profileMenuName, typography.body]}
-                numberOfLines={1}
-              >
-                {user?.name || t("home.anonymousUser")}
-              </Text>
-              <Text
-                style={[styles.profileMenuEmail, typography.caption]}
-                numberOfLines={1}
-              >
-                {user?.email || ""}
-              </Text>
-            </View>
-          </View>
-
-          {/* 分割线 */}
-          <View style={styles.profileMenuDivider} />
-
-          {/* Reminder Settings */}
-          <TouchableOpacity
-            style={styles.profileMenuItem}
-            onPress={handleReminderSettings}
-            accessibilityLabel={t("home.reminderSettings")}
-            accessibilityHint={t("accessibility.button.openSettingsHint")}
-            accessibilityRole="button"
-          >
-            <Ionicons name="notifications-outline" size={20} color="#332824" />
-            <Text
-              style={[
-                styles.profileMenuItemText,
-                typography.body,
-                {
-                  fontFamily: getFontFamilyForText(
-                    t("home.reminderSettings"),
-                    "regular"
-                  ),
-                },
-              ]}
-            >
-              {t("home.reminderSettings")}
-            </Text>
-          </TouchableOpacity>
-
-          {/* Support & Feedback */}
-          <TouchableOpacity
-            style={styles.profileMenuItem}
-            onPress={handleSupportFeedback}
-            accessibilityLabel={t("home.supportFeedback")}
-            accessibilityHint={t("accessibility.button.supportHint")}
-            accessibilityRole="button"
-          >
-            <Ionicons name="mail-outline" size={20} color="#332824" />
-            <Text
-              style={[
-                styles.profileMenuItemText,
-                typography.body,
-                {
-                  fontFamily: getFontFamilyForText(
-                    t("home.supportFeedback"),
-                    "regular"
-                  ),
-                },
-              ]}
-            >
-              {t("home.supportFeedback")}
-            </Text>
-          </TouchableOpacity>
-
-          {/* Privacy Policy */}
-          <TouchableOpacity
-            style={styles.profileMenuItem}
-            onPress={handleOpenPrivacyPolicy}
-            accessibilityLabel={t("home.privacyPolicy")}
-            accessibilityHint={t("accessibility.button.privacyHint")}
-            accessibilityRole="button"
-          >
-            <Ionicons
-              name="shield-checkmark-outline"
-              size={20}
-              color="#332824"
-            />
-            <Text
-              style={[
-                styles.profileMenuItemText,
-                typography.body,
-                {
-                  fontFamily: getFontFamilyForText(
-                    t("home.privacyPolicy"),
-                    "regular"
-                  ),
-                },
-              ]}
-            >
-              {t("home.privacyPolicy")}
-            </Text>
-          </TouchableOpacity>
-
-          {/* Terms of Service */}
-          <TouchableOpacity
-            style={styles.profileMenuItem}
-            onPress={handleOpenTermsOfService}
-            accessibilityLabel={t("home.termsOfService")}
-            accessibilityHint={t("accessibility.button.privacyHint")}
-            accessibilityRole="button"
-          >
-            <Ionicons name="document-text-outline" size={20} color="#332824" />
-            <Text
-              style={[
-                styles.profileMenuItemText,
-                typography.body,
-                {
-                  fontFamily: getFontFamilyForText(
-                    t("home.termsOfService"),
-                    "regular"
-                  ),
-                },
-              ]}
-            >
-              {t("home.termsOfService")}
-            </Text>
-          </TouchableOpacity>
-
-          {/* Delete Account */}
-          <TouchableOpacity
-            style={[
-              styles.profileMenuItem,
-              isDeletingAccount && styles.profileMenuItemDisabled,
-            ]}
-            onPress={confirmDeleteAccount}
-            disabled={isDeletingAccount}
-            accessibilityLabel={t("home.deleteAccount")}
-            accessibilityHint={t("accessibility.button.deleteAccountHint")}
-            accessibilityRole="button"
-            accessibilityState={{ busy: isDeletingAccount }}
-          >
-            <Ionicons name="trash-outline" size={20} color="#FF3B30" />
-            <Text
-              style={[
-                styles.profileMenuItemTextDanger,
-                typography.body,
-                {
-                  fontFamily: getFontFamilyForText(
-                    t("home.deleteAccount"),
-                    "regular"
-                  ),
-                },
-              ]}
-            >
-              {t("home.deleteAccount")}
-            </Text>
-            {isDeletingAccount && (
-              <ActivityIndicator
-                size="small"
-                color="#FF3B30"
-                style={styles.profileMenuLoading}
-              />
-            )}
-          </TouchableOpacity>
-
-          {/* 登出按钮 */}
-          <TouchableOpacity
-            style={styles.profileMenuItem}
-            onPress={handleSignOut}
-            accessibilityLabel={t("home.signOut")}
-            accessibilityHint={t("accessibility.button.signOutHint")}
-            accessibilityRole="button"
-          >
-            <Ionicons name="log-out-outline" size={20} color="#332824" />
-            <Text
-              style={[
-                styles.profileMenuItemText,
-                typography.body,
-                {
-                  fontFamily: getFontFamilyForText(
-                    t("home.signOut"),
-                    "regular"
-                  ),
-                },
-              ]}
-            >
-              {t("home.signOut")}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </TouchableOpacity>
-    </Modal>
-  );
   // ========== 渲染函数 ==========
 
   /**
@@ -1487,6 +1190,19 @@ export default function DiaryListScreen() {
    */
   const renderHeader = () => (
     <View style={styles.header}>
+      {/* 汉堡菜单 - 独立一行 */}
+      <View style={styles.headerMenuRow}>
+        <TouchableOpacity
+          style={styles.menuButton}
+          onPress={handleOpenDrawer}
+          accessibilityLabel={t("home.profileMenuButton")}
+          accessibilityRole="button"
+          hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
+        >
+          <HamburgarMenuIcon width={32} height={32} />
+        </TouchableOpacity>
+      </View>
+
       {/* 顶部区域：问候语 + 头像 */}
       <View style={styles.topBar}>
         {/* 问候语 */}
@@ -1573,26 +1289,6 @@ export default function DiaryListScreen() {
             {greetingSubtitle}
           </Text>
         </View>
-
-        {/* 用户头像按钮 */}
-        <TouchableOpacity
-          style={styles.profileButton}
-          onPress={() => {
-            console.log("👆 点击了头像");
-            setProfileMenuVisible(true);
-          }}
-          accessibilityLabel={t("home.profileMenuButton")}
-          accessibilityRole="button"
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          {user?.picture ? (
-            // Google用户:显示真实头像
-            <Image source={{ uri: user.picture }} style={styles.profileImage} />
-          ) : (
-            // 默认头像:显示 SVG
-            <AvatarDefault width={32} height={32} />
-          )}
-        </TouchableOpacity>
       </View>
 
       {/* 分割线 */}
@@ -1853,7 +1549,7 @@ export default function DiaryListScreen() {
                   {
                     fontFamily: titleFontFamily,
                     fontWeight: isChineseTitle ? "700" : "600",
-                    fontSize: isChineseTitle ? 16 : 18,
+                    fontSize: isChineseTitle ? 18 : 18,
                     lineHeight: isChineseTitle ? 26 : 24,
                   },
                 ]}
@@ -2119,9 +1815,6 @@ export default function DiaryListScreen() {
       {/* Action Sheet */}
       {renderActionSheet()}
 
-      {/* ✅ 新增:用户菜单 */}
-      {renderProfileMenu()}
-
       {/* ✅ 新增:录音Modal */}
       <RecordingModal
         visible={recordingModalVisible}
@@ -2212,7 +1905,9 @@ export default function DiaryListScreen() {
             })}
             onMomentumScrollEnd={(event) => {
               const width = Dimensions.get("window").width;
-              const nextIndex = Math.round(event.nativeEvent.contentOffset.x / width);
+              const nextIndex = Math.round(
+                event.nativeEvent.contentOffset.x / width
+              );
               setImagePreviewIndex(nextIndex);
             }}
             renderItem={({ item }) => (
@@ -2328,8 +2023,15 @@ const styles = StyleSheet.create({
   // ===== 头部区域 =====
   header: {
     paddingHorizontal: 24,
-    paddingTop: 48,
+    paddingTop: 12, // 减少顶部内边距，因为现在有独立的菜单行
     paddingBottom: 12,
+  },
+
+  headerMenuRow: {
+    flexDirection: "row",
+    justifyContent: "flex-end", // 右对齐
+    marginBottom: 4,
+    marginRight: -10, // 抵消一部分 paddingHorizontal，让按钮更靠右
   },
 
   topBar: {
@@ -2379,20 +2081,12 @@ const styles = StyleSheet.create({
     color: "#666",
   },
 
-  profileButton: {
-    padding: 6, // 增加 padding 确保点击区域至少 44x44pt (32 + 6*2 = 44)
+  menuButton: {
+    padding: 6,
     minWidth: 44,
     minHeight: 44,
     alignItems: "center",
     justifyContent: "center",
-  },
-
-  // ✅ 新增:头像相关样式
-  profileImage: {
-    width: 32,
-    height: 32,
-    borderRadius: 32,
-    backgroundColor: "#F0F0F0",
   },
 
   // ===== 标题 =====

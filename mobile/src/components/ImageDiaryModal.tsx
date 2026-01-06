@@ -1400,21 +1400,24 @@ export default function ImageDiaryModal({
             onPress={(e) => e.stopPropagation()}
           >
             <View style={styles.pickerContainer}>
-              {/* 顶部Header: 标题 + 关闭按钮 */}
+              {/* 顶部Header: 标题（带图标）左对齐 + 关闭按钮右对齐 */}
               <View style={styles.pickerHeader}>
-                <Text
-                  style={[
-                    styles.pickerTitle,
-                    {
-                      fontFamily: getFontFamilyForText(
-                        t("createImageDiary.selectImage"),
-                        "medium"
-                      ),
-                    },
-                  ]}
-                >
-                  {t("createImageDiary.selectImage")}
-                </Text>
+                <View style={styles.pickerTitleRow}>
+                  <PreciousMomentsIcon width={20} height={20} />
+                  <Text
+                    style={[
+                      styles.pickerTitle,
+                      {
+                        fontFamily: getFontFamilyForText(
+                          t("createImageDiary.selectImage"),
+                          "medium"
+                        ),
+                      },
+                    ]}
+                  >
+                    {t("createImageDiary.selectImage")}
+                  </Text>
+                </View>
                 <TouchableOpacity
                   style={styles.pickerCloseButton}
                   onPress={handlePickerCancel}
@@ -1927,12 +1930,15 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: 16,
   },
-  pickerTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    textAlign: "left",
-    color: "#333",
+  pickerTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
     flex: 1,
+  },
+  pickerTitle: {
+    ...Typography.sectionTitle,
+    color: "#1A1A1A",
   },
   pickerCloseButton: {
     padding: 4,
@@ -2024,6 +2030,7 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: "#F0F0F0",
     marginHorizontal: 20,
+    marginBottom: 20, // ✅ 统一规则：分割线/标题组件 marginBottom 为 20px
   },
   saveText: {
     fontSize: 16,
@@ -2047,22 +2054,21 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "flex-start",
-    paddingTop: 24,
-    marginBottom: 12, // 与输入框保持12px间距
+    marginBottom: 12, // ✅ 统一规则：间距由 marginBottom 控制
+    // ✅ 移除 paddingTop：间距由 headerDivider 的 marginBottom 统一控制
   },
   // 文字输入框样式 - 与 TextInputModal 保持一致
   inputContainer: {
     position: "relative",
-    marginTop: 4, // 进一步缩小与顶部图片的间距
-    marginBottom: 12,
+    marginBottom: 12, // ✅ 统一规则：间距由 marginBottom 控制
   },
   textInput: {
     ...Typography.body,
     backgroundColor: "#FAF6ED",
     borderRadius: 12,
-    padding: 16,
-    paddingLeft: 20, // 让占位文字与常规输入对齐
-    paddingRight: 32, // 给右下角计数器留出空间，避免过早折行
+    padding: 12,
+    paddingLeft: 12, // 让占位文字与常规输入对齐
+    paddingRight: 12, // 给右下角计数器留出空间，避免过早折行
     paddingBottom: 40, // 为字符计数和按钮留出空间
     color: "#1A1A1A",
     textAlignVertical: "top",
@@ -2471,14 +2477,15 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     alignContent: "flex-start", // 控制行间距
-    marginTop: 20, // 图片距离上方分割线的间距
-    marginBottom: 0,
+    marginBottom: 12, // ✅ 统一规则：间距由 marginBottom 控制
+    gap: 0, // ✅ 确保没有额外的间距（React Native 18+ 支持）
   },
   resultImageWrapper: {
     width: THUMBNAIL_SIZE,
     height: THUMBNAIL_SIZE,
     marginRight: 8,
-    marginBottom: 0,
+    marginBottom: 0, // ✅ 确保图片之间没有垂直间距
+    marginTop: 0, // ✅ 确保图片之间没有垂直间距
     borderRadius: 8,
     overflow: "hidden",
   },
@@ -2491,14 +2498,13 @@ const styles = StyleSheet.create({
     resizeMode: "cover",
   },
   resultAudioPlayer: {
-    marginTop: 12, // 缩小图片与语音条之间的间距
-    marginBottom: 12,
+    marginBottom: 12, // ✅ 统一规则：间距由 marginBottom 控制
   },
   resultDiaryCard: {
     backgroundColor: "#FAF6ED",
     borderRadius: 12,
     padding: 16,
-    marginBottom: 12,
+    marginBottom: 12, // ✅ 统一规则：间距由 marginBottom 控制
   },
   resultTitleText: {
     ...Typography.diaryTitle,

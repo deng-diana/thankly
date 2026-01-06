@@ -238,17 +238,11 @@ export default function DiaryDetailScreen({
   };
 
   // ========== 音频播放 ==========
-  const {
-    isPlaying,
-    currentTime,
-    duration,
-    hasPlayedOnce,
-    playPause,
-    seekTo,
-  } = useSingleAudioPlayer({
-    audioUrl: diary?.audio_url,
-    audioDuration: diary?.audio_duration,
-  });
+  const { isPlaying, currentTime, duration, hasPlayedOnce, playPause, seekTo } =
+    useSingleAudioPlayer({
+      audioUrl: diary?.audio_url,
+      audioDuration: diary?.audio_duration,
+    });
 
   const handlePlayPress = async () => {
     try {
@@ -1676,6 +1670,7 @@ const styles = StyleSheet.create({
 
   scrollContent: {
     flexGrow: 1,
+    paddingTop: 20, // ✅ 统一规则：第一个组件的间距由父容器的 paddingTop 控制
     paddingBottom: 100, // 固定底部间距
   },
 
@@ -1754,8 +1749,7 @@ const styles = StyleSheet.create({
   // ===== 音频区域 =====
   audioSection: {
     marginHorizontal: 20,
-    marginTop: 16, // ✅ 增大顶部间距，让语音条与header之间有更多空间
-    marginBottom: 12, // 减少底部间距，让音频和内容卡片更近
+    marginBottom: 12, // ✅ 统一规则：间距由 marginBottom 控制
   },
 
   // ===== 日记内容卡片 =====
@@ -1764,7 +1758,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 16,
     marginHorizontal: 20,
-    marginBottom: 12,
+    marginBottom: 12, // ✅ 统一规则：间距由 marginBottom 控制
     //borderWidth: 1,
     borderColor: "#E8E0D0",
   },
@@ -1790,7 +1784,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 16,
     marginHorizontal: 20,
-    marginBottom: 20,
+    marginBottom: 12, // ✅ 统一规则：其他组件 marginBottom 为 12px
     borderWidth: 1,
     borderColor: "#FFECE5",
   },
@@ -1982,8 +1976,7 @@ const styles = StyleSheet.create({
 
   // ===== 图片缩略图容器（图片+文字日记）- 动态列数 + 横向滚动 =====
   imageThumbnailContainer: {
-    marginTop: 20,
-    marginBottom: 12, // 统一2/3/4/5张图与语音条间距
+    marginBottom: 12, // ✅ 统一规则：间距由 marginBottom 控制
     // marginHorizontal: 20, // 移除 marginHorizontal，改用 contentContainerStyle padding
   },
   imageThumbnailScrollContent: {

@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import { createDrawerNavigator } from "@react-navigation/drawer";
 import { View, ActivityIndicator, StyleSheet } from "react-native";
 import * as SecureStore from "expo-secure-store";
 
 import LoginScreen from "../screens/LoginScreen";
-import DiaryListScreen from "../screens/DiaryListScreen";
 import CreateTextDiaryScreen from "../screens/CreateTextDiaryScreen";
 import TestScreen from "../screens/TestScreen";
 import WelcomeScreen from "../screens/WelcomeScreen";
@@ -19,6 +19,8 @@ import ReminderSettingsScreen from "../screens/ReminderSettingsScreen";
 import { getCurrentUser, signOut } from "../services/authService";
 import { apiService } from "../services/apiService";
 import { navigationRef } from "./navigationRef";
+import AppDrawerContent from "../components/AppDrawerContent";
+import DiaryListScreen from "../screens/DiaryListScreen";
 
 export type RootStackParamList = {
   Welcome: undefined;
@@ -33,9 +35,57 @@ export type RootStackParamList = {
   DiaryList: undefined;
   CreateDiary: { inputMode?: "voice" | "text" };
   Test: undefined;
+  MainDrawer: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
+const Drawer = createDrawerNavigator();
+
+const MainStack = createNativeStackNavigator<RootStackParamList>();
+
+const MainStackNavigator = () => (
+  <MainStack.Navigator screenOptions={{ headerShown: false }}>
+    <MainStack.Screen name="DiaryList" component={DiaryListScreen} />
+    <MainStack.Screen name="CreateDiary" component={CreateTextDiaryScreen} />
+    <MainStack.Screen name="Test" component={TestScreen} />
+    <MainStack.Screen
+      name="ReminderSettings"
+      component={ReminderSettingsScreen}
+    />
+    <MainStack.Screen
+      name="PrivacyPolicy"
+      component={PrivacyPolicyScreen}
+      options={{ presentation: "modal" }}
+    />
+    <MainStack.Screen
+      name="TermsOfService"
+      component={TermsOfServiceScreen}
+      options={{ presentation: "modal" }}
+    />
+  </MainStack.Navigator>
+);
+
+const MainDrawer = () => (
+  <Drawer.Navigator
+    drawerContent={(props) => <AppDrawerContent {...props} />}
+    screenOptions={{
+      headerShown: false,
+      drawerType: "front",
+      drawerPosition: "right", // ✅ 改为从右侧滑出
+      overlayColor: "rgba(0,0,0,0.18)",
+      drawerStyle: {
+        width: 320,
+        backgroundColor: "#FFFFFF",
+        borderTopLeftRadius: 20, // ✅ 左上角圆角
+        borderBottomLeftRadius: 20,
+        paddingHorizontal: 20, // ✅ 左下角圆角
+        overflow: "hidden", // ✅ 关键：让圆角生效（iOS/Android 都需要）
+      },
+    }}
+  >
+    <Drawer.Screen name="Home" component={MainStackNavigator} />
+  </Drawer.Navigator>
+);
 
 // 🛠️ 开发模式：始终显示Onboarding（方便测试和调试）
 // ⚠️ 生产环境需保持为 false，避免老用户反复进入欢迎页
@@ -125,7 +175,7 @@ export default function AppNavigator() {
     }
 
     // 如果已完成Onboarding，根据认证状态决定
-    return isAuthenticated ? "DiaryList" : "Login";
+    return isAuthenticated ? "MainDrawer" : "Login";
   };
 
   // 显示加载状态，直到确定所有状态
@@ -159,26 +209,10 @@ export default function AppNavigator() {
         <Stack.Screen name="Onboarding1" component={OnboardingScreen1} />
         <Stack.Screen name="Onboarding2" component={OnboardingScreen2} />
         <Stack.Screen name="Onboarding3" component={OnboardingScreen3} />
-        <Stack.Screen
-          name="PrivacyPolicy"
-          component={PrivacyPolicyScreen}
-          options={{ presentation: "modal" }}
-        />
-        <Stack.Screen
-          name="TermsOfService"
-          component={TermsOfServiceScreen}
-          options={{ presentation: "modal" }}
-        />
-        <Stack.Screen
-          name="ReminderSettings"
-          component={ReminderSettingsScreen}
-        />
 
         {/* 主要功能页面 */}
         <Stack.Screen name="Login" component={LoginScreen} />
-        <Stack.Screen name="DiaryList" component={DiaryListScreen} />
-        <Stack.Screen name="CreateDiary" component={CreateTextDiaryScreen} />
-        <Stack.Screen name="Test" component={TestScreen} />
+        <Stack.Screen name="MainDrawer" component={MainDrawer} />
       </Stack.Navigator>
     </NavigationContainer>
   );

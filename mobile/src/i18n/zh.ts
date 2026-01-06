@@ -203,7 +203,7 @@ export default {
     saveAsIs: "直接保存",
     addContent: "添加内容",
     textPreview: "已输入文字",
-    selectImage: "选择图片",
+    selectImage: "添加照片",
     takePhoto: "拍照",
     selectFromAlbum: "从相册选择",
   },
