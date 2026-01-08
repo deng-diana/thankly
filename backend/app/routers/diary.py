@@ -21,6 +21,8 @@ from ..services.openai_service import OpenAIService
 from ..services.dynamodb_service import DynamoDBService
 from ..services.s3_service import S3Service
 from ..utils.cognito_auth import get_current_user
+from ..utils.cognito_auth import get_current_user
+from ..utils.cognito_auth import get_current_user
 from ..utils.transcription import validate_audio_quality, validate_transcription
 
 # ============================================================================
@@ -103,6 +105,10 @@ async def create_text_diary(
         ai_result = await openai_service.polish_content_multilingual(diary.content, user_name=user_display_name)
         print(f"✅ AI 处理完成 - 标题: {ai_result['title']}")
         
+        # ✅ 调试：检查emotion_data
+        emotion_data = ai_result.get("emotion_data")
+        print(f"🔍 [DEBUG] emotion_data from AI: {emotion_data}")
+        
         # 保存到数据库
         diary_obj = db_service.create_diary(
             user_id=user['user_id'],
@@ -110,8 +116,12 @@ async def create_text_diary(
             polished_content=ai_result["polished_content"],
             ai_feedback=ai_result["feedback"],
             language=ai_result.get("language", "zh"),  # 默认中文
-            title=ai_result["title"]
+            title=ai_result["title"],
+            emotion_data=emotion_data # ✅ 传递情感数据
         )
+        
+        # ✅ 调试：检查保存后的数据
+        print(f"🔍 [DEBUG] diary_obj emotion_data: {diary_obj.get('emotion_data')}")
         
         print(f"✅ 文字日记创建成功 - ID: {diary_obj['diary_id']}")
         return diary_obj
@@ -251,7 +261,8 @@ async def create_voice_diary(
             language=ai_result.get("language", "zh"),
             title=ai_result["title"],
             audio_url=audio_url,
-            audio_duration=duration
+            audio_duration=duration,
+            emotion_data=ai_result.get("emotion_data") # ✅ 传递情感数据
         )
         
         print(f"✅ 语音日记创建成功 - ID: {diary_obj['diary_id']}")
@@ -363,17 +374,22 @@ async def process_pure_voice_diary_async(
         openai_service = get_openai_service()
         
         # ============================================
-        # Step 0: 初始化 (0%)
+        # Step 0: 初始化 (5% → 10%)
         # ============================================
-        update_task_progress(task_id, "processing", 0, 0, "初始化", "开始处理语音...")
+        # ✅ 任务已在创建时设置为5%，这里快速更新到8%
+        update_task_progress(task_id, "processing", 8, 0, "验证中", "正在验证音频...")
         
         # 验证音频质量
         validate_audio_quality(duration, len(audio_content))
         
+        # ✅ 验证完成，立即更新到10%
+        update_task_progress(task_id, "processing", 10, 0, "准备上传", "准备上传音频...")
+        await asyncio.sleep(0.1)  # 短暂延迟，让前端看到进度变化
+        
         # ============================================
         # Step 1: 并行处理 S3 上传 + 语音转文字 (10% → 50%)
         # ============================================
-        update_task_progress(task_id, "processing", 10, 1, "处理中", "正在上传并识别语音...")
+        update_task_progress(task_id, "processing", 15, 1, "上传中", "正在上传并识别语音...")
         
         async def upload_to_s3_async():
             return await asyncio.to_thread(
@@ -404,7 +420,7 @@ async def process_pure_voice_diary_async(
         # ============================================
         # Step 2: AI 处理 - 润色 + 反馈 (50% → 85%)
         # ============================================
-        update_task_progress(task_id, "processing", 55, 2, "AI处理", "正在美化文字...")
+        update_task_progress(task_id, "processing", 55, 2, "AI润色", "正在美化文字...")
         
         # 获取用户名字（优先使用 X-User-Name header）
         import re
@@ -425,19 +441,48 @@ async def process_pure_voice_diary_async(
         
         user_display_name = re.split(r'\s+', user_name)[0] if user_name else None
         
-        # AI 润色和生成反馈
+        # ✅ 细化进度更新：AI处理分为多个子步骤
+        update_task_progress(task_id, "processing", 60, 2, "AI润色", "正在优化文字表达...")
+        
+        # AI 润色和生成反馈（这个调用包含了润色、标题、情绪分析、反馈）
         ai_result = await openai_service.polish_content_multilingual(
             transcription, 
             user_name=user_display_name
         )
         
-        update_task_progress(task_id, "processing", 85, 2, "AI处理", "AI处理完成")
+        # ✅ AI处理完成后的进度更新
+        update_task_progress(task_id, "processing", 70, 3, "生成标题", "正在提炼标题...")
+        await asyncio.sleep(0.2)  # 短暂延迟，让用户看到进度变化
+        
+        update_task_progress(task_id, "processing", 75, 3, "情绪分析", "正在读懂你的心情...")
+        await asyncio.sleep(0.2)
+        
+        update_task_progress(task_id, "processing", 80, 3, "生成反馈", "正在准备暖心回复...")
+        await asyncio.sleep(0.2)
+        
+        update_task_progress(task_id, "processing", 85, 3, "AI处理", "AI处理完成")
         
         # ============================================
         # Step 3: 保存到数据库 (85% → 100%)
         # ============================================
         update_task_progress(task_id, "processing", 90, 3, "保存", "正在保存日记...")
         
+        # --------------------------------------------------------
+        # 🔥 Step 2.5: 情绪分析结果 (Pure Text Analysis)
+        # --------------------------------------------------------
+        text_emotion = ai_result.get("emotion_data", {})
+        
+        # 直接使用 GPT-4o-mini 的分析结果
+        final_emotion_data = {
+            "emotion": text_emotion.get("emotion", "Reflective"),
+            "confidence": text_emotion.get("confidence", 0.0),
+            "rationale": text_emotion.get("rationale", ""),
+            "source": "text_only",
+            "meta": {
+                "text": text_emotion
+            }
+        }
+
         diary_obj = db_service.create_diary(
             user_id=user['user_id'],
             original_content=transcription,
@@ -446,8 +491,11 @@ async def process_pure_voice_diary_async(
             language=ai_result.get("language", "zh"),
             title=ai_result["title"],
             audio_url=audio_url,
-            audio_duration=duration
+            audio_duration=duration,
+            emotion_data=final_emotion_data # ✅ 传递情绪数据
         )
+
+
         
         # ============================================
         # Step 4: 完成 (100%)
@@ -478,11 +526,15 @@ async def process_voice_diary_async(
     try:
         openai_service = get_openai_service()
         
-        # 更新进度：开始处理
-        update_task_progress(task_id, "processing", 0, 0, "开始处理", "正在验证音频...")
+        # ✅ 优化：任务已在创建时设置为5%，这里快速更新到8%
+        update_task_progress(task_id, "processing", 8, 0, "验证中", "正在验证音频...")
         
         # 验证音频质量
         validate_audio_quality(duration, len(audio_content))
+        
+        # ✅ 验证完成，立即更新到10%
+        update_task_progress(task_id, "processing", 10, 0, "准备处理", "准备开始处理...")
+        await asyncio.sleep(0.1)  # 短暂延迟，让前端看到进度变化
         
         # ============================================
         # Step 1: 启动 S3 上传 (后台并行)
@@ -498,6 +550,16 @@ async def process_voice_diary_async(
         
         # 启动上传任务
         s3_upload_task = asyncio.create_task(upload_to_s3_async())
+
+        # ============================================
+        # Step 1.5: 启动音频情绪分析 (并行)
+        # ============================================
+        async def analyze_audio_emotion_async():
+            emotion_service = get_emotion_service()
+            return await emotion_service.analyze_audio_emotion(audio_content, audio_filename)
+
+        # 启动情绪分析任务
+        audio_emotion_task = asyncio.create_task(analyze_audio_emotion_async())
 
         
         # ============================================
@@ -596,15 +658,41 @@ async def process_voice_diary_async(
             return feedback
 
         # 并行执行
-        (transcription, polish_result), feedback = await asyncio.gather(
+        (transcription, polish_result), feedback_data = await asyncio.gather(
             task_voice_and_polish(),
             task_vision_and_feedback()
         )
         
+        # 提取反馈内容 (旧逻辑返回 string, 新逻辑返回 dict)
+        if isinstance(feedback_data, dict):
+            feedback_text = feedback_data.get("reply", "")
+            text_emotion = feedback_data
+        else:
+            # 兼容旧代码或其他错误情况
+            feedback_text = feedback_data
+            text_emotion = {"emotion": "Reflective", "confidence": 0.0}
+
+        # --------------------------------------------------------
+        # 🔥 Step C: 情绪分析 (Text Optimization)
+        # --------------------------------------------------------
+        update_task_progress(task_id, "processing", 75, 3, "情绪分析", "正在读懂你的心...")
+        
+        # 直接使用 GPT-4o-mini 的分析结果
+        emotion_data = {
+            "emotion": text_emotion.get("emotion", "Reflective"),
+            "confidence": text_emotion.get("confidence", 0.0),
+            "rationale": text_emotion.get("rationale", ""),
+            "source": "text_only",
+            "meta": {
+                "text": text_emotion
+            }
+        }
+        
         ai_result = {
             "title": polish_result['title'],
             "polished_content": polish_result['polished_content'],
-            "feedback": feedback
+            "feedback": feedback_text,
+            "emotion_data": emotion_data # ✅ 新增
         }
         
         update_task_progress(task_id, "processing", 70, 3, "AI处理", "全部处理完成")
@@ -681,7 +769,8 @@ async def process_voice_diary_async(
             title=ai_result["title"],
             audio_url=await s3_upload_task,  # ✅ 等待上传完成
             audio_duration=duration,
-            image_urls=final_image_urls  # ✅ 使用最终图片URL（确保是列表）
+            image_urls=final_image_urls,  # ✅ 使用最终图片URL（确保是列表）
+            emotion_data=ai_result["emotion_data"] # ✅ 传递情绪数据
         )
         
         # 更新进度：完成（分两步，让进度更平滑）
@@ -1013,17 +1102,17 @@ async def create_voice_diary_async(
         # 生成任务ID
         task_id = str(uuid.uuid4())
         
-        # 初始化任务进度
+        # ✅ 优化：初始化任务进度时立即设置为5%，避免前端长时间停留在0%
         pending_image_upload = bool(expect_images) and not parsed_image_urls
         task_progress[task_id] = {
             "status": "processing",
-            "progress": 0,
+            "progress": 5,  # ✅ 立即设置为5%，让用户看到进度开始
             "step": 0,
-            "step_name": "初始化",
-            "message": "任务已创建",
+            "step_name": "准备中",
+            "message": "正在准备处理...",
             "created_at": datetime.now(timezone.utc),
-            "image_urls": parsed_image_urls,  # ✅ 存储图片URL（可能为None，后续可以补充）
-            "pending_image_upload": pending_image_upload  # ✅ 标记是否等待图片上传
+            "image_urls": parsed_image_urls,
+            "pending_image_upload": pending_image_upload
         }
         
         # 启动后台异步任务（根据是否有图片选择处理函数）
@@ -1486,6 +1575,8 @@ async def get_diaries(
         
         # 尝试获取日记列表
         diaries = db_service.get_user_diaries(user_id, limit)
+        if diaries and len(diaries) > 0:
+            print(f"🔍 [DEBUG] 第一条日记情感数据: {diaries[0].get('emotion_data')}")
         print(f"✅ 获取日记列表成功 - 用户: {user_id}, 数量: {len(diaries)}")
         return diaries
         

@@ -36,7 +36,7 @@ const PRODUCTION_URL =
 // 🔄 环境切换：true = 本地开发，false = 生产环境
 // ⚠️⚠️⚠️ 上线前必须改为 false！⚠️⚠️⚠️
 // 📦 打包前检查：运行 npm run build 前，确保这里改为 false
-const IS_LOCAL_DEV = false; // ⚠️ 上线前改为 false
+const IS_LOCAL_DEV = false; // ✅ 本地开发模式
 
 // 🎯 智能API地址配置
 // 策略：

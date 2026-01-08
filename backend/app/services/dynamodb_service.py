@@ -1,8 +1,9 @@
 import boto3
 from boto3.dynamodb.conditions import Key, Attr
-from typing import List, Optional
+from typing import List, Optional, Any
 from ..config import get_settings
 import uuid
+from decimal import Decimal
 from datetime import datetime, timezone
 
 
@@ -31,6 +32,16 @@ class DynamoDBService:
             traceback.print_exc()
             raise
 
+    def _convert_to_decimal(self, obj: Any) -> Any:
+        """递归将 float 转换为 Decimal (DynamoDB 不支持 float)"""
+        if isinstance(obj, float):
+            return Decimal(str(obj))
+        elif isinstance(obj, dict):
+            return {k: self._convert_to_decimal(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [self._convert_to_decimal(i) for i in obj]
+        return obj
+
     def create_diary(
         self, 
         user_id:str,
@@ -41,7 +52,8 @@ class DynamoDBService:
         title: str = "日记",                  # ← 新增：标题
         audio_url: Optional[str] = None,      # ← 新增
         audio_duration: Optional[int] = None,  # ← 新增
-        image_urls: Optional[List[str]] = None  # ← 添加这行
+        image_urls: Optional[List[str]] = None,  # ← 添加这行
+        emotion_data: Optional[dict] = None   # ✅ 新增：情感数据
     ) -> dict:
         """ 创建日记
         
@@ -78,7 +90,10 @@ class DynamoDBService:
             item['audioDuration'] = audio_duration
          # ✅ 如果有图片，添加到item
         if image_urls:
-            item['imageUrls'] = image_urls  # ← 添加这3行
+            item['imageUrls'] = image_urls
+        # ✅ 如果有情感数据，添加到item (需转换 float -> Decimal)
+        if emotion_data:
+            item['emotionData'] = self._convert_to_decimal(emotion_data)
         # 保存到DynamoDB
         try:
             self.table.put_item(Item=item)
@@ -95,7 +110,8 @@ class DynamoDBService:
                 'ai_feedback': ai_feedback,
                 'audio_url':audio_url,
                 'audio_duration':audio_duration,
-                'image_urls': image_urls if image_urls else []  # ✅ 确保返回空列表而不是 None
+                'image_urls': image_urls if image_urls else [],
+                'emotion_data': emotion_data
             }
         except Exception as e:
             print(f"保存日记失败:{str(e)}")
@@ -159,7 +175,8 @@ class DynamoDBService:
                     'ai_feedback': item.get('aiFeedback', ''),
                     'audio_url': item.get('audioUrl'),
                     'audio_duration': item.get('audioDuration'),
-                    'image_urls': item.get('imageUrls')  # ← 添加这行
+                    'image_urls': item.get('imageUrls'),
+                    'emotion_data': item.get('emotionData') # ✅ 获取情感数据
                 })
             
             print(f"✅ DynamoDB查询成功 - 转换后日记数: {len(diaries)}")
@@ -212,7 +229,8 @@ class DynamoDBService:
                 'ai_feedback': item.get('aiFeedback', ''),
                 'audio_url': item.get('audioUrl'),
                 'audio_duration': item.get('audioDuration'),
-                'image_urls': item.get('imageUrls')  # ← 添加这行
+                'image_urls': item.get('imageUrls'),
+                'emotion_data': item.get('emotionData') # ✅ 获取情感数据
             }
             
         except Exception as e:

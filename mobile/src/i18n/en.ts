@@ -246,6 +246,7 @@ export default {
       listen: "Listening closely...",
       polish: "Polishing your words...",
       title: "Finding the right title...",
+      emotion: "Understanding your feelings...", // ✅ New
       feedback: "Writing a note back to you...",
       // ✅ Image + Text specific steps (no voice-related steps)
       uploadImages: "Uploading images...",

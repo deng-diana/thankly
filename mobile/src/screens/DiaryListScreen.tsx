@@ -55,6 +55,8 @@ import * as SecureStore from "expo-secure-store";
 import RecordingModal from "../components/RecordingModal";
 import TextInputModal from "../components/TextInputModal";
 import ImageDiaryModal from "../components/ImageDiaryModal";
+import { EmotionCapsule } from '../components/EmotionCapsule'; // ✅ 导入情绪标签
+import { EmotionGlow } from '../components/EmotionGlow'; // ✅ 导入光晕效果
 
 // ============================================================================
 // 🌍 导入翻译函数
@@ -101,6 +103,7 @@ interface Diary {
   audio_url?: string; // 音频文件URL
   audio_duration?: number; // 音频时长（秒）
   image_urls?: string[]; // ✅ 新增：图片URL数组
+  emotion_data?: { emotion: string; [key: string]: any }; // ✅ 新增：情感数据
 }
 
 /**
@@ -1294,22 +1297,20 @@ export default function DiaryListScreen() {
       {/* 分割线 */}
       <View style={styles.divider} />
 
-      {/* 我的日记标题 - 仅在列表不为空时显示 */}
-      {diaries.length > 0 && (
-        <View style={styles.sectionTitleContainer}>
-          <PreciousMomentsIcon width={20} height={20} />
-          <Text
-            style={[
-              styles.sectionTitle,
-              {
-                fontFamily: getFontFamilyForText(t("home.myDiary"), "regular"),
-              },
-            ]}
-          >
-            {t("home.myDiary")}
-          </Text>
-        </View>
-      )}
+       {/* 我的日记标题 - 强制渲染以调试 */}
+       <View style={styles.sectionTitleContainer}>
+         <PreciousMomentsIcon width={20} height={20} />
+         <Text
+           style={[
+             styles.sectionTitle,
+             {
+               fontFamily: getFontFamilyForText(t("home.myDiary"), "regular"),
+             },
+           ]}
+         >
+           {t("home.myDiary")}
+         </Text>
+       </View>
     </View>
   );
 
@@ -1527,7 +1528,10 @@ export default function DiaryListScreen() {
         accessibilityHint={t("accessibility.button.viewDetailHint")}
         accessibilityRole="button"
       >
+        {/* ✅ 情绪光晕效果 */}
+        <EmotionGlow emotion={item.emotion_data?.emotion} />
         {/* 纯图片日记：只显示图片 */}
+        {/* DEBUG: {item.emotion_data?.emotion} */}
         {isImageOnly ? (
           <>
             {/* 图片缩略图 */}
@@ -1543,20 +1547,32 @@ export default function DiaryListScreen() {
           <>
             {/* 标题 */}
             {item.title && item.title.trim() !== "" && (
-              <Text
-                style={[
-                  styles.cardTitle,
-                  {
-                    fontFamily: titleFontFamily,
-                    fontWeight: isChineseTitle ? "700" : "600",
-                    fontSize: isChineseTitle ? 18 : 18,
-                    lineHeight: isChineseTitle ? 26 : 24,
-                  },
-                ]}
-                numberOfLines={2}
-              >
-                {item.title}
-              </Text>
+              <View style={{ position: 'relative', paddingRight: item.emotion_data?.emotion ? 80 : 0, marginBottom: 8, zIndex: 10 }}>
+                <Text
+                  style={[
+                    styles.cardTitle,
+                    {
+                      fontFamily: titleFontFamily,
+                      fontWeight: isChineseTitle ? "700" : "600",
+                      fontSize: isChineseTitle ? 18 : 18,
+                      lineHeight: isChineseTitle ? 26 : 24,
+                    },
+                  ]}
+                  numberOfLines={2}
+                >
+                  {item.title}
+                </Text>
+                {/* ✅ 情绪标签 - 绝对定位在右上角 */}
+                {item.emotion_data?.emotion && (
+                  <View style={{ position: 'absolute', top: 0, right: 0 }}>
+                    <EmotionCapsule 
+                      emotion={item.emotion_data.emotion} 
+                      language={item.language}
+                      content={item.polished_content || item.original_content}
+                    />
+                  </View>
+                )}
+              </View>
             )}
 
             {/* 内容预览 */}

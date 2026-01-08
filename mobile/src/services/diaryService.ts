@@ -20,6 +20,12 @@ const MAX_SKIP_COMPRESSION_BYTES = 800 * 1024;
 const JPEG_QUALITY = 0.7;
 const PNG_QUALITY = 0.8;
 
+// ✅ 音频上传配置
+const AUDIO_UPLOAD_TIMEOUT_MS = 5 * 60 * 1000; // 5分钟超时（足够长，但防止无限等待）
+const AUDIO_UPLOAD_MAX_RETRIES = 3; // 最大重试次数
+const AUDIO_UPLOAD_RETRY_DELAY_MS = 2000; // 重试延迟（2秒）
+const AUDIO_SIZE_WARNING_THRESHOLD_MB = 10; // 超过10MB警告
+
 async function prepareImageForUpload(
   uri: string,
   index: number
@@ -92,6 +98,7 @@ export interface Diary {
   audio_url?: string; // ← 新增：音频URL（可选）
   audio_duration?: number; // ← 新增：音频时长（可选）
   image_urls?: string[]; // ← 新增：图片URL数组（可选，最多9张）
+  emotion_data?: { emotion: string; [key: string]: any }; // ✅ 新增：情感数据
 }
 
 /**
@@ -595,7 +602,139 @@ export interface ProgressCallback {
 }
 
 /**
+ * ✅ 检查音频文件大小并记录详细信息
+ * 
+ * @param audioUri - 音频文件URI
+ * @param duration - 音频时长（秒）
+ * @returns 文件大小（字节）
+ */
+async function checkAudioFileSize(
+  audioUri: string,
+  duration: number
+): Promise<number> {
+  try {
+    const fileInfo = await FileSystem.getInfoAsync(audioUri, { size: true });
+    
+    if (!fileInfo.exists) {
+      throw new Error("音频文件不存在");
+    }
+    
+    const sizeBytes = typeof fileInfo.size === "number" ? fileInfo.size : 0;
+    const sizeMB = (sizeBytes / (1024 * 1024)).toFixed(2);
+    const sizeKB = (sizeBytes / 1024).toFixed(2);
+    
+    // 计算理论大小（128kbps bitrate）
+    const theoreticalSizeMB = ((128 * 1000 * duration) / 8 / (1024 * 1024)).toFixed(2);
+    
+    console.log("📊 音频文件信息:");
+    console.log(`  - URI: ${audioUri}`);
+    console.log(`  - 时长: ${duration}秒 (${(duration / 60).toFixed(2)}分钟)`);
+    console.log(`  - 实际大小: ${sizeMB}MB (${sizeKB}KB, ${sizeBytes}字节)`);
+    console.log(`  - 理论大小 (128kbps): ${theoreticalSizeMB}MB`);
+    console.log(`  - 大小比率: ${((sizeBytes / ((128 * 1000 * duration) / 8)) * 100).toFixed(1)}%`);
+    
+    // 警告：如果文件过大
+    if (sizeBytes > AUDIO_SIZE_WARNING_THRESHOLD_MB * 1024 * 1024) {
+      console.warn(`⚠️ 音频文件较大 (${sizeMB}MB)，上传可能需要较长时间`);
+    }
+    
+    return sizeBytes;
+  } catch (error: any) {
+    console.warn("⚠️ 无法获取音频文件大小:", error);
+    return 0;
+  }
+}
+
+/**
+ * ✅ 带超时和重试的 fetch 封装
+ * 
+ * @param url - 请求URL
+ * @param options - fetch选项
+ * @param retries - 剩余重试次数
+ * @returns Response对象
+ */
+async function fetchWithTimeoutAndRetry(
+  url: string,
+  options: RequestInit,
+  retries: number = AUDIO_UPLOAD_MAX_RETRIES
+): Promise<Response> {
+  let lastError: Error | null = null;
+  
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      if (attempt > 0) {
+        const delay = AUDIO_UPLOAD_RETRY_DELAY_MS * Math.pow(2, attempt - 1); // 指数退避
+        console.log(`🔄 重试上传 (第${attempt}次/${retries}次)，${delay}ms后重试...`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+      
+      // 创建带超时的 AbortController
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => {
+        controller.abort();
+      }, AUDIO_UPLOAD_TIMEOUT_MS);
+      
+      try {
+        const response = await fetch(url, {
+          ...options,
+          signal: controller.signal,
+        });
+        
+        clearTimeout(timeoutId);
+        
+        // 如果是网络错误或超时，且还有重试次数，继续重试
+        if (!response.ok && attempt < retries) {
+          // 检查是否是临时错误（5xx）可以重试
+          if (response.status >= 500 && response.status < 600) {
+            console.warn(`⚠️ 服务器错误 ${response.status}，将重试...`);
+            lastError = new Error(`服务器错误: ${response.status}`);
+            continue;
+          }
+        }
+        
+        return response;
+      } catch (fetchError: any) {
+        clearTimeout(timeoutId);
+        
+        // 如果是超时或网络错误，且还有重试次数，继续重试
+        if (
+          (fetchError.name === "AbortError" || 
+           fetchError.message?.includes("network") ||
+           fetchError.message?.includes("timeout")) &&
+          attempt < retries
+        ) {
+          console.warn(`⚠️ 上传超时或网络错误，将重试: ${fetchError.message}`);
+          lastError = fetchError;
+          continue;
+        }
+        
+        throw fetchError;
+      }
+    } catch (error: any) {
+      lastError = error;
+      
+      // 如果是最后一次尝试，抛出错误
+      if (attempt === retries) {
+        if (error.name === "AbortError") {
+          throw new Error(`上传超时（超过${AUDIO_UPLOAD_TIMEOUT_MS / 1000}秒），请检查网络连接后重试`);
+        }
+        throw error;
+      }
+    }
+  }
+  
+  // 理论上不会到达这里，但为了类型安全
+  throw lastError || new Error("上传失败");
+}
+
+/**
  * 创建语音日记任务（仅创建任务，返回task_id，用于并行优化）
+ * 
+ * ✅ 改进：
+ * - 添加文件大小检查和日志
+ * - 添加超时设置（5分钟）
+ * - 添加重试机制（最多3次，指数退避）
+ * - 改进错误处理，区分上传失败和处理失败
  * 
  * @param audioUri - 本地音频文件URI
  * @param duration - 音频时长（秒）
@@ -611,6 +750,9 @@ export async function createVoiceDiaryTask(
   console.log("🎤 创建语音日记任务（用于并行优化）");
 
   try {
+    // ✅ 第0步：检查文件大小（关键诊断信息）
+    const fileSize = await checkAudioFileSize(audioUri, duration);
+    
     // 第1步：创建FormData
     const formData = new FormData();
     formData.append("audio", {
@@ -649,11 +791,48 @@ export async function createVoiceDiaryTask(
       headers["X-User-Name"] = userName;
     }
 
-    const createResponse = await fetch(`${API_BASE_URL}/diary/voice/async`, {
-      method: "POST",
-      headers,
-      body: formData,
-    });
+    console.log("📤 开始上传音频文件到服务器...");
+    const startTime = Date.now();
+
+    // ✅ 使用带超时和重试的 fetch
+    let createResponse: Response;
+    try {
+      createResponse = await fetchWithTimeoutAndRetry(
+        `${API_BASE_URL}/diary/voice/async`,
+        {
+          method: "POST",
+          headers,
+          body: formData,
+        }
+      );
+    } catch (uploadError: any) {
+      // ✅ 区分上传失败和处理失败
+      const uploadTime = ((Date.now() - startTime) / 1000).toFixed(1);
+      console.error(`❌ 上传失败 (耗时${uploadTime}秒):`, uploadError);
+      
+      // 检查是否是超时
+      if (uploadError.message?.includes("超时")) {
+        throw new Error(
+          `上传超时：音频文件可能过大或网络不稳定。` +
+          `文件大小: ${(fileSize / (1024 * 1024)).toFixed(2)}MB，` +
+          `建议检查网络连接后重试。`
+        );
+      }
+      
+      // 检查是否是网络错误
+      if (uploadError.message?.includes("network") || uploadError.message?.includes("Network")) {
+        throw new Error(
+          `网络错误：无法连接到服务器。` +
+          `请检查网络连接后重试。` +
+          `文件已保存在本地，可以稍后重试。`
+        );
+      }
+      
+      throw uploadError;
+    }
+
+    const uploadTime = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`✅ 上传完成 (耗时${uploadTime}秒)`);
 
     // 处理401错误（token过期）
     if (createResponse.status === 401) {
@@ -665,14 +844,20 @@ export async function createVoiceDiaryTask(
       }
 
       headers.Authorization = `Bearer ${newToken}`;
-      const retryResponse = await fetch(`${API_BASE_URL}/diary/voice/async`, {
-        method: "POST",
-        headers,
-        body: formData,
-      });
+      
+      // ✅ 重试时也使用带超时和重试的 fetch
+      const retryResponse = await fetchWithTimeoutAndRetry(
+        `${API_BASE_URL}/diary/voice/async`,
+        {
+          method: "POST",
+          headers,
+          body: formData,
+        }
+      );
 
       if (!retryResponse.ok) {
-        throw new Error("登录已过期，请重新登录");
+        const errorText = await retryResponse.text().catch(() => "未知错误");
+        throw new Error(`登录已过期，请重新登录: ${errorText}`);
       }
 
       const retryData = await retryResponse.json();
@@ -681,6 +866,7 @@ export async function createVoiceDiaryTask(
 
     if (!createResponse.ok) {
       const errorText = await createResponse.text().catch(() => "未知错误");
+      console.error(`❌ 服务器返回错误: ${createResponse.status} - ${errorText}`);
       throw new Error(`创建任务失败: ${createResponse.status} - ${errorText}`);
     }
 
@@ -690,8 +876,14 @@ export async function createVoiceDiaryTask(
     console.log("✅ 任务已创建:", taskId);
     return { taskId, headers };
   } catch (error: any) {
-    console.log("⚠️ 创建语音日记任务失败:", error);
-    throw error;
+    console.error("❌ 创建语音日记任务失败:", error);
+    
+    // ✅ 保留错误信息，帮助用户理解问题
+    if (error.message) {
+      throw error;
+    }
+    
+    throw new Error(`上传失败: ${error.message || "未知错误"}`);
   }
 }
 
@@ -702,6 +894,12 @@ export async function createVoiceDiaryTask(
  * - 后端创建任务并返回task_id
  * - 前端定期轮询查询进度（每500ms）
  * - 跨平台兼容，所有平台都支持
+ * 
+ * ✅ 改进：
+ * - 添加文件大小检查和日志
+ * - 添加超时设置（5分钟）
+ * - 添加重试机制（最多3次，指数退避）
+ * - 改进错误处理，区分上传失败和处理失败
  *
  * @param audioUri - 本地音频文件URI
  * @param duration - 音频时长（秒）
@@ -724,6 +922,9 @@ export async function createVoiceDiaryStream(
   console.log("文字内容:", content ? "有" : "无");
 
   try {
+    // ✅ 第0步：检查文件大小（关键诊断信息）
+    const fileSize = await checkAudioFileSize(audioUri, duration);
+    
     // 第1步：创建FormData
     const formData = new FormData();
     formData.append("audio", {
@@ -763,11 +964,48 @@ export async function createVoiceDiaryStream(
       headers["X-User-Name"] = userName;
     }
 
-    const createResponse = await fetch(`${API_BASE_URL}/diary/voice/async`, {
-      method: "POST",
-      headers,
-      body: formData,
-    });
+    console.log("📤 开始上传音频文件到服务器...");
+    const startTime = Date.now();
+
+    // ✅ 使用带超时和重试的 fetch
+    let createResponse: Response;
+    try {
+      createResponse = await fetchWithTimeoutAndRetry(
+        `${API_BASE_URL}/diary/voice/async`,
+        {
+          method: "POST",
+          headers,
+          body: formData,
+        }
+      );
+    } catch (uploadError: any) {
+      // ✅ 区分上传失败和处理失败
+      const uploadTime = ((Date.now() - startTime) / 1000).toFixed(1);
+      console.error(`❌ 上传失败 (耗时${uploadTime}秒):`, uploadError);
+      
+      // 检查是否是超时
+      if (uploadError.message?.includes("超时")) {
+        throw new Error(
+          `上传超时：音频文件可能过大或网络不稳定。` +
+          `文件大小: ${(fileSize / (1024 * 1024)).toFixed(2)}MB，` +
+          `建议检查网络连接后重试。`
+        );
+      }
+      
+      // 检查是否是网络错误
+      if (uploadError.message?.includes("network") || uploadError.message?.includes("Network")) {
+        throw new Error(
+          `网络错误：无法连接到服务器。` +
+          `请检查网络连接后重试。` +
+          `文件已保存在本地，可以稍后重试。`
+        );
+      }
+      
+      throw uploadError;
+    }
+
+    const uploadTime = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`✅ 上传完成 (耗时${uploadTime}秒)`);
 
     // 处理401错误（token过期）
     if (createResponse.status === 401) {
@@ -779,14 +1017,20 @@ export async function createVoiceDiaryStream(
       }
 
       headers.Authorization = `Bearer ${newToken}`;
-      const retryResponse = await fetch(`${API_BASE_URL}/diary/voice/async`, {
-        method: "POST",
-        headers,
-        body: formData,
-      });
+      
+      // ✅ 重试时也使用带超时和重试的 fetch
+      const retryResponse = await fetchWithTimeoutAndRetry(
+        `${API_BASE_URL}/diary/voice/async`,
+        {
+          method: "POST",
+          headers,
+          body: formData,
+        }
+      );
 
       if (!retryResponse.ok) {
-        throw new Error("登录已过期，请重新登录");
+        const errorText = await retryResponse.text().catch(() => "未知错误");
+        throw new Error(`登录已过期，请重新登录: ${errorText}`);
       }
 
       const retryData = await retryResponse.json();
@@ -795,6 +1039,7 @@ export async function createVoiceDiaryStream(
 
     if (!createResponse.ok) {
       const errorText = await createResponse.text().catch(() => "未知错误");
+      console.error(`❌ 服务器返回错误: ${createResponse.status} - ${errorText}`);
       throw new Error(`创建任务失败: ${createResponse.status} - ${errorText}`);
     }
 
@@ -806,8 +1051,14 @@ export async function createVoiceDiaryStream(
     // 第4步：轮询查询进度
     return await pollTaskProgress(taskId, headers, onProgress);
   } catch (error: any) {
-    console.log("⚠️ 创建语音日记失败:", error);
-    throw error;
+    console.error("❌ 创建语音日记失败:", error);
+    
+    // ✅ 保留错误信息，帮助用户理解问题
+    if (error.message) {
+      throw error;
+    }
+    
+    throw new Error(`上传失败: ${error.message || "未知错误"}`);
   }
 }
 
@@ -951,7 +1202,7 @@ export async function pollTaskProgress(
       // ✅ 正常处理中：更新进度回调
       if (onProgress) {
         // ✅ 步骤映射：根据progress值和step_name智能映射到前端步骤
-        // 前端 step: 0(上传) -> 1(转录) -> 2(润色) -> 3(标题) -> 4(反馈)
+        // 前端 step: 0(上传) -> 1(转录) -> 2(润色) -> 3(标题) -> 4(情绪) -> 5(反馈)
         // 映射策略：优先使用progress值，结合step_name确保准确性
         const progress = progressData.progress || 0;
         const stepName = (progressData.step_name || "").toLowerCase();
@@ -962,12 +1213,14 @@ export async function pollTaskProgress(
           frontendStep = 0; // 上传阶段 (0-20%)
         } else if (progress < 50) {
           frontendStep = 1; // 转录阶段 (20-50%)
-        } else if (progress < 70) {
-          frontendStep = 2; // 润色阶段 (50-70%)
-        } else if (progress < 85) {
-          frontendStep = 3; // 标题阶段 (70-85%)
+        } else if (progress < 65) {
+          frontendStep = 2; // 润色阶段 (50-65%)
+        } else if (progress < 75) {
+          frontendStep = 3; // 标题阶段 (65-75%)
+        } else if (progress < 82) {
+          frontendStep = 4; // 情绪分析阶段 (75-82%)
         } else {
-          frontendStep = 4; // 反馈/完成阶段 (85-100%)
+          frontendStep = 5; // 反馈/完成阶段 (82-100%)
         }
 
         // ✅ 根据step_name微调映射（提高准确性）
@@ -980,12 +1233,14 @@ export async function pollTaskProgress(
           frontendStep = Math.max(frontendStep, 2); // 至少是润色阶段
         } else if (stepName.includes("标题") || stepName.includes("title")) {
           frontendStep = Math.max(frontendStep, 3); // 至少是标题阶段
+        } else if (stepName.includes("情绪") || stepName.includes("emotion") || stepName.includes("心情")) {
+          frontendStep = Math.max(frontendStep, 4); // 至少是情绪分析阶段
         } else if (stepName.includes("反馈") || stepName.includes("完成") || stepName.includes("保存")) {
-          frontendStep = Math.max(frontendStep, 4); // 至少是反馈/完成阶段
+          frontendStep = Math.max(frontendStep, 5); // 至少是反馈/完成阶段
         }
 
-        // ✅ 确保步骤在有效范围内（0-4）
-        frontendStep = Math.max(0, Math.min(frontendStep, 4));
+        // ✅ 确保步骤在有效范围内（0-5）
+        frontendStep = Math.max(0, Math.min(frontendStep, 5));
 
         console.log(`📊 后端进度: backendStep=${progressData.step}, progress=${progress}%, step_name=${progressData.step_name}, 映射到前端step=${frontendStep}`);
 

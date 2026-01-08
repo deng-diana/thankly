@@ -241,6 +241,7 @@ export default {
       listen: "倾听你的话语...",
       polish: "让文字更优美...",
       title: "为你提炼标题...",
+      emotion: "读懂你的心情...", // ✅ 新增
       feedback: "写下我的回复...",
       // ✅ 图片+文字场景专用步骤（不包含语音相关）
       uploadImages: "上传图片...",

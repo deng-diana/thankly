@@ -73,6 +73,7 @@ class DiaryResponse(BaseModel):
     audio_url: Optional[str] = Field(None, description="音频文件S3 URL")
     audio_duration: Optional[int] = Field(None, description="音频时长(秒)")
     image_urls: Optional[List[str]] = None  # List of image URLs (max 9)
+    emotion_data: Optional[dict] = Field(None, description="情感分析结果")
 
 
     class Config:
