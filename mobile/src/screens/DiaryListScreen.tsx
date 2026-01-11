@@ -58,8 +58,8 @@ import * as SecureStore from "expo-secure-store";
 import RecordingModal from "../components/RecordingModal";
 import TextInputModal from "../components/TextInputModal";
 import ImageDiaryModal from "../components/ImageDiaryModal";
-import { EmotionCapsule } from '../components/EmotionCapsule'; // ✅ 导入情绪标签
-import { EmotionGlow } from '../components/EmotionGlow'; // ✅ 导入光晕效果
+import { EmotionCapsule } from "../components/EmotionCapsule"; // ✅ 导入情绪标签
+import { EmotionGlow } from "../components/EmotionGlow"; // ✅ 导入光晕效果
 
 // ============================================================================
 // 🌍 导入翻译函数
@@ -94,7 +94,7 @@ import type { RootStackParamList } from "../navigation/AppNavigator";
 /**
  * 日记数据类型定义
  */
-interface Diary {
+export interface Diary {
   diary_id: string;
   created_at: string;
   date: string;
@@ -450,7 +450,6 @@ export default function DiaryListScreen() {
 
   /**
    * 加载日记列表
-   * TODO: 这里要调用后端API
    */
   const loadDiaries = async () => {
     try {
@@ -791,7 +790,7 @@ export default function DiaryListScreen() {
       } else {
         // 新播放：创建新的播放器
         console.log("🎵 创建音频播放器:", diary.audio_url);
-        
+
         // ✅ FIX: Set correct audio mode for playback BEFORE creating player
         // This ensures audio plays through speaker at normal volume
         try {
@@ -807,7 +806,7 @@ export default function DiaryListScreen() {
         } catch (error) {
           console.warn("⚠️ Failed to set audio mode:", error);
         }
-        
+
         player = createAudioPlayer(diary.audio_url!, {
           updateInterval: 100, // 每100ms更新一次状态
         });
@@ -1007,12 +1006,7 @@ export default function DiaryListScreen() {
       navigation.dispatch(DrawerActions.openDrawer());
     } catch (error) {
       console.error("❌ 打开侧边栏失败:", error);
-      // 后备方案：尝试直接调用 parent (兼容某些特殊结构)
-      try {
-        navigation.getParent()?.openDrawer();
-      } catch (e) {
-        console.warn("⚠️ 最终尝试打开侧边栏失败");
-      }
+      // 后备方案：如果DrawerActions失败，不再尝试其他方法（避免类型错误）
     }
   };
 
@@ -1317,41 +1311,40 @@ export default function DiaryListScreen() {
       {/* 分割线 - 只在有日记时显示 */}
       {diaries.length > 0 && <View style={styles.divider} />}
 
-       {/* 我的日记标题 - 只在有至少一条日记时显示 */}
-       {diaries.length > 0 && (
-         <View style={styles.sectionTitleContainer}>
-           <PreciousMomentsIcon width={20} height={20} />
-           <Text
-             style={[
-               styles.sectionTitle,
-               {
-                 color: "#80645A", // 使用和时间一样的颜色
-                 fontFamily: getFontFamilyForText(t("home.myDiary"), "regular"),
-               },
-             ]}
-           >
-             {t("home.myDiaryPrefix")}
-             {" "}
-             <Text
-               style={[
-                 styles.sectionTitle,
-                 {
-                   color: "#FF6B35",
-                   fontWeight: "bold",
-                   fontFamily: getFontFamilyForText(
-                     diaries.length.toString(),
-                     "bold"
-                   ),
-                 },
-               ]}
-             >
-               {diaries.length}
-             </Text>
-             {" "}
-             {t("home.myDiarySuffix")}
-           </Text>
-         </View>
-       )}
+      {/* 我的日记标题 - 只在有至少一条日记时显示 */}
+      {diaries.length > 0 && (
+        <View style={styles.sectionTitleContainer}>
+          <PreciousMomentsIcon width={20} height={20} />
+          <Text
+            style={[
+              styles.sectionTitle,
+              {
+                color: "#80645A", // 使用和时间一样的颜色
+                fontFamily: getFontFamilyForText(t("home.myDiary"), "regular"),
+              },
+            ]}
+          >
+            {t("home.myDiaryPrefix")}{" "}
+            <Text
+              style={[
+                styles.sectionTitle,
+                {
+                  color: "#FF6B35",
+                  fontWeight: "bold",
+                  fontSize: 15,
+                  fontFamily: getFontFamilyForText(
+                    diaries.length.toString(),
+                    "bold"
+                  ),
+                },
+              ]}
+            >
+              {diaries.length}
+            </Text>{" "}
+            {t("home.myDiarySuffix")}
+          </Text>
+        </View>
+      )}
     </View>
   );
 
@@ -1384,13 +1377,13 @@ export default function DiaryListScreen() {
       const CARD_PADDING = 24;
       const PAGE_MARGIN = 24;
       const TOTAL_HORIZONTAL_PADDING = (CARD_PADDING + PAGE_MARGIN) * 2; // 96px
-      
+
       const screenWidth = Dimensions.get("window").width;
       const availableWidth = screenWidth - TOTAL_HORIZONTAL_PADDING;
-      
+
       // Height based on 3-column layout (standard)
       const IMAGE_HEIGHT = Math.floor((availableWidth - 2 * GAP) / 3);
-      
+
       const imageCount = imageUrls.length;
       const displayCount = Math.min(imageCount, 3); // Max 3 images
       const hasMore = imageCount > 3;
@@ -1438,7 +1431,7 @@ export default function DiaryListScreen() {
                   }}
                   resizeMode="cover"
                 />
-                
+
                 {showBadge && (
                   <View
                     style={{
@@ -1511,10 +1504,9 @@ export default function DiaryListScreen() {
       >
         {/* ✅ 情绪光晕效果 - 放在最外层，不受 Padding 影响 */}
         <EmotionGlow emotion={item.emotion_data?.emotion} />
-        
+
         {/* ✅ 内容容器 - 提供 Padding */}
         <View style={styles.cardContentContainer} pointerEvents="box-none">
-
           {/* 纯图片日记：只显示图片 */}
           {/* DEBUG: {item.emotion_data?.emotion} */}
           {isImageOnly ? (
@@ -1532,13 +1524,15 @@ export default function DiaryListScreen() {
             <>
               {/* 标题行：包含标题和情绪标签 */}
               {(item.title || item.emotion_data?.emotion || !isImageOnly) && (
-                <View style={{ 
-                  flexDirection: 'row', 
-                  justifyContent: 'space-between', 
-                  alignItems: 'flex-start', // 标题可能有多行，顶部对齐
-                  marginBottom: 8, 
-                  zIndex: 10 
-                }}>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    justifyContent: "space-between",
+                    alignItems: "flex-start", // 标题可能有多行，顶部对齐
+                    marginBottom: 8,
+                    zIndex: 10,
+                  }}
+                >
                   {/* 标题 */}
                   {item.title && item.title.trim() !== "" ? (
                     <View style={{ flex: 1, marginRight: 8 }}>
@@ -1564,8 +1558,8 @@ export default function DiaryListScreen() {
                   {/* ✅ 情绪标签 - 只要不是纯图片日记就显示 */}
                   {(item.emotion_data?.emotion || !isImageOnly) && (
                     <View style={{ marginLeft: 8 }}>
-                      <EmotionCapsule 
-                        emotion={item.emotion_data?.emotion} 
+                      <EmotionCapsule
+                        emotion={item.emotion_data?.emotion}
                         language={item.language || "en"}
                         content={item.polished_content || item.original_content}
                       />
@@ -1573,7 +1567,7 @@ export default function DiaryListScreen() {
                   )}
                 </View>
               )}
-  
+
               {/* 内容预览 */}
               {contentText && contentText.trim() !== "" && (
                 <Text
@@ -1590,7 +1584,7 @@ export default function DiaryListScreen() {
                   {contentText}
                 </Text>
               )}
-  
+
               {/* 图片缩略图（如果有） */}
               {item.image_urls && item.image_urls.length > 0 && (
                 <View
@@ -1604,7 +1598,7 @@ export default function DiaryListScreen() {
               )}
             </>
           )}
-  
+
           {/* ✅ 使用统一的音频播放器组件 */}
           <AudioPlayer
             audioUrl={item.audio_url}
@@ -1634,7 +1628,7 @@ export default function DiaryListScreen() {
             }}
             style={styles.audioButton}
           />
-  
+
           {/* 日期 + 三点菜单图标 - 移到底部 */}
           <View style={styles.cardFooter}>
             <View style={styles.dateContainer}>
@@ -1650,7 +1644,7 @@ export default function DiaryListScreen() {
                 {displayDate}
               </Text>
             </View>
-  
+
             {/* 三点菜单图标 */}
             <TouchableOpacity
               onPress={(e) => {
@@ -1922,7 +1916,8 @@ export default function DiaryListScreen() {
 
 /**
  * 格式化日期和时间显示
- * 例: 2025-01-15T14:30:25.123Z → 1月15日 14:30
+ * 中文: 2026 年 1 月 11 日 · 下午 2:52
+ * 英文: Jan 11, 2026 · 2:05 PM
  */
 function formatDateTime(dateTimeString: string): string {
   const date = new Date(dateTimeString);
@@ -1931,19 +1926,37 @@ function formatDateTime(dateTimeString: string): string {
   }
 
   const locale = getCurrentLocale();
-  const localeTag = locale === "zh" ? "zh-CN" : "en-US";
 
-  const formatter = new Intl.DateTimeFormat(localeTag, {
-    month: locale === "zh" ? "numeric" : "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-
-  const formatted = formatter.format(date);
-  return locale === "en" ? formatted.replace(",", "") : formatted;
+  if (locale === "zh") {
+    // 中文格式：2026 年 1 月 11 日 · 下午 2:52
+    const year = date.getFullYear();
+    const month = date.getMonth() + 1;
+    const day = date.getDate();
+    const hours = date.getHours();
+    const minutes = date.getMinutes();
+    
+    // 判断上午/下午
+    const period = hours < 12 ? "上午" : "下午";
+    // 12小时制
+    const displayHours = hours % 12 || 12;
+    const displayMinutes = minutes.toString().padStart(2, "0");
+    
+    return `${year} 年 ${month} 月 ${day} 日 · ${period} ${displayHours}:${displayMinutes}`;
+  } else {
+    // 英文格式：Jan 11, 2026 · 2:05 PM
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const month = monthNames[date.getMonth()];
+    const day = date.getDate();
+    const year = date.getFullYear();
+    const hours = date.getHours();
+    const minutes = date.getMinutes();
+    
+    const period = hours < 12 ? "AM" : "PM";
+    const displayHours = hours % 12 || 12;
+    const displayMinutes = minutes.toString().padStart(2, "0");
+    
+    return `${month} ${day}, ${year} · ${displayHours}:${displayMinutes} ${period}`;
+  }
 }
 
 /**
@@ -2080,15 +2093,15 @@ const styles = StyleSheet.create({
     // paddingBottom: 8,
     marginHorizontal: 24,
     marginBottom: 12,
-    // ✅ 更加优雅的超弥散投影
+    // ✅ 更加柔和扩散的投影
     shadowColor: "#FFD1B0",
     shadowOffset: {
       width: 0,
-      height: 6, // 稍微拉开高度，增加浮空感
+      height: 4, // 降低高度，让阴影更贴近卡片
     },
-    shadowOpacity: 0.4, // 大幅降低透明度，让视觉更轻盈
-    shadowRadius: 20, // 增大半径，实现更广的弥散效果
-    elevation: 2, // Android 阴影也同步调轻
+    shadowOpacity: 0.45, // 降低透明度，让阴影更柔和
+    shadowRadius: 28, // 增大半径，实现更广的扩散效果
+    elevation: 3, // Android 阴影同步调整
     // overflow: "hidden", // ❌ 移除，否则 iOS 阴影会消失！圆角由内部组件匹配。
   },
 
@@ -2115,7 +2128,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 4, // 图标和文字之间的间距
   },
-
 
   cardDate: {
     ...Typography.caption,
@@ -2148,7 +2160,7 @@ const styles = StyleSheet.create({
   // ============================================================================
   // Image Grid Styles (Using Production-Grade Layout System)
   // ============================================================================
-  // 
+  //
   // Design: 3 columns with 8px gap
   // Context: Inside diary card (24px card padding) + page padding (24px)
   // Total horizontal padding: 24 + 24 + 24 + 24 = 96px
@@ -2187,7 +2199,7 @@ const styles = StyleSheet.create({
   },
   moreText: {
     color: "#fff",
-    fontSize: 18, 
+    fontSize: 18,
     fontWeight: "800", // ✅ 加重字重
     letterSpacing: 2, // ✅ 通过字间距控制加号与数字的距离
   },

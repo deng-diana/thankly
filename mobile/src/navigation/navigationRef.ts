@@ -7,6 +7,7 @@ export const navigationRef = createNavigationContainerRef<ParamListBase>();
 
 export function navigate(name: string, params?: Record<string, unknown>) {
   if (navigationRef.isReady()) {
-    navigationRef.navigate(name as never, params as never);
+    // @ts-ignore - navigationRef.navigate requires specific type, but we use dynamic navigation
+    navigationRef.navigate(name, params);
   }
 }

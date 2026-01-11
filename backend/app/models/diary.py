@@ -17,12 +17,14 @@ class DiaryUpdate(BaseModel):
     """编辑日记的请求数据"""
     content: Optional[str] = Field(None, min_length=1, max_length=5000, description="编辑后的日记内容")
     title: Optional[str] = Field(None, min_length=1, max_length=100, description="编辑后的标题")
+    image_urls: Optional[List[str]] = Field(None, max_items=9, description="更新后的图片URL列表（最多9张）")  # ✅ 新增
     
     class Config:
         json_schema_extra = {
             "example": {
                 "content": "今天同事帮我解决了一个棘手的bug，还教了我很多调试技巧，非常感激！",
-                "title": "同事的帮助与技术成长"
+                "title": "同事的帮助与技术成长",
+                "image_urls": ["https://s3.amazonaws.com/.../image1.jpg"]
             }
         }
 

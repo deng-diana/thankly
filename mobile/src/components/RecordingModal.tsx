@@ -101,7 +101,8 @@ export default function RecordingModal({
   const [targetProgress, setTargetProgress] = useState(0);
 
   // ✅ 新增:平滑动画定时器
-  const progressAnimationRef = useRef<{ cancel: () => void } | null>(null);
+  // ✅ 支持 requestAnimationFrame 返回的 number 类型
+  const progressAnimationRef = useRef<number | null>(null);
 
   // ✅ 优化步骤时长：更合理的分配，减少卡顿
   // 🎯 策略：前面的步骤稍快，后面的步骤稍慢，总体更流畅
@@ -146,106 +147,106 @@ export default function RecordingModal({
    * @param target - 目标进度(0-100)
    * @param speed - 速度(每次增加多少,默认0.5)
    */
-  // ✅ 使用 Animated API 实现更平滑的进度动画
   const progressAnimValue = useRef(new Animated.Value(0)).current;
   // ✅ 使用 ref 保存当前进度值，确保跨步骤连续性
   const currentProgressRef = useRef(0);
 
   /**
-   * 平滑更新进度条（简化版 - 确保不倒退）
-   *
-   * 🎯 核心原则：
-   * 1. 进度值只能增加，不能减少
-   * 2. 从当前动画值继续，而不是从状态值
-   * 3. 使用 ref 保存当前值，确保跨步骤连续性
+   * 🎯 教科书级别的平滑进度更新
+   * 
+   * 核心原则：
+   * 1. 使用 requestAnimationFrame 实现 60fps 流畅动画
+   * 2. 使用缓动函数（easeOutCubic）实现自然的加速/减速
+   * 3. 确保进度永远不会倒退或跳跃
+   * 4. 支持快速连续更新而不会卡顿
+   * 5. 自动清理，防止内存泄漏
+   * 
+   * @param target - 目标进度 (0-100)
+   * @param duration - 动画时长（毫秒），默认根据跳跃大小智能计算
    */
   const smoothUpdateProgress = useCallback(
     (target: number, duration?: number) => {
-      // ✅ 确保目标值不小于当前值
-      const safeTarget = Math.max(target, currentProgressRef.current);
+      // ✅ 1. 确保目标值在有效范围内且不倒退
+      const safeTarget = Math.max(
+        Math.min(target, 100),
+        currentProgressRef.current
+      );
+      
       const currentValue = currentProgressRef.current;
       const progressDiff = safeTarget - currentValue;
 
-      // ✅ 智能计算动画时长：根据进度跳跃大小动态调整
-      // 小跳跃（<5%）：快速更新（300ms）
-      // 中跳跃（5-20%）：中等速度（600ms）
-      // 大跳跃（>20%）：慢速平滑（1000ms）
+      // ✅ 如果已经到达目标，直接返回
+      if (progressDiff <= 0.01) {
+        return;
+      }
+
+      // ✅ 2. 智能计算动画时长
+      // 增加时长，让大跳跃也能平滑过渡，消除卡顿感
       let calculatedDuration = duration;
       if (calculatedDuration === undefined) {
         if (progressDiff < 5) {
-          calculatedDuration = 300; // 小跳跃：快速
+          calculatedDuration = 600;  // 小跳跃：稍慢一点，更平滑
+        } else if (progressDiff < 10) {
+          calculatedDuration = 1000; // 中小跳跃：1秒过渡
         } else if (progressDiff < 20) {
-          calculatedDuration = 600; // 中跳跃：中等
+          calculatedDuration = 1500; // 中等跳跃：1.5秒过渡
+        } else if (progressDiff < 30) {
+          calculatedDuration = 2000; // 大跳跃：2秒平滑过渡
         } else {
-          calculatedDuration = 1000; // 大跳跃：慢速平滑
+          calculatedDuration = 2500; // 超大跳跃：2.5秒慢速平滑
         }
       }
 
       console.log(
-        `🎯 更新进度: ${currentValue}% → ${safeTarget}% (跳跃: ${progressDiff}%, 时长: ${calculatedDuration}ms)`
+        `🎯 进度动画: ${currentValue.toFixed(1)}% → ${safeTarget.toFixed(1)}% (Δ${progressDiff.toFixed(1)}%, ${calculatedDuration}ms)`
       );
 
-      // 停止之前的动画（但不重置值）
-      progressAnimValue.stopAnimation();
-
-      // 清理之前的监听器
+      // ✅ 3. 取消之前的动画
       if (progressAnimationRef.current) {
-        if (
-          typeof progressAnimationRef.current === "object" &&
-          progressAnimationRef.current.cancel
-        ) {
-          progressAnimationRef.current.cancel();
-        }
+        cancelAnimationFrame(progressAnimationRef.current);
         progressAnimationRef.current = null;
       }
 
-      setTargetProgress(safeTarget);
+      // ✅ 4. 使用 requestAnimationFrame 实现 60fps 流畅动画
+      const startTime = Date.now();
+      const startValue = currentValue;
 
-      // ✅ 关键：从 ref 保存的当前值开始，而不是从状态或动画值
-      // 这样可以确保跨步骤的连续性
-      const startValue = currentProgressRef.current;
-      progressAnimValue.setValue(startValue);
+      // 缓动函数：easeOutCubic（先快后慢，更自然）
+      const easeOutCubic = (t: number): number => {
+        return 1 - Math.pow(1 - t, 3);
+      };
 
-      // 使用 Animated API 实现平滑过渡
-      // 使用更平滑的缓动函数，让大跳跃也能平滑过渡
-      const animation = Animated.timing(progressAnimValue, {
-        toValue: safeTarget,
-        duration: calculatedDuration,
-        easing: Easing.bezier(0.25, 0.1, 0.25, 1), // 使用贝塞尔曲线，更平滑自然
-        useNativeDriver: false,
-      });
+      const animate = () => {
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min(elapsed / calculatedDuration, 1);
 
-      // 使用监听器实时更新状态和 ref
-      const listenerId = progressAnimValue.addListener(({ value }) => {
-        // ✅ 确保值只增不减
-        const clampedValue = Math.max(
-          currentProgressRef.current,
-          Math.min(100, value)
-        );
+        // 应用缓动函数
+        const easedProgress = easeOutCubic(progress);
+        
+        // 计算当前值
+        const newValue = startValue + (safeTarget - startValue) * easedProgress;
+        
+        // ✅ 5. 更新进度（确保不倒退）
+        const clampedValue = Math.max(currentProgressRef.current, newValue);
         currentProgressRef.current = clampedValue;
         setProcessingProgress(clampedValue);
-      });
 
-      // 启动动画
-      animation.start((finished) => {
-        if (finished) {
-          // 动画完成，确保最终值
+        // ✅ 6. 继续动画或完成
+        if (progress < 1) {
+          progressAnimationRef.current = requestAnimationFrame(animate);
+        } else {
+          // 动画完成，确保最终值精确
           currentProgressRef.current = safeTarget;
           setProcessingProgress(safeTarget);
+          progressAnimationRef.current = null;
+          console.log(`✅ 进度到达: ${safeTarget.toFixed(1)}%`);
         }
-        // 移除监听器
-        progressAnimValue.removeListener(listenerId);
-      });
+      };
 
-      // 保存清理函数
-      progressAnimationRef.current = {
-        cancel: () => {
-          animation.stop();
-          progressAnimValue.removeListener(listenerId);
-        },
-      } as any;
+      // 启动动画
+      progressAnimationRef.current = requestAnimationFrame(animate);
     },
-    [progressAnimValue]
+    []
   );
 
   // ✅ 新增:结果预览状态
@@ -641,8 +642,9 @@ export default function RecordingModal({
         } catch (_) {}
       })();
 
+      // ✅ 清理进度动画
       if (progressAnimationRef.current) {
-        progressAnimationRef.current.cancel();
+        cancelAnimationFrame(progressAnimationRef.current);
         progressAnimationRef.current = null;
       }
     };
@@ -823,16 +825,7 @@ export default function RecordingModal({
 
       // ✅ 清理进度动画
       if (progressAnimationRef.current) {
-        // 如果是对象（新的格式），调用 cancel
-        if (
-          typeof progressAnimationRef.current === "object" &&
-          progressAnimationRef.current.cancel
-        ) {
-          progressAnimationRef.current.cancel();
-        } else {
-          // 如果是旧的格式（定时器），清理
-          clearInterval(progressAnimationRef.current as any);
-        }
+        cancelAnimationFrame(progressAnimationRef.current);
         progressAnimationRef.current = null;
       }
     };
@@ -1125,18 +1118,35 @@ export default function RecordingModal({
     }
 
     const locale = getCurrentLocale();
-    const localeTag = locale === "zh" ? "zh-CN" : "en-US";
 
-    const formatter = new Intl.DateTimeFormat(localeTag, {
-      month: locale === "zh" ? "numeric" : "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    });
-
-    const formatted = formatter.format(date);
-    return locale === "en" ? formatted.replace(",", "") : formatted;
+    if (locale === "zh") {
+      // 中文格式：2026 年 1 月 11 日 · 下午 2:52
+      const year = date.getFullYear();
+      const month = date.getMonth() + 1;
+      const day = date.getDate();
+      const hours = date.getHours();
+      const minutes = date.getMinutes();
+      
+      const period = hours < 12 ? "上午" : "下午";
+      const displayHours = hours % 12 || 12;
+      const displayMinutes = minutes.toString().padStart(2, "0");
+      
+      return `${year} 年 ${month} 月 ${day} 日 · ${period} ${displayHours}:${displayMinutes}`;
+    } else {
+      // 英文格式：Jan 11, 2026 · 2:05 PM
+      const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      const month = monthNames[date.getMonth()];
+      const day = date.getDate();
+      const year = date.getFullYear();
+      const hours = date.getHours();
+      const minutes = date.getMinutes();
+      
+      const period = hours < 12 ? "AM" : "PM";
+      const displayHours = hours % 12 || 12;
+      const displayMinutes = minutes.toString().padStart(2, "0");
+      
+      return `${month} ${day}, ${year} · ${displayHours}:${displayMinutes} ${period}`;
+    }
   };
 
   // ========== 渲染函数 ==========
@@ -1288,7 +1298,7 @@ export default function RecordingModal({
 
         {/* 可滚动内容 - 包裹键盘避让 */}
         <KeyboardAvoidingView
-          style={{ flex: 1 }}
+          style={{ flexShrink: 1 }}
           behavior={Platform.OS === "ios" ? "padding" : "height"}
           keyboardVerticalOffset={Platform.OS === "ios" ? 60 : 0}
         >
@@ -1394,6 +1404,10 @@ export default function RecordingModal({
             <Animated.View
               style={[
                 styles.modal,
+                // ✅ 根据状态应用不同的高度策略
+                showResult
+                  ? styles.modalResult  // 结果页：自适应高度
+                  : styles.modalRecording, // 录音页：固定高度
                 {
                   transform: [{ translateY: Animated.add(slideAnim, dragY) }],
                 },
@@ -1453,8 +1467,16 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    paddingBottom: 40,
+    paddingBottom: 16, // ✅ 减少底部间距，避免过多空白
+  },
+  // ✅ 录音界面：固定高度，确保动画和控制按钮有足够空间
+  modalRecording: {
     minHeight: 640,
+  },
+  // ✅ 结果预览界面：折中方案 - 75% 默认高度，90% 最大高度
+  modalResult: {
+    minHeight: "75%", // 默认 75%，确保内容有足够显示空间
+    maxHeight: "90%", // 内容超长时最大 90%
   },
   header: {
     flexDirection: "row",
@@ -1562,7 +1584,7 @@ const styles = StyleSheet.create({
     width: 36,
   },
   resultScrollView: {
-    flex: 1,
+    flexShrink: 1, // ✅ 允许收缩以适应内容，而不是强制占满空间
   },
   resultScrollContent: {
     paddingHorizontal: 24, // ✅ 统一页边距为 24px

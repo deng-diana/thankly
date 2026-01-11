@@ -1,16 +1,16 @@
 name: Build Mobile App
 
-# 触发条件：当 mobile/ 目录下的文件有变更时触发
+# 🎯 触发条件优化：
+# 1. 只在创建 tag 时自动构建（例如：v1.1.0）
+# 2. 或者手动触发
+# 这样平时提交代码不会触发构建，节省时间和资源
 on:
+  # 当推送 tag 时触发（例如：git tag v1.1.0 && git push --tags）
   push:
-    branches:
-      - master
-      - main
-    paths:
-      - "mobile/**"
-      - ".github/workflows/deploy-mobile.yml"
+    tags:
+      - "v*.*.*" # 匹配 v1.0.0, v1.1.0 等版本号
 
-  # 手动触发
+  # 手动触发（在 GitHub Actions 页面点击 "Run workflow"）
   workflow_dispatch:
     inputs:
       platform:

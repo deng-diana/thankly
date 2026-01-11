@@ -21,6 +21,7 @@ import {
   KeyboardAvoidingView,
   Animated,
   Easing,
+  Keyboard,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
@@ -131,7 +132,7 @@ export default function ImageDiaryModal({
   const [processingProgress, setProcessingProgress] = useState(0);
   const progressAnimValue = useRef(new Animated.Value(0)).current;
   const currentProgressRef = useRef(0);
-  const progressAnimationRef = useRef<NodeJS.Timeout | null>(null);
+  const progressAnimationRef = useRef<number | null>(null);
 
   // ✅ 新增：结果预览页面状态
   const [showResult, setShowResult] = useState(false);
@@ -160,6 +161,45 @@ export default function ImageDiaryModal({
   const waveAnim1 = useRef(new Animated.Value(0)).current;
   const waveAnim2 = useRef(new Animated.Value(0)).current;
   const waveAnim3 = useRef(new Animated.Value(0)).current;
+
+  // ✅ 新增：TextInput 和 ScrollView 的 ref，用于键盘遮挡处理
+  const textInputRef = useRef<TextInput>(null);
+  const scrollViewRef = useRef<ScrollView>(null);
+
+  // ✅ 处理光标位置变化，自动滚动到当前输入行（键盘遮挡处理）
+  const handleTextSelectionChange = useCallback(() => {
+    if (!textInputRef.current || !scrollViewRef.current) {
+      return;
+    }
+
+    // 使用 setTimeout 确保在键盘弹出后执行
+    setTimeout(() => {
+      textInputRef.current?.measure((x, y, width, height, pageX, pageY) => {
+        // 估算键盘高度（iOS 约 300-350px，Android 约 250-300px）
+        const keyboardHeight = Platform.OS === "ios" ? 350 : 280;
+        // 屏幕高度
+        const screenHeight = Dimensions.get("window").height;
+        // 键盘顶部位置
+        const keyboardTop = screenHeight - keyboardHeight;
+        // TextInput 底部位置（相对于屏幕）
+        const inputBottom = pageY + height;
+        // 安全区域顶部偏移（考虑状态栏和导航栏）
+        const safeAreaTop = Platform.OS === "ios" ? 100 : 80;
+
+        // 如果输入框底部被键盘遮挡
+        if (inputBottom > keyboardTop - safeAreaTop) {
+          // 计算需要滚动的距离：输入框底部位置 - 键盘顶部位置 + 安全间距
+          // 注意：pageY 是相对于屏幕的位置，需要转换为相对于 ScrollView 的滚动位置
+          const scrollOffset = pageY - safeAreaTop + height + 20; // 20px 安全间距
+          
+          scrollViewRef.current?.scrollTo({
+            y: Math.max(0, scrollOffset),
+            animated: true,
+          });
+        }
+      });
+    }, 100); // 延迟 100ms 确保键盘已弹出
+  }, []);
 
   // ✅ 处理步骤配置
   // 语音相关场景使用完整步骤（包含上传声音、倾听等）
@@ -561,57 +601,73 @@ export default function ImageDiaryModal({
   };
 
   /**
-   * 平滑更新进度条
+   * 🎯 教科书级别的平滑进度更新（与 RecordingModal 一致）
    */
   const smoothUpdateProgress = useCallback(
-    (target: number) => {
-      const safeTarget = Math.max(target, currentProgressRef.current);
+    (target: number, duration?: number) => {
+      const safeTarget = Math.max(
+        Math.min(target, 100),
+        currentProgressRef.current
+      );
+      
       const currentValue = currentProgressRef.current;
       const progressDiff = safeTarget - currentValue;
 
-      let calculatedDuration = 600;
-      if (progressDiff < 5) {
-        calculatedDuration = 300;
-      } else if (progressDiff < 20) {
-        calculatedDuration = 600;
-      } else {
-        calculatedDuration = 1000;
+      if (progressDiff <= 0.01) {
+        return;
       }
 
-      progressAnimValue.stopAnimation();
+      let calculatedDuration = duration;
+      if (calculatedDuration === undefined) {
+        if (progressDiff < 5) {
+          calculatedDuration = 600;
+        } else if (progressDiff < 10) {
+          calculatedDuration = 1000;
+        } else if (progressDiff < 20) {
+          calculatedDuration = 1500;
+        } else if (progressDiff < 30) {
+          calculatedDuration = 2000;
+        } else {
+          calculatedDuration = 2500;
+        }
+      }
+
       if (progressAnimationRef.current) {
-        clearInterval(progressAnimationRef.current);
+        cancelAnimationFrame(progressAnimationRef.current);
         progressAnimationRef.current = null;
       }
 
-      setProcessingProgress(safeTarget);
-      const startValue = currentProgressRef.current;
-      progressAnimValue.setValue(startValue);
+      const startTime = Date.now();
+      const startValue = currentValue;
 
-      const animation = Animated.timing(progressAnimValue, {
-        toValue: safeTarget,
-        duration: calculatedDuration,
-        easing: Easing.bezier(0.25, 0.1, 0.25, 1),
-        useNativeDriver: false,
-      });
+      const easeOutCubic = (t: number): number => {
+        return 1 - Math.pow(1 - t, 3);
+      };
 
-      const listenerId = progressAnimValue.addListener(({ value }) => {
-        const clampedValue = Math.max(
-          currentProgressRef.current,
-          Math.min(100, value)
-        );
+      const animate = () => {
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min(elapsed / calculatedDuration, 1);
+        const easedProgress = easeOutCubic(progress);
+        const newValue = startValue + (safeTarget - startValue) * easedProgress;
+        const clampedValue = Math.max(currentProgressRef.current, newValue);
+        
         currentProgressRef.current = clampedValue;
         setProcessingProgress(clampedValue);
-      });
 
-      animation.start(() => {
-        currentProgressRef.current = safeTarget;
-        setProcessingProgress(safeTarget);
-        progressAnimValue.removeListener(listenerId);
-      });
+        if (progress < 1) {
+          progressAnimationRef.current = requestAnimationFrame(animate);
+        } else {
+          currentProgressRef.current = safeTarget;
+          setProcessingProgress(safeTarget);
+          progressAnimationRef.current = null;
+        }
+      };
+
+      progressAnimationRef.current = requestAnimationFrame(animate);
     },
-    [progressAnimValue]
+    []
   );
+
 
   /**
    * 取消录音并退出录音模式
@@ -1139,7 +1195,7 @@ export default function ImageDiaryModal({
           </View>
           <View style={styles.headerRight} />
         </View>
-        <View style={styles.headerDivider} />
+        <View style={styles.resultHeaderDivider} />
       </>
     );
   };
@@ -1155,7 +1211,7 @@ export default function ImageDiaryModal({
 
         {/* 可滚动内容 */}
         <KeyboardAvoidingView
-          style={{ flex: 1 }}
+          style={{ flexShrink: 1 }} // ✅ 使用 flexShrink 让内容自适应
           behavior={Platform.OS === "ios" ? "padding" : "height"}
           keyboardVerticalOffset={Platform.OS === "ios" ? 60 : 0}
         >
@@ -1480,6 +1536,7 @@ export default function ImageDiaryModal({
             keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
           >
             <ScrollView
+              ref={scrollViewRef}
               style={styles.scrollView}
               contentContainerStyle={[
                 styles.scrollContent,
@@ -1567,6 +1624,7 @@ export default function ImageDiaryModal({
                     <>
                       <View style={styles.inputContainer}>
                         <TextInput
+                          ref={textInputRef}
                           style={[
                             styles.textInput,
                             {
@@ -1580,8 +1638,9 @@ export default function ImageDiaryModal({
                           placeholderTextColor="#999"
                           value={textContent}
                           onChangeText={setTextContent}
+                          onSelectionChange={handleTextSelectionChange}
                           multiline
-                          maxLength={500}
+                          maxLength={1000}
                           textAlignVertical="top"
                           accessibilityLabel={t(
                             "createImageDiary.textPlaceholder"
@@ -1641,13 +1700,13 @@ export default function ImageDiaryModal({
                               styles.charCountWarning,
                             {
                               fontFamily: getFontFamilyForText(
-                                `${textContent.length}/500`,
+                                `${textContent.length}/1000`,
                                 "regular"
                               ),
                             },
                           ]}
                         >
-                          {textContent.length}/500
+                          {textContent.length}/1000
                         </Text>
                       </View>
 
@@ -1917,11 +1976,10 @@ const styles = StyleSheet.create({
     minHeight: 640,
     maxHeight: 640,
   },
-  // ✅ 结果状态：根据内容动态调整（最小高度640，最大不超过屏幕高度）
+  // ✅ 结果状态：折中方案 - 75% 默认高度
   modalResult: {
-    minHeight: 640,
-    maxHeight: SCREEN_HEIGHT - 80,
-    // 不设置固定 height，让内容决定高度
+    minHeight: "75%",
+    maxHeight: "90%",
   },
   // Header 样式 - 与 TextInputModal 保持一致
   header: {
@@ -1950,7 +2008,13 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: "#F0F0F0",
     marginHorizontal: 20, // ✅ 还原为 20px
-    marginBottom: 16, // ✅ 分割线下方间距统一为 16px
+    marginBottom: 16, // ✅ 输入页：分割线下方间距统一为 16px
+  },
+  resultHeaderDivider: {
+    height: 1,
+    backgroundColor: "#F0F0F0",
+    marginHorizontal: 20, // ✅ 还原为 20px
+    marginBottom: 0, // ✅ 结果页：移除 marginBottom，间距由 resultScrollContent 的 paddingTop 统一控制
   },
   saveText: {
     fontSize: 16,
@@ -1990,7 +2054,7 @@ const styles = StyleSheet.create({
     padding: 12,
     paddingLeft: 12, // 让占位文字与常规输入对齐
     paddingRight: 12, // 给右下角计数器留出空间，避免过早折行
-    paddingBottom: 40, // 为字符计数和按钮留出空间
+    paddingBottom: 56, // ✅ 增加底部内边距，为语音按钮和字符计数器留出更多空间（原40，现56）
     color: "#1A1A1A",
     textAlignVertical: "top",
     minHeight: 200,
@@ -2119,7 +2183,7 @@ const styles = StyleSheet.create({
   },
   confirmButton: {
     flex: 1,
-    paddingVertical: 14,
+    paddingVertical: 10,
     borderRadius: 12,
     alignItems: "center",
   },
@@ -2332,8 +2396,8 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent", // ✅ 改为透明，去掉白色背景重叠
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    paddingBottom: Platform.OS === "ios" ? 40 : 20,
-    paddingHorizontal: 20,
+    paddingBottom: 16, // ✅ 与 RecordingModal 的 modal paddingBottom 保持一致
+    paddingHorizontal: 0, // ✅ 移除横向 padding，由 VoiceRecordingPanel 内部控制
     zIndex: 100,
     alignItems: "center",
     justifyContent: "center", // ✅ 与 RecordingModal 保持一致
@@ -2388,7 +2452,7 @@ const styles = StyleSheet.create({
   },
   // ===== 结果预览视图样式 =====
   resultScrollView: {
-    flex: 1,
+    flexShrink: 1, // ✅ 允许收缩以适应内容
   },
   resultScrollContent: {
     paddingTop: 16, // ✅ 分割线下方间距统一为 16px

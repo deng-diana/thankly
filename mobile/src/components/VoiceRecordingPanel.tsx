@@ -281,6 +281,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 40,
     paddingTop: 20,
+    marginBottom: 32, // ✅ 增加底部间距
     width: "100%",
   },
   controlsSpacer: {

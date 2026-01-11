@@ -259,16 +259,18 @@ class DynamoDBService:
         diary_id: str,
         user_id: str,
         polished_content: str = None,
-        title: str = None
+        title: str = None,
+        image_urls: List[str] = None  # ✅ 新增：图片URL列表
     ) -> dict:
         """
-        更新日记内容和/或标题
+        更新日记内容和/或标题和/或图片列表
         
         参数:
             diary_id: 日记ID
             user_id: 用户ID
             polished_content: 新的润色内容（可选）
             title: 新的标题（可选）
+            image_urls: 新的图片URL列表（可选）
         
         返回:
             更新后的日记对象
@@ -308,8 +310,13 @@ class DynamoDBService:
                 expression_values[':t'] = title
                 print(f"📝 将更新标题: {title}")
             
+            if image_urls is not None:
+                update_expressions.append('imageUrls = :iu')
+                expression_values[':iu'] = image_urls
+                print(f"📝 将更新图片数量: {len(image_urls)}")
+            
             if not update_expressions:
-                raise ValueError("至少需要提供 polished_content 或 title 之一")
+                raise ValueError("至少需要提供 polished_content, title 或 image_urls 之一")
             
             # 更新日记
             response = self.table.update_item(
@@ -340,7 +347,8 @@ class DynamoDBService:
                 'ai_feedback': updated_item.get('aiFeedback', diary_item.get('aiFeedback', '')),
                 'audio_url': updated_item.get('audioUrl', diary_item.get('audioUrl')),
                 'audio_duration': updated_item.get('audioDuration', diary_item.get('audioDuration')),
-                'image_urls': updated_item.get('imageUrls', diary_item.get('imageUrls'))  # ← 添加这行
+                'image_urls': updated_item.get('imageUrls', diary_item.get('imageUrls')),  # ✅ 返回更新后的图片列表
+                'emotion_data': updated_item.get('emotionData', diary_item.get('emotionData'))  # ✅ 添加情感数据
             }
             
         except Exception as e:

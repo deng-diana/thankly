@@ -70,7 +70,7 @@ export default function TextInputModal({
   // 处理步骤状态
   const [processingStep, setProcessingStep] = useState(0);
   const [processingProgress, setProcessingProgress] = useState(0);
-  const progressAnimationRef = useRef<NodeJS.Timeout | null>(null);
+  const progressAnimationRef = useRef<number | null>(null);
 
   // ✅ 新增:保存状态保护 - 防止重复调用
   const isSavingRef = useRef(false);
@@ -180,33 +180,73 @@ export default function TextInputModal({
 
   // ========== 文字输入相关函数 ==========
 
-  // 平滑更新进度条
+  // ✅ 使用 ref 保存当前进度值，确保连续性
+  const currentProgressRef = useRef(0);
+
+  /**
+   * 🎯 教科书级别的平滑进度更新（与 RecordingModal 一致）
+   */
   const smoothUpdateProgress = useCallback(
-    (target: number, speed: number = 0.8) => {
-      if (progressAnimationRef.current) {
-        clearInterval(progressAnimationRef.current);
+    (target: number, duration?: number) => {
+      const safeTarget = Math.max(
+        Math.min(target, 100),
+        currentProgressRef.current
+      );
+      
+      const currentValue = currentProgressRef.current;
+      const progressDiff = safeTarget - currentValue;
+
+      if (progressDiff <= 0.01) {
+        return;
       }
 
-      progressAnimationRef.current = setInterval(() => {
-        setProcessingProgress((current) => {
-          if (current < target - 1) {
-            const diff = target - current;
-            const step = Math.min(speed, diff);
-            return current + step;
-          }
-          if (current < target) {
-            return current + 0.2;
-          }
-          if (current < 99) {
-            return current + 0.05;
-          }
-          if (progressAnimationRef.current) {
-            clearInterval(progressAnimationRef.current);
-            progressAnimationRef.current = null;
-          }
-          return current;
-        });
-      }, 40);
+      let calculatedDuration = duration;
+      if (calculatedDuration === undefined) {
+        if (progressDiff < 5) {
+          calculatedDuration = 600;
+        } else if (progressDiff < 10) {
+          calculatedDuration = 1000;
+        } else if (progressDiff < 20) {
+          calculatedDuration = 1500;
+        } else if (progressDiff < 30) {
+          calculatedDuration = 2000;
+        } else {
+          calculatedDuration = 2500;
+        }
+      }
+
+      if (progressAnimationRef.current) {
+        cancelAnimationFrame(progressAnimationRef.current);
+        progressAnimationRef.current = null;
+      }
+
+      const startTime = Date.now();
+      const startValue = currentValue;
+
+      const easeOutCubic = (t: number): number => {
+        return 1 - Math.pow(1 - t, 3);
+      };
+
+      const animate = () => {
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min(elapsed / calculatedDuration, 1);
+        const easedProgress = easeOutCubic(progress);
+        const newValue = startValue + (safeTarget - startValue) * easedProgress;
+        const clampedValue = Math.max(currentProgressRef.current, newValue);
+        
+        currentProgressRef.current = clampedValue;
+        setProcessingProgress(clampedValue);
+
+        if (progress < 1) {
+          progressAnimationRef.current = requestAnimationFrame(animate);
+        } else {
+          currentProgressRef.current = safeTarget;
+          setProcessingProgress(safeTarget);
+          progressAnimationRef.current = null;
+        }
+      };
+
+      progressAnimationRef.current = requestAnimationFrame(animate);
     },
     []
   );
@@ -592,7 +632,27 @@ export default function TextInputModal({
               {t("createTextDiary.title")}
             </Text>
           </View>
-          <View style={styles.headerRight} />
+          <TouchableOpacity
+            style={styles.headerDoneButton}
+            onPress={handleTextSubmit}
+            accessibilityLabel={t("common.done")}
+            accessibilityHint={t("accessibility.button.continueHint")}
+            accessibilityRole="button"
+          >
+            <Text
+              style={[
+                styles.headerDoneButtonText,
+                {
+                  fontFamily: getFontFamilyForText(
+                    t("common.done"),
+                    "semibold"
+                  ),
+                },
+              ]}
+            >
+              {t("common.done")}
+            </Text>
+          </TouchableOpacity>
         </View>
         <View style={styles.headerDivider} />
 
@@ -621,7 +681,7 @@ export default function TextInputModal({
                 onChangeText={setContent}
                 multiline
                 autoFocus
-                maxLength={500}
+                maxLength={1000}
                 accessibilityLabel={t("createTextDiary.textPlaceholder")}
                 accessibilityHint={t("accessibility.input.textHint")}
                 accessibilityRole="text"
@@ -633,31 +693,9 @@ export default function TextInputModal({
                   !isTextValid && content.length > 0 && styles.charCountWarning,
                 ]}
               >
-                {content.length}/500
+                {content.length}/1000
               </Text>
             </View>
-
-            <TouchableOpacity
-              style={styles.completeButton}
-              onPress={handleTextSubmit}
-              accessibilityLabel={t("common.done")}
-              accessibilityHint={t("accessibility.button.continueHint")}
-              accessibilityRole="button"
-            >
-              <Text
-                style={[
-                  styles.completeButtonText,
-                  {
-                    fontFamily: getFontFamilyForText(
-                      t("common.done"),
-                      "semibold"
-                    ),
-                  },
-                ]}
-              >
-                {t("common.done")}
-              </Text>
-            </TouchableOpacity>
           </ScrollView>
         </KeyboardAvoidingView>
       </>
@@ -674,7 +712,7 @@ export default function TextInputModal({
 
         {/* ✅ 可滚动内容 - 包裹键盘避让（与 RecordingModal 保持一致） */}
         <KeyboardAvoidingView
-          style={{ flex: 1 }}
+          style={{ flexShrink: 1 }}
           behavior={Platform.OS === "ios" ? "padding" : "height"}
           keyboardVerticalOffset={Platform.OS === "ios" ? 60 : 0}
         >
@@ -835,11 +873,10 @@ const styles = StyleSheet.create({
     minHeight: 640,
     maxHeight: 640,
   },
-  // ✅ 结果状态：使用最大高度（与 RecordingModal 保持一致，确保内容多时AI回复不被挡住）
+  // ✅ 结果状态：折中方案 - 75% 默认高度
   modalResult: {
-    height: SCREEN_HEIGHT - 80,
-    maxHeight: SCREEN_HEIGHT - 80,
-    minHeight: 640,
+    minHeight: "75%",
+    maxHeight: "90%",
   },
   header: {
     flexDirection: "row",
@@ -860,8 +897,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
-  headerRight: {
-    width: 36,
+  headerDoneButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    minWidth: 44,
+    alignItems: "flex-end",
+    justifyContent: "center",
+  },
+  headerDoneButtonText: {
+    ...Typography.body,
+    color: "#E56C45",
+    fontWeight: "600",
   },
   headerDivider: {
     height: 1,
@@ -889,7 +935,7 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
     color: "#1A1A1A",
     textAlignVertical: "top",
-    minHeight: 200,
+    minHeight: 300,
   },
   charCount: {
     position: "absolute",
@@ -901,18 +947,6 @@ const styles = StyleSheet.create({
   },
   charCountWarning: {
     color: "#E56C45",
-  },
-  completeButton: {
-    backgroundColor: "#E56C45",
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: "center",
-    marginTop: 8,
-  },
-  completeButtonText: {
-    ...Typography.body,
-    color: "#fff",
-    fontWeight: "600",
   },
   // ===== 结果页样式（与 RecordingModal 一致）=====
   resultHeader: {
@@ -945,7 +979,7 @@ const styles = StyleSheet.create({
     color: "#E56C45",
   },
   resultScrollView: {
-    flex: 1, // ✅ 与 RecordingModal 保持一致
+    flexShrink: 1, // ✅ 允许收缩以适应内容
   },
   resultScrollContent: {
     paddingHorizontal: 20, // ✅ 还原为 20px
@@ -986,7 +1020,8 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "flex-start",
+    paddingTop: "30%",
     pointerEvents: "none",
   },
   toastContainer: {

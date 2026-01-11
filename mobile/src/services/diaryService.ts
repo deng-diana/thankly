@@ -46,7 +46,7 @@ async function prepareImageForUpload(
 
   let size: number | null = null;
   try {
-    const info = await FileSystem.getInfoAsync(uri, { size: true });
+    const info = await FileSystem.getInfoAsync(uri, { size: true } as any);
     if (info.exists && typeof info.size === "number") {
       size = info.size;
     }
@@ -627,7 +627,7 @@ async function checkAudioFileSize(
   duration: number
 ): Promise<number> {
   try {
-    const fileInfo = await FileSystem.getInfoAsync(audioUri, { size: true });
+    const fileInfo = await FileSystem.getInfoAsync(audioUri, { size: true } as any);
     
     if (!fileInfo.exists) {
       throw new Error("音频文件不存在");

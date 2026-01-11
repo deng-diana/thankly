@@ -318,27 +318,43 @@ export default function DiaryDetailScreen({
   };
 
   // ========== 工具函数 ==========
-  const formatDateTime = (dateTimeString: string): string => {
-    const date = new Date(dateTimeString);
-    if (Number.isNaN(date.getTime())) {
-      return dateTimeString;
-    }
+const formatDateTime = (dateTimeString: string): string => {
+  const date = new Date(dateTimeString);
+  if (Number.isNaN(date.getTime())) {
+    return dateTimeString;
+  }
 
-    const locale = getCurrentLocale();
-    const localeTag = locale === "zh" ? "zh-CN" : "en-US";
+  const locale = getCurrentLocale();
 
-    const formatter = new Intl.DateTimeFormat(localeTag, {
-      month: locale === "zh" ? "numeric" : "short",
-      day: "numeric",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    });
-
-    const formatted = formatter.format(date);
-    return locale === "en" ? formatted.replace(",", "") : formatted;
-  };
+  if (locale === "zh") {
+    // 中文格式：2026 年 1 月 11 日 · 下午 2:52
+    const year = date.getFullYear();
+    const month = date.getMonth() + 1;
+    const day = date.getDate();
+    const hours = date.getHours();
+    const minutes = date.getMinutes();
+    
+    const period = hours < 12 ? "上午" : "下午";
+    const displayHours = hours % 12 || 12;
+    const displayMinutes = minutes.toString().padStart(2, "0");
+    
+    return `${year} 年 ${month} 月 ${day} 日 · ${period} ${displayHours}:${displayMinutes}`;
+  } else {
+    // 英文格式：Jan 11, 2026 · 2:05 PM
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const month = monthNames[date.getMonth()];
+    const day = date.getDate();
+    const year = date.getFullYear();
+    const hours = date.getHours();
+    const minutes = date.getMinutes();
+    
+    const period = hours < 12 ? "AM" : "PM";
+    const displayHours = hours % 12 || 12;
+    const displayMinutes = minutes.toString().padStart(2, "0");
+    
+    return `${month} ${day}, ${year} · ${displayHours}:${displayMinutes} ${period}`;
+  }
+};
 
   // ========== 渲染Header ==========
 

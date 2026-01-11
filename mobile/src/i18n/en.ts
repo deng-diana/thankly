@@ -29,8 +29,8 @@ export default {
   // Onboarding流程
   onboarding: {
     welcome: {
-      title: "Welcome to thankly",
-      subtitle: "Your space to pause and capture life's moments",
+      title: "This is Thankly",
+      subtitle: "Press pause on a busy life, and let your voice keep what matters.",
       privacyNotice:
         "Read our {{privacyPolicy}}. Tap 'Agree & Continue' to accept the {{termsOfService}}.",
       privacyPolicy: "Privacy Policy",
@@ -39,18 +39,21 @@ export default {
     },
     skip: "Skip",
     guide1: {
-      title: "Just speak it out",
-      subtitle: "No typing needed — just share what's on your heart",
+      title: "Say it out loud—we'll hold it.",
+      subtitle: "Speak freely. We'll turn it into a clear entry, with a gentle title and reply.",
     },
     guide2: {
-      title: "Every moment matters",
-      subtitle:
-        "Joy, sadness, or ordinary days — they're all part of your story",
+      title: "Photo, voice, text—your choice.",
+      subtitle: "Add a photo, leave a voice note, or write it down. However it comes, it's welcome.",
     },
     guide3: {
-      title: "Start today",
-      subtitle: "One minute before bed, capture today's warm moment",
-      getStartedButton: "Get Started",
+      title: "Your gentle AI companion.",
+      subtitle: "It understands your feelings and responds with care.",
+    },
+    guide4: {
+      title: "Every feeling deserves a home.",
+      subtitle: "Your own little harbour—calm, private, and just for you.",
+      getStartedButton: "Begin My Journey",
     },
   },
 
@@ -122,7 +125,7 @@ export default {
   // 首页/日记列表
   home: {
     welcome: "Hi {name}",
-    subtitle: "Anything you'd like to appreciate,\nor gently share today?",
+    subtitle: "Anything to appreciate or capture today?",
     myDiary: "My precious moments",
     myDiaryPrefix: "My",
     myDiarySuffix: "precious moments",
@@ -203,7 +206,7 @@ export default {
     title: "Photo Entry",
     textPlaceholder: "Write the story behind these moments...",
     submitButton: "Done",
-    confirmMessage: "Add words or voice to capture how you feel in this moment",
+    confirmMessage: "Would you like to add text or voice to keep this moment?",
     saveAsIs: "Save as is",
     addContent: "Add content",
     textPreview: "Entered Text",

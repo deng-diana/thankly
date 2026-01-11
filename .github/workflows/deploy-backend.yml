@@ -1,14 +1,14 @@
 name: Deploy Backend to AWS Lambda
 
-# 触发条件：当 backend/ 目录下的文件有变更时触发
+# 🎯 触发条件优化：
+# 1. 只在创建 backend tag 时自动部署（例如：backend-v1.1.0）
+# 2. 或者手动触发
+# 这样平时提交代码不会触发部署，节省时间和资源
 on:
+  # 当推送 backend tag 时触发（例如：git tag backend-v1.1.0 && git push --tags）
   push:
-    branches:
-      - master # 主分支
-      - main # 如果使用 main 分支
-    paths:
-      - "backend/**" # 只监听 backend 目录的变更
-      - ".github/workflows/deploy-backend.yml" # 工作流文件本身变更也触发
+    tags:
+      - "backend-v*.*.*" # 匹配 backend-v1.0.0, backend-v1.1.0 等
 
   # 也可以手动触发（在 GitHub Actions 页面点击 "Run workflow"）
   workflow_dispatch:

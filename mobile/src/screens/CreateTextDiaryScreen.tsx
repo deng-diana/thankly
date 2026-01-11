@@ -409,7 +409,7 @@ export default function CreateTextDiaryScreen() {
                     onChangeText={setContent}
                     multiline
                     autoFocus
-                    maxLength={500}
+                    maxLength={1000}
                     accessibilityLabel={t("createTextDiary.textPlaceholder")}
                     accessibilityHint={t("accessibility.input.textHint")}
                     accessibilityRole="text"
@@ -424,7 +424,7 @@ export default function CreateTextDiaryScreen() {
                         styles.charCountWarning,
                     ]}
                   >
-                    {content.length}/500
+                    {content.length}/1000
                   </Text>
                 </View>
 

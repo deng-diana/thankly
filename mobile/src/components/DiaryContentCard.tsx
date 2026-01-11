@@ -48,6 +48,21 @@ export const DiaryContentCard: React.FC<DiaryContentCardProps> = ({
   const isChineseTitle = detectTextLanguage(title || "") === "zh";
   const isChineseContent = detectTextLanguage(content || "") === "zh";
 
+  // ✅ 处理内容：如果内容开头重复了标题，去掉重复部分
+  const processedContent = React.useMemo(() => {
+    if (!title || !content) return content;
+    
+    const trimmedTitle = title.trim();
+    const trimmedContent = content.trim();
+    
+    // 如果内容以标题开头，去掉标题部分
+    if (trimmedContent.startsWith(trimmedTitle)) {
+      return trimmedContent.slice(trimmedTitle.length).replace(/^\s+/, '');
+    }
+    
+    return content;
+  }, [title, content]);
+
   // ✅ 动态配色逻辑
   const emotionType = emotion as EmotionType;
   const emotionConfig = emotionType && EMOTION_MAP[emotionType] ? EMOTION_MAP[emotionType] : DEFAULT_EMOTION;
@@ -149,12 +164,12 @@ export const DiaryContentCard: React.FC<DiaryContentCardProps> = ({
               style={[
                 styles.contentText,
                 {
-                  fontFamily: getFontFamilyForText(content, "regular"),
-                  lineHeight: isChineseContent ? 32 : 28, // ✅ 匹配日记详情页的最佳实践
+                  fontFamily: getFontFamilyForText(processedContent, "regular"),
+                  lineHeight: isChineseContent ? 28 : 26, // ✅ 恢复原始行间距
                 },
               ]}
             >
-              {content}
+              {processedContent}
             </Text>
           </TouchableOpacity>
         )}

@@ -1660,14 +1660,37 @@ async def update_diary(
     编辑一篇日记
     
     注意：直接保存用户编辑的内容，不再调用 AI 润色
+    支持更新图片列表，自动删除S3中被移除的图片
     
     Args:
         diary_id: 日记 ID
-        diary: 更新内容
+        diary: 更新内容（可包含 content, title, image_urls）
         user: 当前登录用户
     """
     try:
         print(f"📝 更新日记请求 - ID: {diary_id}, 用户: {user['user_id']}")
+        
+        # ✅ 如果更新图片列表，先获取旧的图片URL以便删除S3文件
+        if diary.image_urls is not None:
+            # 获取当前日记的图片列表
+            current_diary = db_service.get_diary_by_id(diary_id, user['user_id'])
+            if current_diary:
+                old_image_urls = current_diary.get('image_urls', []) or []
+                new_image_urls = diary.image_urls or []
+                
+                # 找出被删除的图片URL
+                deleted_urls = set(old_image_urls) - set(new_image_urls)
+                
+                if deleted_urls:
+                    print(f"🗑️ 检测到 {len(deleted_urls)} 张图片被删除，开始从S3删除...")
+                    for url in deleted_urls:
+                        try:
+                            # 从S3删除图片
+                            s3_service.delete_image_by_url(url)
+                            print(f"  ✅ 已从S3删除: {url}")
+                        except Exception as e:
+                            print(f"  ⚠️ 删除S3图片失败 ({url}): {str(e)}")
+                            # 继续处理，不因为S3删除失败而中断整个更新
         
         # 构建更新字段
         update_fields = {}
@@ -1677,9 +1700,12 @@ async def update_diary(
         if diary.title is not None:
             update_fields['title'] = diary.title
             print(f"📝 更新标题: {diary.title}")
+        if diary.image_urls is not None:
+            update_fields['image_urls'] = diary.image_urls
+            print(f"📝 更新图片数量: {len(diary.image_urls)}")
         
         if not update_fields:
-            raise ValueError("至少需要提供 content 或 title 之一")
+            raise ValueError("至少需要提供 content, title 或 image_urls 之一")
         
         # 直接保存用户编辑的内容
         diary_obj = db_service.update_diary(
@@ -1709,6 +1735,7 @@ async def update_diary(
             status_code=500,
             detail=f"更新日记失败: {str(e)}"
         )
+
 
 
 @router.delete("/{diary_id}", summary="删除日记")

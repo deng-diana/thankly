@@ -218,3 +218,12 @@ class S3Service:
             except Exception as delete_error:
                 print(f"❌ 删除S3对象失败: {delete_error}")
                 raise
+
+    def delete_image_by_url(self, url: str) -> None:
+        """
+        删除单个图片（便捷方法）
+        
+        Args:
+            url: S3图片URL
+        """
+        self.delete_objects_by_urls([url])

@@ -10,6 +10,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import OnboardingScreen1 from "../screens/OnboardingScreen1";
 import OnboardingScreen2 from "../screens/OnboardingScreen2";
 import OnboardingScreen3 from "../screens/OnboardingScreen3";
+import OnboardingScreen4 from "../screens/OnboardingScreen4";
 import OnboardingPagination from "./OnboardingPagination";
 
 const { width } = Dimensions.get("window");
@@ -22,6 +23,7 @@ export default function OnboardingCarousel() {
     { id: "1", component: OnboardingScreen1 },
     { id: "2", component: OnboardingScreen2 },
     { id: "3", component: OnboardingScreen3 },
+    { id: "4", component: OnboardingScreen4 },
   ];
 
   const handleScroll = (event: any) => {

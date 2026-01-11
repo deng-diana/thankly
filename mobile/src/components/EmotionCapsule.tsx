@@ -10,7 +10,7 @@ interface EmotionCapsuleProps {
 
 export const EmotionCapsule: React.FC<EmotionCapsuleProps> = ({ emotion, language = 'en', content }) => {
   // 1. 获取配置,如果没有匹配的则不显示或显示默认
-  // 当前策略:如果不识别,回退到 Reflective
+  // 当前策略:如果不识别,回退到 Thoughtful（默认中性标签）
   const config = emotion && EMOTION_MAP[emotion as EmotionType] 
     ? EMOTION_MAP[emotion as EmotionType] 
     : DEFAULT_EMOTION;
@@ -51,7 +51,8 @@ export const EmotionCapsule: React.FC<EmotionCapsuleProps> = ({ emotion, languag
 const styles = StyleSheet.create({
   container: {
     height: 24,
-    paddingHorizontal: 12, // 回归自然的 padding
+    minWidth: 48, // ✅ 设定最小宽度，确保视觉平衡
+    paddingHorizontal: 12,
     borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',

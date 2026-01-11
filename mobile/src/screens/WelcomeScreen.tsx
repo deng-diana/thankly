@@ -140,7 +140,14 @@ export default function WelcomeScreen() {
         {/* 标题和副标题 */}
         <View style={styles.contentContainer}>
           <Text style={[styles.title, typography.diaryTitle]}>
-            {t("onboarding.welcome.title")}
+            {getCurrentLocale() === "zh" ? (
+              <>
+                这里是
+                <Text style={{ fontWeight: "700" }}>「感记」</Text>
+              </>
+            ) : (
+              t("onboarding.welcome.title")
+            )}
           </Text>
           <Text style={[styles.subtitle, typography.body]}>
             {t("onboarding.welcome.subtitle")}

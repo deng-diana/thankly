@@ -28,8 +28,8 @@ export default {
   // Onboarding流程
   onboarding: {
     welcome: {
-      title: "欢迎来到感记",
-      subtitle: "在这里，按下暂停键，记录生活的每个瞬间",
+      title: "这里是「感记」",
+      subtitle: "为忙碌的生活，轻轻按下暂停键，用声音让珍贵的瞬间留下",
       privacyNotice:
         "阅读我们的{{privacyPolicy}}，点击「同意并继续」即表示接受{{termsOfService}}",
       privacyPolicy: "隐私政策",
@@ -38,17 +38,21 @@ export default {
     },
     skip: "跳过",
     guide1: {
-      title: "说出来就好",
-      subtitle: "不用打字，只需轻声说出此刻的感受",
+      title: "在这里，记录像说话一样轻松",
+      subtitle: "你只要说出来，我们会为你整理成清晰的记录，并配上温柔的标题与回应",
     },
     guide2: {
-      title: "每一刻都值得留住",
-      subtitle: "开心的、难过的、平淡的，都是你真实的样子, 都值得被记录",
+      title: "图片、语音、文字——随你选",
+      subtitle: "拍张照片、留段语音，或写下来。无论哪种方式，都欢迎",
     },
     guide3: {
-      title: "从今天开始",
-      subtitle: "睡前一分钟，记下今天的温暖时刻, 让生活慢慢变得温",
-      getStartedButton: "开始记录",
+      title: "你的温柔 AI 小伙伴",
+      subtitle: "它能读懂你的情绪，倾听你的感受，并用心回应",
+    },
+    guide4: {
+      title: "每一种情绪，都值得有一个家",
+      subtitle: "这里是你的小小港湾——安静、私密，只属于你",
+      getStartedButton: "开始我的旅程",
     },
   },
 
@@ -120,10 +124,10 @@ export default {
   // 首页/日记列表
   home: {
     welcome: "Hi {name}",
-    subtitle: "今天，有什么想感谢的，\n或想留下些什么吗？",
-    myDiary: "我珍藏的片刻",
-    myDiaryPrefix: "我",
-    myDiarySuffix: "珍藏的片刻",
+    subtitle: "此刻，有什么想感恩，或想轻轻记下的吗？",
+    myDiary: "我的珍贵片刻",
+    myDiaryPrefix: "我的",
+    myDiarySuffix: "个珍贵片刻",
     noDiaries: "要不要暂停一下，记录今天？开启属于你的故事",
     refreshing: "刷新中...",
     signOut: "退出登录",
@@ -201,7 +205,7 @@ export default {
     title: "图片记录",
     textPlaceholder: "为这些瞬间写下你的故事...",
     submitButton: "完成",
-    confirmMessage: "用文字或语音记录这一刻的感受，让回忆更完整",
+    confirmMessage: "要不要用文字或语音，把这一刻的感受说下来？",
     saveAsIs: "直接保存",
     addContent: "添加内容",
     textPreview: "已输入文字",
