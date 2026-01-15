@@ -23,11 +23,17 @@ import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/AppNavigator";
 import { Typography } from "../styles/typography";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { createTextDiary, updateDiary } from "../services/diaryService";
 import { t } from "../i18n";
 import ProcessingAnimation from "../components/ProcessingAnimation";
 import DiaryResultView from "../components/DiaryResultView";
+
+// ✅ 自动保存配置
+const AUTO_SAVE_KEY = "draft_text_diary";
+const AUTO_SAVE_INTERVAL = 3000; // 3秒自动保存一次
+const MAX_DRAFT_AGE = 24 * 60 * 60 * 1000; // 24小时
 
 export default function CreateTextDiaryScreen() {
   const navigation =
@@ -55,6 +61,11 @@ export default function CreateTextDiaryScreen() {
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
 
+  // ✅ 自动保存状态
+  const [isDraftRestored, setIsDraftRestored] = useState(false);
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
+
   // 处理步骤状态
   const [processingStep, setProcessingStep] = useState(0);
   const [processingProgress, setProcessingProgress] = useState(0);
@@ -77,6 +88,103 @@ export default function CreateTextDiaryScreen() {
       }
     };
   }, []);
+
+  // ✅ 新增: App启动时恢复草稿
+  useEffect(() => {
+    const restoreDraft = async () => {
+      try {
+        const draft = await AsyncStorage.getItem(AUTO_SAVE_KEY);
+        if (draft) {
+          const draftData = JSON.parse(draft);
+          
+          // 检查草稿是否过期 (24小时)
+          const now = Date.now();
+          const draftAge = now - draftData.timestamp;
+          
+          if (draftAge < MAX_DRAFT_AGE && draftData.content.trim()) {
+            // 提示用户恢复草稿
+            Alert.alert(
+              "发现未保存的内容",
+              `是否恢复上次未保存的内容? (${draftData.content.substring(0, 30)}...)`,
+              [
+                {
+                  text: "放弃",
+                  style: "destructive",
+                  onPress: async () => {
+                    await AsyncStorage.removeItem(AUTO_SAVE_KEY);
+                    setIsDraftRestored(true);
+                  }
+                },
+                {
+                  text: "恢复",
+                  onPress: () => {
+                    setContent(draftData.content);
+                    console.log("✅ 已恢复草稿:", draftData.content.substring(0, 50));
+                    setIsDraftRestored(true);
+                  }
+                }
+              ]
+            );
+          } else {
+            // 草稿过期或为空,删除
+            await AsyncStorage.removeItem(AUTO_SAVE_KEY);
+            setIsDraftRestored(true);
+          }
+        } else {
+          setIsDraftRestored(true);
+        }
+      } catch (error) {
+        console.error("❌ 恢复草稿失败:", error);
+        setIsDraftRestored(true);
+      }
+    };
+    
+    restoreDraft();
+  }, []);
+
+  // ✅ 新增: 自动保存草稿
+  useEffect(() => {
+    // 等待草稿恢复完成后再开始自动保存
+    if (!isDraftRestored) return;
+    
+    // 如果内容为空,不保存
+    if (!content.trim()) {
+      return;
+    }
+    
+    // 如果已经提交,不保存
+    if (submitted) {
+      return;
+    }
+    
+    // 清除之前的定时器
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+    
+    // 设置新的定时器 (3秒后保存)
+    autoSaveTimerRef.current = setTimeout(async () => {
+      try {
+        const draftData = {
+          content: content,
+          timestamp: Date.now()
+        };
+        
+        await AsyncStorage.setItem(AUTO_SAVE_KEY, JSON.stringify(draftData));
+        setLastSaved(new Date());
+        console.log("💾 自动保存草稿:", content.substring(0, 30) + "...");
+      } catch (error) {
+        console.error("❌ 自动保存失败:", error);
+      }
+    }, AUTO_SAVE_INTERVAL);
+    
+    // 清理函数
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+    };
+  }, [content, isDraftRestored, submitted]);
 
   // ========== 文字输入相关函数 ==========
 
@@ -214,6 +322,10 @@ export default function CreateTextDiaryScreen() {
         setCurrentDiaryId(diary.diary_id);
         setShowSaveButton(true);
 
+        // ✅ 成功后清除草稿
+        await AsyncStorage.removeItem(AUTO_SAVE_KEY);
+        console.log("✅ 已清除草稿 (成功提交)");
+
         setIsProcessing(false);
 
         console.log("✅ 文字处理完成");
@@ -321,6 +433,25 @@ export default function CreateTextDiaryScreen() {
   };
 
   const handleGoBack = async () => {
+    // ✅ 如果有未提交的内容
+    if (content.trim() && !submitted) {
+      Alert.alert(
+        "确定要离开吗?",
+        "您输入的内容将自动保存为草稿,下次打开时可以恢复。",
+        [
+          {
+            text: "继续编辑",
+            style: "cancel"
+          },
+          {
+            text: "离开",
+            onPress: () => navigation.goBack()
+          }
+        ]
+      );
+      return;
+    }
+    
     // ✅ 如果用户正在编辑，提示是否保存
     if (isEditing && hasChanges) {
       Alert.alert(t("diary.unsavedChanges"), t("diary.unsavedChangesMessage"), [
@@ -426,6 +557,13 @@ export default function CreateTextDiaryScreen() {
                   >
                     {content.length}/1000
                   </Text>
+
+                  {/* ✅ 新增: 自动保存指示器 */}
+                  {lastSaved && !submitted && (
+                    <Text style={styles.savedIndicator}>
+                      💾 已自动保存于 {lastSaved.toLocaleTimeString()}
+                    </Text>
+                  )}
                 </View>
 
                 {/* 完成按钮 - 始终显示 */}
@@ -690,5 +828,15 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 14,
     fontWeight: "600",
+  },
+
+  // ✅ 新增: 自动保存指示器样式
+  savedIndicator: {
+    position: "absolute",
+    left: 16,
+    bottom: 12,
+    fontSize: 10,
+    color: "#999",
+    fontStyle: "italic",
   },
 });
