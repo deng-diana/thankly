@@ -7,7 +7,7 @@
 4. ✅ 保持所有原有逻辑不变
 """
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Form, Request
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Form, Request, Query
 from fastapi.responses import StreamingResponse
 from typing import List, Dict, Optional, AsyncGenerator
 import asyncio
@@ -25,6 +25,7 @@ from ..utils.cognito_auth import get_current_user
 from ..utils.cognito_auth import get_current_user
 from ..utils.cognito_auth import get_current_user
 from ..utils.transcription import validate_audio_quality, validate_transcription
+from boto3.dynamodb.conditions import Attr  # ✅ 用于DynamoDB条件表达式
 
 # ============================================================================
 # 初始化
@@ -2047,4 +2048,71 @@ async def delete_diary(
         raise HTTPException(
             status_code=500,
             detail=f"删除日记失败: {str(e)}"
+        )
+
+
+@router.get("/search", summary="搜索日记")
+async def search_diaries(
+    q: str = Query(..., min_length=1, max_length=100, description="搜索关键词"),
+    current_user: Dict = Depends(get_current_user),
+):
+    """
+    搜索日记
+    
+    - 支持标题和内容的全文搜索
+    - 支持中英文模糊匹配
+    - 按创建时间倒序返回结果
+    
+    Args:
+        q: 搜索关键词（1-100个字符）
+        current_user: 当前登录用户
+    
+    Returns:
+        {
+            "diaries": [...],  # 匹配的日记列表
+            "count": 3         # 结果数量
+        }
+    
+    注意：
+    生产环境建议使用 ElasticSearch 或 DynamoDB GSI 优化性能
+    当前实现使用 scan 会扫描整个表，数据量大时效率较低
+    """
+    try:
+        user_id = current_user["user_id"]
+        print(f"🔍 用户 {user_id} 搜索: '{q}'")
+        
+        # 使用 DynamoDB scan 进行全文搜索
+        # 注意：scan 会扫描整个表，对于大数据量效率较低
+        # 生产环境建议使用 ElasticSearch 或创建 GSI
+        
+        response = db_service.diary_table.scan(
+            FilterExpression=(
+                Attr("user_id").eq(user_id) &
+                (
+                    Attr("title").contains(q) |
+                    Attr("polished_content").contains(q) |
+                    Attr("original_content").contains(q)
+                )
+            )
+        )
+        
+        diaries = response.get("Items", [])
+        
+        # 按创建时间倒序排序
+        diaries.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+        
+        print(f"✅ 搜索到 {len(diaries)} 条日记")
+        
+        return {
+            "diaries": diaries,
+            "count": len(diaries)
+        }
+        
+    except Exception as e:
+        print(f"❌ 搜索日记失败: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"搜索失败: {str(e)}"
         )

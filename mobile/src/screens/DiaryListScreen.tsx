@@ -17,6 +17,7 @@ import PreciousMomentsIcon from "../assets/icons/preciousMomentsIcon.svg";
 import EmptyStateIcon from "../assets/icons/empty-state.svg";
 import AppIconHomepage from "../assets/icons/app-icon-homepage.svg";
 import HamburgarMenuIcon from "../assets/icons/hamburgarMenu.svg";
+import SearchIcon from "../assets/icons/searchIcon.svg";  // ✅ 自定义搜索图标
 import CalendarIcon from "../assets/icons/calendarIcon.svg";
 import {
   Typography,
@@ -42,16 +43,12 @@ import {
   Platform,
   Dimensions,
   ToastAndroid,
+  TextInput, // ✅ 搜索输入框
 } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import {
-  createAudioPlayer,
-  type AudioPlayer as ExpoAudioPlayer,
-} from "expo-audio"; // ✅ 使用新的 expo-audio API
-import { Audio } from "expo-av"; // ✅ For setAudioModeAsync
-
+import { useDiaryAudio } from "../hooks/useDiaryAudio"; // ✅ 使用顶级统一标准 Hook
 import * as Localization from "expo-localization";
 import { getGreeting } from "../config/greetings";
 import * as SecureStore from "expo-secure-store";
@@ -79,9 +76,11 @@ import {
   deleteDiary as deleteDiaryApi,
   updateDiary,
   createVoiceDiary,
+  searchDiaries, // ✅ 搜索API
 } from "../services/diaryService";
 import AudioPlayer from "../components/AudioPlayer";
 import DiaryDetailScreen from "./DiaryDetailScreen";
+import { HighlightedText } from "../components/HighlightedText"; // ✅ 高亮组件
 
 import {
   useNavigation,
@@ -142,15 +141,17 @@ export default function DiaryListScreen() {
   // 骨架屏脉冲动画
   const skeletonOpacity = useRef(new Animated.Value(0.3)).current;
 
-  // ✅ 新增：音频播放相关状态
-  const [currentPlayingId, setCurrentPlayingId] = useState<string | null>(null); // 当前播放的日记ID
-  const [currentTime, setCurrentTime] = useState<Map<string, number>>(
-    new Map()
-  ); // 当前时间（秒）
-  const [duration, setDuration] = useState<Map<string, number>>(new Map()); // 总时长（秒）
-  const [hasPlayedOnce, setHasPlayedOnce] = useState<Set<string>>(new Set()); // 记录哪些音频曾经播放过
-  const soundRefs = useRef<Map<string, ExpoAudioPlayer>>(new Map()); // 存储多个音频播放器
-  const intervalRefs = useRef<Map<string, NodeJS.Timeout>>(new Map()); // 存储定时器引用，确保正确清理
+  // ✅ 使用统一的顶级标准音频 Hook
+  const {
+    currentPlayingId,
+    currentTimeMap: currentTime,
+    durationMap: duration,
+    hasPlayedOnceSet: hasPlayedOnce,
+    handlePlayAudio,
+    handleSeek,
+    stopAllAudio,
+  } = useDiaryAudio();
+
 
   // ✅ 新增：Action Sheet 相关状态
   const [actionSheetVisible, setActionSheetVisible] = useState(false);
@@ -181,6 +182,12 @@ export default function DiaryListScreen() {
   const [isPaused, setIsPaused] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
   const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // ✅ 搜索相关状态
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<Diary[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   /**
    * 录音成功回调
@@ -281,24 +288,9 @@ export default function DiaryListScreen() {
 
     // 组件卸载时清理所有定时器和播放器
     return () => {
-      // 清理所有定时器
-      intervalRefs.current.forEach((intervalId) => {
-        clearInterval(intervalId);
-      });
-      intervalRefs.current.clear();
-
-      // 清理所有播放器
-      soundRefs.current.forEach((player) => {
-        try {
-          player.pause();
-          player.remove();
-        } catch (e) {
-          // 忽略清理错误
-        }
-      });
-      soundRefs.current.clear();
+      stopAllAudio();
     };
-  }, []);
+  }, [stopAllAudio]);
 
   /**
    * 页面获得焦点时自动刷新数据
@@ -342,25 +334,15 @@ export default function DiaryListScreen() {
       // 页面失焦或离开时，强制停止所有音频
       return () => {
         isActive = false;
-        intervalRefs.current.forEach((intervalId) => {
-          clearInterval(intervalId);
-        });
-        intervalRefs.current.clear();
+        stopAllAudio();
 
-        soundRefs.current.forEach((player) => {
-          try {
-            player.pause();
-            player.remove();
-          } catch (_) {}
-        });
-        soundRefs.current.clear();
-
-        setCurrentPlayingId(null);
-        setHasPlayedOnce(new Set());
-        setCurrentTime(new Map());
-        setDuration(new Map());
+        // ✅ 清理搜索定时器
+        if (searchTimeoutRef.current) {
+          clearTimeout(searchTimeoutRef.current);
+          searchTimeoutRef.current = null;
+        }
       };
-    }, [])
+    }, [stopAllAudio])
   );
 
   // 骨架屏脉冲动画
@@ -382,20 +364,6 @@ export default function DiaryListScreen() {
     }
   }, [loading]);
 
-  // ✅ 新增：组件卸载时清理所有音频
-  useEffect(() => {
-    return () => {
-      // 清理所有音频播放器
-      soundRefs.current.forEach((sound) => {
-        try {
-          sound.remove(); // expo-audio 使用 remove() 清理
-        } catch (err) {
-          console.log("清理音频:", err);
-        }
-      });
-      soundRefs.current.clear();
-    };
-  }, []);
 
   // ✅ 新增：Action Sheet 动画效果
   useEffect(() => {
@@ -678,307 +646,13 @@ export default function DiaryListScreen() {
     setDiaryDetailVisible(true);
   };
 
-  /**
-   * 停止所有正在播放的音频
-   * 用于切换页面时避免双重播放
-   */
-  const stopAllAudio = () => {
-    soundRefs.current.forEach((player) => {
-      try {
-        player.pause();
-        player.remove();
-      } catch (_) {}
-    });
-    soundRefs.current.clear();
-
-    intervalRefs.current.forEach((intervalId) => {
-      clearInterval(intervalId);
-    });
-    intervalRefs.current.clear();
-
-    setCurrentPlayingId(null);
-    setHasPlayedOnce(new Set());
-    setCurrentTime(new Map());
-    setDuration(new Map());
-  };
 
   // ✅ 新增：音频播放相关函数
 
   /**
    * 播放/暂停音频
    */
-  const handlePlayAudio = async (diary: Diary) => {
-    if (!diary.audio_url) {
-      console.warn("⚠️ 该日记无音频");
-      return;
-    }
-
-    try {
-      console.log("🎵 准备播放音频");
-
-      // 如果正在播放这条音频，则暂停
-      if (currentPlayingId === diary.diary_id) {
-        const sound = soundRefs.current.get(diary.diary_id);
-        if (sound) {
-          sound.pause(); // expo-audio 的 pause() 是同步方法
-          setCurrentPlayingId(null);
-
-          if (
-            sound.isLoaded &&
-            sound.duration > 0 &&
-            sound.currentTime >= sound.duration - 0.5
-          ) {
-            setCurrentTime((prev) => {
-              const newMap = new Map(prev);
-              newMap.delete(diary.diary_id);
-              return newMap;
-            });
-            setDuration((prev) => {
-              const newMap = new Map(prev);
-              newMap.delete(diary.diary_id);
-              return newMap;
-            });
-            setHasPlayedOnce((prev) => {
-              const newSet = new Set(prev);
-              newSet.delete(diary.diary_id);
-              return newSet;
-            });
-          }
-
-          // 清理定时器
-          const intervalId = intervalRefs.current.get(diary.diary_id);
-          if (intervalId) {
-            clearInterval(intervalId);
-            intervalRefs.current.delete(diary.diary_id);
-          }
-
-          console.log("⏸ 已暂停");
-        }
-        return;
-      }
-
-      // 停止其他正在播放的音频
-      if (currentPlayingId) {
-        const oldSound = soundRefs.current.get(currentPlayingId);
-        if (oldSound) {
-          oldSound.pause(); // 先暂停
-          oldSound.remove(); // expo-audio 使用 remove() 清理
-          soundRefs.current.delete(currentPlayingId);
-
-          // 清理旧音频的定时器
-          const oldIntervalId = intervalRefs.current.get(currentPlayingId);
-          if (oldIntervalId) {
-            clearInterval(oldIntervalId);
-            intervalRefs.current.delete(currentPlayingId);
-          }
-
-          // 清理旧音频的状态（保持进度用于恢复播放）
-          // 注意：不删除progress，用户可能想继续播放
-        }
-      }
-
-      // 检查是否已有播放器（恢复播放）
-      const existingPlayer = soundRefs.current.get(diary.diary_id);
-      let player: ExpoAudioPlayer;
-      let isResuming = false;
-
-      if (existingPlayer && existingPlayer.isLoaded) {
-        // 恢复播放：使用已有的播放器
-        player = existingPlayer;
-        isResuming = true;
-        console.log("🔄 恢复播放音频:", diary.diary_id);
-      } else {
-        // 新播放：创建新的播放器
-        console.log("🎵 创建音频播放器:", diary.audio_url);
-
-        // ✅ FIX: Set correct audio mode for playback BEFORE creating player
-        // This ensures audio plays through speaker at normal volume
-        try {
-          await Audio.setAudioModeAsync({
-            playsInSilentModeIOS: true,
-            staysActiveInBackground: false,
-            shouldDuckAndroid: true,
-            playThroughEarpieceAndroid: false,
-            // ✅ CRITICAL: allowsRecordingIOS must be false for playback
-            // When true, audio routes to earpiece/headset (very quiet)
-            allowsRecordingIOS: false,
-          });
-        } catch (error) {
-          console.warn("⚠️ Failed to set audio mode:", error);
-        }
-
-        player = createAudioPlayer(diary.audio_url!, {
-          updateInterval: 100, // 每100ms更新一次状态
-        });
-        soundRefs.current.set(diary.diary_id, player);
-
-        // 标记为已播放过
-        setHasPlayedOnce((prev) => {
-          const newSet = new Set(prev);
-          newSet.add(diary.diary_id);
-          return newSet;
-        });
-      }
-
-      // 播放音频
-      player.play();
-
-      console.log("✅ 音频播放器准备完成");
-
-      setCurrentPlayingId(diary.diary_id);
-
-      // 初始化：立即设置 duration（优先使用数据库中的audio_duration，如果player已加载则使用player的duration）
-      const initialDuration =
-        player.isLoaded && player.duration > 0
-          ? player.duration
-          : diary.audio_duration || 0;
-
-      if (initialDuration > 0) {
-        setDuration((prev) => {
-          const newMap = new Map(prev);
-          newMap.set(diary.diary_id, initialDuration);
-          return newMap;
-        });
-      }
-
-      // 初始化当前时间：如果是恢复播放，保持之前的currentTime；如果是新播放，从0开始
-      if (!isResuming) {
-        setCurrentTime((prev) => {
-          const newMap = new Map(prev);
-          // 如果之前没有记录，则从0开始
-          if (!newMap.has(diary.diary_id)) {
-            newMap.set(diary.diary_id, 0);
-          }
-          return newMap;
-        });
-      }
-
-      // ✅ 监听播放状态更新（进度条组件使用 Animated API 平滑动画，这里只需要更新 currentTime）
-
-      const updateProgress = () => {
-        if (!player.isLoaded) {
-          // 如果player还未加载，尝试设置duration
-          const currentDuration = diary.audio_duration || 0;
-          if (currentDuration > 0) {
-            setDuration((prev) => {
-              const newMap = new Map(prev);
-              const existing = newMap.get(diary.diary_id) || 0;
-              if (existing === 0) {
-                newMap.set(diary.diary_id, currentDuration);
-                return newMap;
-              }
-              return prev; // 避免不必要的更新
-            });
-          }
-          return;
-        }
-
-        // expo-audio 的 currentTime 和 duration 已经是秒为单位
-        // ✅ 使用精确的时间值（保留小数），进度条组件会使用 Animated API 平滑更新
-        const currentTimeSeconds = player.currentTime;
-        const durationSeconds = player.duration;
-
-        // ✅ 频繁更新 currentTime（每次定时器触发都更新），进度条组件会自动平滑动画
-        // ✅ 移除阈值检查，让进度条更频繁地更新，确保平滑移动
-        setCurrentTime((prev) => {
-          const existing = prev.get(diary.diary_id) || 0;
-          // ✅ 只在有变化时更新（避免完全相同的值导致的不必要更新）
-          if (Math.abs(existing - currentTimeSeconds) > 0.001) {
-            const newMap = new Map(prev);
-            newMap.set(diary.diary_id, currentTimeSeconds);
-            return newMap;
-          }
-          return prev;
-        });
-
-        // 更新总时长（只在变化时更新）
-        if (durationSeconds > 0) {
-          setDuration((prev) => {
-            const existing = prev.get(diary.diary_id) || 0;
-            if (existing !== durationSeconds) {
-              const newMap = new Map(prev);
-              newMap.set(diary.diary_id, durationSeconds);
-              return newMap;
-            }
-            return prev; // 避免不必要的更新
-          });
-        }
-      };
-
-      // 定期更新进度并检查播放状态
-      const currentDiaryId = diary.diary_id; // 保存当前diary_id到闭包
-
-      // 清理之前的定时器（如果存在）
-      const existingInterval = intervalRefs.current.get(currentDiaryId);
-      if (existingInterval) {
-        clearInterval(existingInterval);
-      }
-
-      const progressInterval = setInterval(() => {
-        // 检查当前播放的音频是否还是这个
-        if (!soundRefs.current.has(currentDiaryId)) {
-          clearInterval(progressInterval);
-          intervalRefs.current.delete(currentDiaryId);
-          return;
-        }
-
-        // 只在播放时更新进度
-        const currentPlayer = soundRefs.current.get(currentDiaryId);
-        if (currentPlayer && currentPlayer.playing && !currentPlayer.paused) {
-          updateProgress();
-        }
-
-        // 检查是否播放完成
-        if (
-          player.isLoaded &&
-          !player.playing &&
-          player.currentTime > 0 &&
-          player.duration > 0 &&
-          Math.abs(player.currentTime - player.duration) < 0.5
-        ) {
-          clearInterval(progressInterval);
-          intervalRefs.current.delete(currentDiaryId);
-
-          setCurrentPlayingId((prev) =>
-            prev === currentDiaryId ? null : prev
-          );
-          soundRefs.current.delete(currentDiaryId);
-          player.remove();
-
-          // 重置状态（播放完成后）
-          setCurrentTime((prev) => {
-            const newMap = new Map(prev);
-            newMap.delete(currentDiaryId);
-            return newMap;
-          });
-          setDuration((prev) => {
-            const newMap = new Map(prev);
-            newMap.delete(currentDiaryId);
-            return newMap;
-          });
-          // ✅ 重置 hasPlayedOnce，恢复到默认状态（隐藏进度条）
-          setHasPlayedOnce((prev) => {
-            const newSet = new Set(prev);
-            newSet.delete(currentDiaryId);
-            return newSet;
-          });
-
-          console.log("✅ 播放完成");
-        }
-      }, 50); // ✅ 每 50ms 更新一次 currentTime，进度条组件使用 Animated API 平滑动画
-
-      // 保存定时器引用
-      intervalRefs.current.set(currentDiaryId, progressInterval);
-
-      console.log("🎵 开始播放音频:", diary.diary_id);
-    } catch (error: any) {
-      console.error("❌ 播放失败:", error);
-      Alert.alert(
-        t("error.playbackFailed"),
-        error.message || t("error.retryMessage")
-      );
-    }
-  };
+  // ✅ 音频播放逻辑已由 useDiaryAudio Hook 统一管理。
 
   // ✅ 处理日记操作菜单
   const handleDiaryOptions = (item: Diary) => {
@@ -1083,6 +757,147 @@ export default function DiaryListScreen() {
         error.message || t("error.deleteFailed")
       );
     }
+  };
+
+  // ========== 搜索相关函数 ==========
+
+  /**
+   * 搜索输入变化处理（仅更新输入框，不触发搜索）
+   */
+  const handleSearchChange = (text: string) => {
+    setSearchQuery(text);
+    
+    // 清空输入时重置结果
+    if (text.trim() === "") {
+      setSearchResults([]);
+      setIsSearching(false);
+    }
+  };
+
+  /**
+   * 手动触发搜索（点击搜索按钮时调用）
+   */
+  const handleSearchSubmit = () => {
+    const query = searchQuery.trim();
+    if (!query) {
+      setSearchResults([]);
+      setIsSearching(false);
+      return;
+    }
+    
+    // 立即执行搜索
+    performSearch(query);
+  };
+
+  /**
+   * 执行搜索（优先本地，失败时降级）
+   */
+  const performSearch = async (query: string) => {
+    if (!query) {
+      setSearchResults([]);
+      setIsSearching(false);
+      return;
+    }
+
+    try {
+      console.log("🔍 开始搜索:", query);
+      setIsSearching(true);
+      const lowercaseQuery = query.toLowerCase();
+
+      // 1. 本地搜索（已加载的日记）
+      const localResults = diaries.filter((diary) => {
+        const title = (diary.title || "").toLowerCase();
+        const originalContent = (diary.original_content || "").toLowerCase();
+        const polishedContent = (diary.polished_content || "").toLowerCase();
+
+        return (
+          title.includes(lowercaseQuery) ||
+          originalContent.includes(lowercaseQuery) ||
+          polishedContent.includes(lowercaseQuery)
+        );
+      });
+
+      console.log("📝 本地搜索结果:", localResults.length);
+
+      // 2. 后端全文搜索（所有日记，包括未加载的）
+      // ✅ 优化：优先使用本地结果，后端搜索仅作为补充
+      let backendResults: Diary[] = [];
+      try {
+        // 只在本地结果较少时才调用后端（节省资源）
+        if (localResults.length < 10) {
+          backendResults = await searchDiaries(query);
+          console.log("🌐 后端搜索结果:", backendResults.length);
+        } else {
+          console.log("⚡ 本地结果充足，跳过后端搜索");
+        }
+      } catch (backendError: any) {
+        console.warn("⚠️ 后端搜索失败，仅使用本地结果:", backendError);
+        // 降级：只使用本地结果（不显示错误给用户）
+      }
+
+      // 3. 合并结果并去重（优先本地结果）
+      const mergedResults = mergeAndDeduplicateResults(
+        localResults,
+        backendResults
+      );
+
+      console.log("✅ 最终搜索结果:", mergedResults.length);
+      setSearchResults(mergedResults);
+    } catch (error) {
+      console.error("❌ 搜索失败:", error);
+      // 发生错误时也显示本地搜索结果
+      const localResults = diaries.filter((diary) => {
+        const title = (diary.title || "").toLowerCase();
+        const content = (
+          diary.polished_content ||
+          diary.original_content ||
+          ""
+        ).toLowerCase();
+        return (
+          title.includes(query.toLowerCase()) ||
+          content.includes(query.toLowerCase())
+        );
+      });
+      setSearchResults(localResults);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  /**
+   * 合并并去重搜索结果
+   */
+  const mergeAndDeduplicateResults = (
+    local: Diary[],
+    backend: Diary[]
+  ): Diary[] => {
+    const seen = new Set<string>();
+    const merged: Diary[] = [];
+
+    // 优先添加本地结果（已加载，渲染更快）
+    for (const diary of local) {
+      if (!seen.has(diary.diary_id)) {
+        seen.add(diary.diary_id);
+        merged.push(diary);
+      }
+    }
+
+    // 添加后端独有的结果
+    for (const diary of backend) {
+      if (!seen.has(diary.diary_id)) {
+        seen.add(diary.diary_id);
+        merged.push(diary);
+      }
+    }
+
+    // 按创建时间倒序排序
+    merged.sort((a, b) => {
+      const dateA = new Date(a.created_at).getTime();
+      const dateB = new Date(b.created_at).getTime();
+      return dateB - dateA;
+    });
+
+    return merged;
   };
 
   // ✅ 渲染自定义 Action Sheet
@@ -1207,16 +1022,44 @@ export default function DiaryListScreen() {
    */
   const renderHeader = () => (
     <View style={styles.header}>
-      {/* 汉堡菜单 - 独立一行 */}
-      <View style={styles.headerMenuRow}>
+      {/* ✅ 搜索框 + 汉堡菜单 - 同一行，右对齐 */}
+      <View style={styles.headerTopRow}>
+        {/* 搜索框 - 只在日记数 ≥ 10 时显示，点击进入搜索页面 */}
+        {diaries.length >= 10 && (
+          <TouchableOpacity
+            onPress={() => {
+              // @ts-ignore - SearchScreen 参数类型
+              navigation.navigate("Search", { diaries });
+            }}
+            hitSlop={{ top: 4, bottom: 4, left: 4, right: 0 }}
+            style={styles.compactSearchContainer}
+          >
+            <SearchIcon width={20} height={20} />
+            <Text
+              style={[
+                styles.compactSearchPlaceholder,
+                {
+                  fontFamily: getFontFamilyForText(
+                    t("search.placeholder"),
+                    "regular"
+                  ),
+                },
+              ]}
+            >
+              {t("search.placeholder")}
+            </Text>
+          </TouchableOpacity>
+        )}
+
+        {/* 汉堡菜单 - 始终显示 */}
         <TouchableOpacity
-          style={styles.menuButton}
+          style={styles.compactMenuButton}
           onPress={handleOpenDrawer}
           accessibilityLabel={t("home.profileMenuButton")}
           accessibilityRole="button"
-          hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
+          hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
         >
-          <HamburgarMenuIcon width={32} height={32} color="#80645A" />
+          <HamburgarMenuIcon width={28} height={28} color="#80645A" />
         </TouchableOpacity>
       </View>
 
@@ -1536,7 +1379,9 @@ export default function DiaryListScreen() {
                   {/* 标题 */}
                   {item.title && item.title.trim() !== "" ? (
                     <View style={{ flex: 1, marginRight: 8 }}>
-                      <Text
+                      <HighlightedText
+                        text={item.title}
+                        searchQuery={searchQuery}
                         style={[
                           styles.cardTitle,
                           {
@@ -1547,9 +1392,7 @@ export default function DiaryListScreen() {
                           },
                         ]}
                         numberOfLines={2}
-                      >
-                        {item.title}
-                      </Text>
+                      />
                     </View>
                   ) : (
                     <View style={{ flex: 1 }} /> // 无标题时占位
@@ -1570,7 +1413,9 @@ export default function DiaryListScreen() {
 
               {/* 内容预览 */}
               {contentText && contentText.trim() !== "" && (
-                <Text
+                <HighlightedText
+                  text={contentText}
+                  searchQuery={searchQuery}
                   style={[
                     styles.cardContent,
                     {
@@ -1580,9 +1425,7 @@ export default function DiaryListScreen() {
                     },
                   ]}
                   numberOfLines={3}
-                >
-                  {contentText}
-                </Text>
+                />
               )}
 
               {/* 图片缩略图（如果有） */}
@@ -1610,22 +1453,7 @@ export default function DiaryListScreen() {
             }
             hasPlayedOnce={hasPlayedOnce.has(item.diary_id)}
             onPlayPress={() => handlePlayAudio(item)}
-            onSeek={(seekTime) => {
-              const player = soundRefs.current.get(item.diary_id);
-              if (player && player.isLoaded) {
-                setCurrentTime((prev) => {
-                  const newMap = new Map(prev);
-                  newMap.set(item.diary_id, seekTime);
-                  return newMap;
-                });
-                setHasPlayedOnce((prev) => {
-                  const newSet = new Set(prev);
-                  newSet.add(item.diary_id);
-                  return newSet;
-                });
-                player.seekTo(seekTime);
-              }
-            }}
+            onSeek={(seekTime) => handleSeek(item.diary_id, seekTime)}
             style={styles.audioButton}
           />
 
@@ -1770,7 +1598,7 @@ export default function DiaryListScreen() {
         <>
           {/* 日记列表 */}
           <FlatList
-            data={diaries}
+            data={searchQuery.trim() !== '' ? searchResults : diaries}
             renderItem={({ item, index }) => renderDiaryCard({ item, index })}
             keyExtractor={(item) => item.diary_id}
             ListHeaderComponent={renderHeader}
@@ -2023,6 +1851,57 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end", // 右对齐
     marginBottom: 4,
     marginRight: -10, // 抵消一部分 paddingHorizontal，让按钮更靠右
+  },
+
+  // ✅ 新紧凑搜索样式
+  headerTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',  // ✅ 右对齐
+    marginBottom: 16,
+  },
+  compactSearchContainer: {
+    width: 160,
+    height: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',  // 白色背景
+    borderRadius: 18,  // 全圆角 (36/2)
+    paddingHorizontal: 12,
+    // 不要边框
+  },
+  compactSearchIcon: {
+    marginRight: 6,
+  },
+  compactSearchPlaceholder: {
+    flex: 1,
+    fontSize: 13,
+    color: "#B8A89D",
+    paddingLeft: 4,
+  },
+  compactMenuButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,  // 圆形
+    backgroundColor: '#FFFFFF',  // 白色背景
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,  // 距离搜索框8px
+  },
+  searchingIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    gap: 8,
+  },
+  searchingText: {
+    fontSize: 14,
+    color: '#80645A',
+  },
+  searchResultCount: {
+    fontSize: 14,
+    color: '#80645A',
+    marginTop: 8,
   },
 
   topBar: {

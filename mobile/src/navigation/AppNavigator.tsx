@@ -21,6 +21,7 @@ import { apiService } from "../services/apiService";
 import { navigationRef } from "./navigationRef";
 import AppDrawerContent from "../components/AppDrawerContent";
 import DiaryListScreen from "../screens/DiaryListScreen";
+import SearchScreen from "../screens/SearchScreen";
 
 export type RootStackParamList = {
   Welcome: undefined;
@@ -33,6 +34,7 @@ export type RootStackParamList = {
   ReminderSettings: undefined;
   Login: undefined;
   DiaryList: undefined;
+  Search: { diaries: any[] };  // 搜索页面
   CreateDiary: { inputMode?: "voice" | "text" };
   Test: undefined;
   MainDrawer: undefined;
@@ -46,6 +48,10 @@ const MainStack = createNativeStackNavigator<RootStackParamList>();
 const MainStackNavigator = () => (
   <MainStack.Navigator screenOptions={{ headerShown: false }}>
     <MainStack.Screen name="DiaryList" component={DiaryListScreen} />
+    <MainStack.Screen 
+      name="Search" 
+      component={SearchScreen}
+    />
     <MainStack.Screen name="CreateDiary" component={CreateTextDiaryScreen} />
     <MainStack.Screen name="Test" component={TestScreen} />
     <MainStack.Screen

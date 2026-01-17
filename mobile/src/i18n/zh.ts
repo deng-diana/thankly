@@ -155,9 +155,13 @@ export default {
 
   // 搜索功能
   search: {
-    placeholder: "搜索日记...",
+    placeholder: "搜索往事",
     searching: "搜索中...",
     noResults: "未找到匹配的日记",
+    noResultsTitle: "暂无匹配的日记",
+    matchingEntriesPrefix: "",
+    matchingEntriesSuffix: " 条相关记录",
+    cancel: "取消",
     found: "找到",
     results: "条日记",
   },

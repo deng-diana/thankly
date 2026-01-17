@@ -21,6 +21,9 @@ import AvatarDefault from "../assets/icons/avatar-default.svg";
 import { getCurrentUser, signOut, type User } from "../services/authService";
 import { deleteAccount } from "../services/accountService";
 import { navigationRef } from "../navigation/navigationRef";
+import pkg from "../../package.json";
+
+const VERSION = pkg.version;
 
 export default function AppDrawerContent(props: DrawerContentComponentProps) {
   const { navigation } = props;
@@ -324,6 +327,21 @@ export default function AppDrawerContent(props: DrawerContentComponentProps) {
         </Text>
       </TouchableOpacity>
 
+      <View style={styles.item}>
+        <Ionicons name="information-circle-outline" size={20} color="#332824" />
+        <Text
+          style={[
+            styles.itemText,
+            typography.body,
+            {
+              fontFamily: getFontFamilyForText("Version", "regular"),
+            },
+          ]}
+        >
+          Version {VERSION}
+        </Text>
+      </View>
+
       <TouchableOpacity
         style={[styles.item, isDeletingAccount && styles.itemDisabled]}
         onPress={confirmDeleteAccount}
@@ -378,12 +396,6 @@ export default function AppDrawerContent(props: DrawerContentComponentProps) {
         </Text>
       </TouchableOpacity>
 
-      {/* 版本号显示 - 底部 */}
-      <View style={styles.versionContainer}>
-        <Text style={[styles.versionText, typography.caption]}>
-          Version {require('../../package.json').version}
-        </Text>
-      </View>
     </DrawerContentScrollView>
   );
 }
