@@ -156,9 +156,13 @@ export default {
 
   // Search功能
   search: {
-    placeholder: "Search diaries...",
+    placeholder: "Search memories",
     searching: "Searching...",
     noResults: "No matching diaries found",
+    noResultsTitle: "No matching diaries found",
+    matchingEntriesPrefix: "",
+    matchingEntriesSuffix: " matching entries",
+    cancel: "Cancel",
     found: "Found",
     results: "diaries",
   },

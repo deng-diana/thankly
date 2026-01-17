@@ -1469,10 +1469,36 @@ export async function deleteDiary(diaryId: string): Promise<void> {
   console.log("✅ 日记删除成功");
 }
 
+/**
+ * 搜索日记
+ * @param query 搜索关键词
+ * @returns 匹配的日记列表
+ */
+export async function searchDiaries(query: string): Promise<Diary[]> {
+  try {
+    console.log("🔍 搜索日记:", query);
+    
+    // 使用 URL 查询参数
+    const encodedQuery = encodeURIComponent(query);
+    const response = await apiService.get<{ diaries: Diary[]; count: number }>(
+      `/diary/search?q=${encodedQuery}`
+    );
+
+    console.log(`✅ 搜索成功，找到 ${response.diaries.length} 条日记`);
+    return response.diaries || [];
+  } catch (error: any) {
+    // ✅ 优雅降级：后端搜索失败时静默处理，不显示错误
+    // 因为前端还有本地搜索，不影响用户体验
+    console.warn("⚠️ 后端搜索不可用，使用本地搜索结果");
+    return [];
+  }
+}
+
 export default {
   getDiaries,
   createTextDiary,
   createVoiceDiary,
   updateDiary,
   deleteDiary,
+  searchDiaries,
 };

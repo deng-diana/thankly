@@ -38,7 +38,7 @@ import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
 import PreciousMomentsIcon from "../assets/icons/preciousMomentsIcon.svg";
 import CalendarIcon from "../assets/icons/calendarIcon.svg";
-import { useSingleAudioPlayer } from "../hooks/useSingleAudioPlayer";
+import { useDiaryAudio } from "../hooks/useDiaryAudio"; // ✅ 使用顶级统一标准 Hook
 import { getDiaryDetail } from "../services/diaryService";
 import { updateDiary } from "../services/diaryService"; // ✅ 添加
 import AudioPlayer from "../components/AudioPlayer";
@@ -298,22 +298,32 @@ export default function DiaryDetailScreen({
     }
   };
 
-  // ========== 音频播放 ==========
-  const { isPlaying, currentTime, duration, hasPlayedOnce, playPause, seekTo } =
-    useSingleAudioPlayer({
-      audioUrl: diary?.audio_url,
-      audioDuration: diary?.audio_duration,
-    });
+  // ========== 音频播放 (统一标准版本) ==========
+  const {
+    currentPlayingId,
+    currentTimeMap,
+    durationMap,
+    hasPlayedOnceSet,
+    handlePlayAudio,
+    handleSeek,
+  } = useDiaryAudio();
+
+  const isPlaying = diary ? currentPlayingId === diary.diary_id : false;
+  const currentTime = diary ? currentTimeMap.get(diary.diary_id) || 0 : 0;
+  const duration = diary
+    ? durationMap.get(diary.diary_id) || diary.audio_duration || 0
+    : 0;
+  const hasPlayedOnce = diary ? hasPlayedOnceSet.has(diary.diary_id) : false;
 
   const handlePlayPress = async () => {
-    try {
-      await playPause();
-    } catch (error: any) {
-      console.error("❌ 播放失败:", error);
-      Alert.alert(
-        t("error.playbackFailed"),
-        error?.message || t("error.retryMessage")
-      );
+    if (diary) {
+      await handlePlayAudio(diary);
+    }
+  };
+
+  const handleSeekPress = (seconds: number) => {
+    if (diary) {
+      handleSeek(diary.diary_id, seconds);
     }
   };
 
@@ -483,16 +493,6 @@ const formatDateTime = (dateTimeString: string): string => {
   const renderLoading = () => (
     <View style={styles.loadingContainer}>
       <ActivityIndicator size="large" color="#E56C45" />
-      <Text
-        style={[
-          styles.loadingText,
-          {
-            fontFamily: getFontFamilyForText("加载中...", "regular"),
-          },
-        ]}
-      >
-        加载中...
-      </Text>
     </View>
   );
 
@@ -696,7 +696,7 @@ const formatDateTime = (dateTimeString: string): string => {
             totalDuration={duration}
             hasPlayedOnce={hasPlayedOnce}
             onPlayPress={handlePlayPress}
-            onSeek={seekTo}
+            onSeek={handleSeekPress}
             style={styles.audioSection}
           />
         )}
@@ -832,7 +832,7 @@ const styles = StyleSheet.create({
 
   // ===== 加载状态 =====
   loadingContainer: {
-    flex: 1,
+    paddingTop: 80, // ✅ 增大间距，不再边缘
     justifyContent: "center",
     alignItems: "center",
   },
