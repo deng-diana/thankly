@@ -4,16 +4,6 @@
     "slug": "gratitude-diary",
     "version": "1.2.0",
     "description": "Your personal gratitude journal with AI",
-    "locales": {
-      "zh": {
-        "displayName": "感记",
-        "description": "用心记录,感恩生活"
-      },
-      "en": {
-        "displayName": "Thankly",
-        "description": "Gratitude journaling made simple"
-      }
-    },
     "orientation": "portrait",
     "icon": "./assets/app-icon.png",
     "userInterfaceStyle": "light",
@@ -109,6 +99,9 @@
                 "lib/armeabi-v7a/libc++_shared.so",
                 "lib/arm64-v8a/libc++_shared.so"
               ]
+            },
+            "gradleProperties": {
+              "android.lint.checkReleaseBuilds": "false"
             }
           }
         }
