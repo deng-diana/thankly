@@ -175,7 +175,13 @@ export default function AppNavigator() {
       return "Welcome";
     }
 
-    // 如果未完成Onboarding，显示欢迎页
+    // 如果未完成Onboarding，但已经认证（说明是在注册过程中的中断）
+    // 此时应该去 Login 页完成姓名填写，而不是显示 Welcome
+    if (!hasCompletedOnboarding && isAuthenticated) {
+      return "Login";
+    }
+
+    // 如果未完成Onboarding且未登录，显示欢迎页
     if (!hasCompletedOnboarding) {
       return "Welcome";
     }

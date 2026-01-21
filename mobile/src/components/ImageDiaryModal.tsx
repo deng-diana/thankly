@@ -41,6 +41,7 @@ import {
   Diary,
 } from "../services/diaryService";
 import { uploadDiaryImages } from "../services/diaryService";
+import { uploadAudioAndCreateTask } from "../services/audioUploadService";
 import ImageInputIcon from "../assets/icons/addImageIcon.svg";
 import TextInputIcon from "../assets/icons/textInputIcon.svg";
 import CameraIcon from "../assets/icons/cameraIcon.svg";
@@ -481,28 +482,42 @@ export default function ImageDiaryModal({
     try {
       console.log("📤 开始上传图片 (纯图片模式)...");
       
-      // ✅ 1. 执行真实上传，获得 0-80% 的进度反馈
-      const imageUrls = await uploadDiaryImages(images, (uploadProgress) => {
+      // ✅ 进入上传阶段：启动“伪进度”以消除 0% 的僵持感
+      // 纯图片模式下，第一步（上传）占 80%
+      setProcessingProgress(5);
+      currentProgressRef.current = 5; // ✅ 同步 ref，防止 rollback
+      const uploadInterval = setInterval(() => {
+        const next = Math.min(currentProgressRef.current + 2, 20); // 慢速递增到 20
+        currentProgressRef.current = next;
+        setProcessingProgress(next);
+      }, 800);
+
+      try {
+        // ✅ 1. 执行真实上传，获得 0-80% 的进度反馈
+        const imageUrls = await uploadDiaryImages(images, (uploadProgress) => {
+          if (!isMounted.current) return;
+          // 在纯图片模式下，上传占 80%
+          const mappedProgress = Math.round(uploadProgress * 0.8);
+          smoothUpdateProgress(Math.max(mappedProgress, 20)); // 不低于伪进度
+        });
+
         if (!isMounted.current) return;
-        // 在纯图片模式下，上传占 80%
-        const mappedProgress = Math.round(uploadProgress * 0.8);
-        smoothUpdateProgress(mappedProgress);
-      });
 
-      if (!isMounted.current) return;
+        // ✅ 2. 切换到保存步骤 (80-100%)
+        setProcessingStep(1); 
+        smoothUpdateProgress(90);
 
-      // ✅ 2. 切换到保存步骤 (80-100%)
-      setProcessingStep(1); 
-      smoothUpdateProgress(90);
+        // 直接调用创建图片日记接口
+        const diary = await createImageOnlyDiary(imageUrls);
+        console.log("✅ 纯图片日记创建成功:", diary.diary_id);
 
-      // 直接调用创建图片日记接口
-      const diary = await createImageOnlyDiary(imageUrls);
-      console.log("✅ 纯图片日记创建成功:", diary.diary_id);
-
-      smoothUpdateProgress(100);
-      
-      // 短暂延迟展示 100%
-      await new Promise((resolve) => setTimeout(resolve, 800));
+        smoothUpdateProgress(100);
+        
+        // 短暂延迟展示 100%
+        await new Promise((resolve) => setTimeout(resolve, 800));
+      } finally {
+        clearInterval(uploadInterval);
+      }
 
       if (!isMounted.current) return;
 
@@ -545,14 +560,22 @@ export default function ImageDiaryModal({
     try {
       console.log("📤 开始上传图片...");
       
-      // ✅ 使用真实的上传进度回调：0-70%
+      // ✅ 进入上传阶段：启动“伪进度”以消除 0% 的僵持感
+      // 图片+文字模式下，上传占 70%
       setProcessingStep(0); // 上传图片步骤
-      const imageUrls = await uploadDiaryImages(images, (uploadProgress) => {
-        if (!isMounted.current) return;
-        // 将上传进度映射到0-70%
-        const mappedProgress = Math.round(uploadProgress * 0.7);
-        smoothUpdateProgress(mappedProgress);
-      });
+      setProcessingProgress(5);
+      const uploadInterval = setInterval(() => {
+        setProcessingProgress(prev => (prev < 15 ? prev + 3 : prev)); 
+      }, 800);
+
+      let diary: any;
+      try {
+        const imageUrls = await uploadDiaryImages(images, (uploadProgress) => {
+          if (!isMounted.current) return;
+          // 将上传进度映射到0-70%
+          const mappedProgress = Math.round(uploadProgress * 0.7);
+          smoothUpdateProgress(Math.max(mappedProgress, 15)); // 不低于伪进度
+        });
       
       if (!isMounted.current) return;
 
@@ -563,7 +586,7 @@ export default function ImageDiaryModal({
 
       // ✅ AI处理占70-100%
       console.log("🤖 开始AI处理...");
-      const diary = await createImageOnlyDiary(
+      diary = await createImageOnlyDiary(
         imageUrls,
         textContent.trim() || undefined
       );
@@ -572,12 +595,15 @@ export default function ImageDiaryModal({
 
       console.log("✅ 图片+文字日记创建成功:", diary);
 
-      // ✅ AI处理完成，平滑过渡到100%
+      // ✅ AI处理完成，极速平滑过渡到100%
       setProcessingStep(imageTextProcessingSteps.length - 1);
-      smoothUpdateProgress(100);
+      smoothUpdateProgress(100, 300); // 显著缩短动画时间
       
-      // ✅ 等待进度动画完成后再显示结果
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      // ✅ 仅保留极短的视觉缓冲
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      } finally {
+        clearInterval(uploadInterval);
+      }
 
       if (!isMounted.current) return;
 
@@ -830,25 +856,54 @@ export default function ImageDiaryModal({
       // ✅ 进入上传阶段：启动“伪进度”以消除 0% 的僵持感
       setProcessingStep(0);
       setProcessingProgress(5);
+      currentProgressRef.current = 5; // ✅ 同步 ref，防止 rollback
       const uploadInterval = setInterval(() => {
-        setProcessingProgress(prev => (prev < 15 ? prev + 3 : prev)); 
-      }, 700);
+        const next = Math.min(currentProgressRef.current + 2, 15); // 慢速递增到 15
+        currentProgressRef.current = next;
+        setProcessingProgress(next);
+      }, 800);
 
       let taskId: string;
       let headers: Record<string, string>;
       
       try {
-        // 1. 发起任务创建（包含大规模语音文件上传）
-        // 这里是逻辑起点：上传语音 -> 后端 Whisper 转录 -> (润色/标题 并行 情绪/反馈)
-        console.log("🎤 正在上传语音并创建任务...");
-        const createResult = await createVoiceDiaryTask(
+        // ✅ 1. 使用优化的音频上传服务（预签名URL + 直接上传到S3）
+        console.log("🚀 使用优化的音频上传方案（预签名URL + 直接S3上传）");
+        
+        // ✅ 启动并行图片上传
+        const localImages = [...images];
+        const imageUploadPromise = uploadDiaryImages(localImages);
+
+        const createResult = await uploadAudioAndCreateTask(
           uri,
           recordedDuration,
+          (uploadProgress) => {
+            if (!isMounted.current) return;
+            const mappedProgress = Math.round(uploadProgress * 0.2);
+            smoothUpdateProgress(Math.max(mappedProgress, currentProgressRef.current)); 
+          },
           textContent.trim() || undefined,
-          images.length > 0
+          undefined, // 第5个参数：目前还不传URL，让图片后台传
+          localImages.length > 0 // 第6个参数：声明随后补充
         );
+        
         taskId = createResult.taskId;
         headers = createResult.headers;
+        console.log(`✅ [ImageDiaryModal] 任务创建成功 (TaskID: ${taskId})，开始后台处理图片...`);
+
+        // ✅ 异步补充图片逻辑
+        if (localImages.length > 0) {
+          (async () => {
+            try {
+              const finalUrls = await imageUploadPromise;
+              console.log(`📸 [ImageDiaryModal] 图片上传完成，正在向任务 ${taskId} 补充...`);
+              await addImagesToTask(taskId, finalUrls);
+              console.log("✅ [ImageDiaryModal] 补充成功");
+            } catch (err) {
+              console.error("❌ [ImageDiaryModal] 补充图片失败:", err);
+            }
+          })();
+        }
       } finally {
         clearInterval(uploadInterval);
       }
@@ -1151,11 +1206,11 @@ export default function ImageDiaryModal({
         resultSoundRef.current = null;
       }
 
-      // 设置音频模式
+      // 设置音频模式：确保使用扬声器外放
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: false,
         playsInSilentModeIOS: true,
-        staysActiveInBackground: false,
+        staysActiveInBackground: true,
         shouldDuckAndroid: true,
         playThroughEarpieceAndroid: false,
       });

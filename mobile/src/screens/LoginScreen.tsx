@@ -42,6 +42,7 @@ import {
 import VerificationCodeModal from "../components/VerificationCodeModal";
 import GoogleIcon from "../components/GoogleIcon";
 import NameInputModal from "../components/NameInputModal";
+import ForgotPasswordModal from "../components/ForgotPasswordModal";
 import { getTypography } from "../styles/typography";
 import SplashIcon from "../assets/icons/splash-icon.svg";
 
@@ -80,27 +81,34 @@ export default function LoginScreen() {
   const [emailError, setEmailError] = useState("");
   const [passwordError, setPasswordError] = useState("");
   const [formError, setFormError] = useState("");
+  
+  // 忘记密码状态
+  const [showForgotPasswordModal, setShowForgotPasswordModal] = useState(false);
 
   // 获取 Typography 样式
   const typography = getTypography();
 
-  // ✅ 修复：页面挂载或获得焦点时，确保清除任何残留的用户状态
-  // 这样可以防止自动登录到之前的账号
+  // ✅ 修复：页面挂载时，检查是否处于“已登录但未完成姓名设置”的状态
+  // 如果是，则自动弹出姓名输入框，允许用户完成注册
   React.useEffect(() => {
-    const checkAndClearStaleAuth = async () => {
+    const checkIncompleteRegistration = async () => {
       try {
         const currentUser = await getCurrentUser();
         if (currentUser) {
-          console.log("🔒 LoginScreen: 检测到残留的用户状态，已清除");
-          // 如果发现有用户状态，说明可能是退出登录不彻底，再次清除
-          const { signOut } = await import("../services/authService");
-          await signOut();
+          if (!isValidUserName(currentUser.name, currentUser.email)) {
+            console.log("📝 检测到未完成姓名的登录状态，自动弹出输入框");
+            setEmailForVerification(currentUser.email);
+            setShowNameInputModal(true);
+          } else {
+            // 如果姓名有效且已登录，说明可能应该在主界面了
+            // 这里我们不做强制跳转，让 AppNavigator 处理
+          }
         }
       } catch (error) {
-        console.error("❌ 检查用户状态失败:", error);
+        console.error("❌ 检查注册状态失败:", error);
       }
     };
-    checkAndClearStaleAuth();
+    checkIncompleteRegistration();
   }, []);
 
   const markOnboardingComplete = async () => {
@@ -237,6 +245,43 @@ export default function LoginScreen() {
     }
   };
 
+  // 密码验证函数 - 符合 AWS Cognito 密码策略
+  const validatePassword = (pwd: string): string | null => {
+    if (!pwd || pwd.length < 8) {
+      return t("signup.passwordTooShort");
+    }
+    
+    // 检查是否包含大写字母
+    if (!/[A-Z]/.test(pwd)) {
+      return getCurrentLocale() === 'zh' 
+        ? "密码必须包含至少一个大写字母" 
+        : "Password must contain at least one uppercase letter";
+    }
+    
+    // 检查是否包含小写字母
+    if (!/[a-z]/.test(pwd)) {
+      return getCurrentLocale() === 'zh'
+        ? "密码必须包含至少一个小写字母"
+        : "Password must contain at least one lowercase letter";
+    }
+    
+    // 检查是否包含数字
+    if (!/[0-9]/.test(pwd)) {
+      return getCurrentLocale() === 'zh'
+        ? "密码必须包含至少一个数字"
+        : "Password must contain at least one number";
+    }
+    
+    // 检查是否包含特殊字符
+    if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(pwd)) {
+      return getCurrentLocale() === 'zh'
+        ? "密码必须包含至少一个特殊字符 (!@#$%^&* 等)"
+        : "Password must contain at least one special character (!@#$%^&* etc.)";
+    }
+    
+    return null; // 密码有效
+  };
+
   // 智能登录/注册处理（邮箱）- 使用新接口
   const handleEmailContinue = async () => {
     const normalizedEmail = username.trim().toLowerCase();
@@ -256,8 +301,10 @@ export default function LoginScreen() {
       hasError = true;
     }
 
-    if (!password || password.length < 8) {
-      setPasswordError(t("signup.passwordTooShort"));
+    // 使用详细的密码验证
+    const passwordValidationError = validatePassword(password);
+    if (passwordValidationError) {
+      setPasswordError(passwordValidationError);
       hasError = true;
     }
 
@@ -302,17 +349,17 @@ export default function LoginScreen() {
         setPendingEmail(normalizedEmail);
         setPendingPassword(password);
         setShowEmailVerificationModal(true);
-        Alert.alert(t("login.codeSent"), t("login.emailCodeSentMessage"), [
-          { text: t("common.confirm") },
-        ]);
         return;
       }
 
       if (result.status === "WRONG_PASSWORD") {
+        console.log("🔍 密码错误，显示错误提示");
         setPasswordError(t("login.invalidCredentials"));
         return;
       }
 
+      // 如果到达这里，说明有未处理的状态
+      console.warn("⚠️ 未处理的登录状态:", (result as any).status);
       setFormError(t("error.retryMessage"));
     } catch (error: any) {
       console.error("❌ 邮箱登录错误:", error);
@@ -449,13 +496,6 @@ export default function LoginScreen() {
     }
   };
 
-  // 处理姓名取消（邮箱注册）
-  const handleNameCancel = () => {
-    setShowNameInputModal(false);
-    setPendingEmail("");
-    setPendingPassword("");
-    setEmailForVerification("");
-  };
 
   // 重新发送邮箱验证码
   const handleResendEmailCode = async () => {
@@ -467,9 +507,6 @@ export default function LoginScreen() {
         stage: "email_resend",
         email: emailForVerification,
       });
-      Alert.alert(t("login.codeSent"), t("login.emailCodeSentMessage"), [
-        { text: t("common.confirm") },
-      ]);
     } catch (error: any) {
       console.error("❌ 重发验证码失败:", error);
       console.log("📊 EMAIL_CODE_RESEND_ERROR", {
@@ -490,14 +527,11 @@ export default function LoginScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
-        {/* 顶部标题 */}
+        {/* 顶部标题区 */}
         <View style={styles.header}>
           <SplashIcon width={72} height={72} style={styles.logo} />
           <Text style={[styles.headerTitle, typography.diaryTitle]}>
             {t("login.title")}
-          </Text>
-          <Text style={[styles.headerSubtitle, typography.body]}>
-            {t("login.subtitle")}
           </Text>
         </View>
 
@@ -586,7 +620,25 @@ export default function LoginScreen() {
           </View>
           {passwordError ? (
             <Text style={styles.errorText}>{passwordError}</Text>
+          ) : password.length > 0 ? (
+            <Text style={[typography.body, styles.hintText]}>
+              {t("login.passwordRequirements")}
+            </Text>
           ) : null}
+
+          {/* 忘记密码链接 - 只有在输入密码时显示 */}
+          {password.length > 0 && (
+            <TouchableOpacity
+              style={styles.forgotPasswordLink}
+              onPress={() => setShowForgotPasswordModal(true)}
+              disabled={loading}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            >
+              <Text style={[typography.body, styles.forgotPasswordText]}>
+                {t("login.forgotPassword")}
+              </Text>
+            </TouchableOpacity>
+          )}
 
           {/* 继续按钮 */}
           <TouchableOpacity
@@ -610,11 +662,10 @@ export default function LoginScreen() {
             <Text style={styles.formErrorText}>{formError}</Text>
           ) : null}
 
-          {/* 姓名输入模态框 */}
+          {/* 姓名输入模态框 (强制引导) */}
           <NameInputModal
             visible={showNameInputModal}
             onConfirm={handleNameConfirm}
-            onCancel={handleNameCancel}
           />
 
           {/* 邮箱验证码输入模态框 */}
@@ -625,6 +676,20 @@ export default function LoginScreen() {
             onVerify={handleEmailVerifyCode}
             onResend={handleResendEmailCode}
             isLoading={loading && loadingProvider === "username"}
+          />
+
+          {/* 忘记密码模态框 */}
+          <ForgotPasswordModal
+            visible={showForgotPasswordModal}
+            onClose={() => setShowForgotPasswordModal(false)}
+            onSuccess={() => {
+              // 密码重置成功后，用户可以用新密码登录
+              Alert.alert(
+                t("login.forgotPasswordTitle"),
+                t("login.forgotPasswordSuccess"),
+                [{ text: t("common.confirm") }]
+              );
+            }}
           />
 
           <View style={styles.separator}>
@@ -766,8 +831,26 @@ const styles = StyleSheet.create({
   errorText: {
     color: "#FF3B30",
     fontSize: 13,
-    marginTop: 6,
+    marginTop: 0,
     marginLeft: 4,
+  },
+  hintText: {
+    color: "#999",
+    fontSize: 12,
+    lineHeight: 14,
+    marginTop: 0,
+    marginLeft: 4,
+  },
+  forgotPasswordLink: {
+    alignSelf: "flex-start",
+    marginTop: 0,
+    marginBottom: 4,
+    marginLeft: 4,
+  },
+  forgotPasswordText: {
+    color: "#E56C45",
+    fontSize: 14,
+    fontWeight: "500",
   },
   passwordInputContainer: {
     position: "relative",
@@ -784,12 +867,12 @@ const styles = StyleSheet.create({
   },
   primaryButton: {
     backgroundColor: "#E56C45",
-    marginTop: 8,
+    marginTop: 0,
   },
   formErrorText: {
     color: "#FF3B30",
     fontSize: 14,
-    marginTop: 8,
+    marginTop: 0,
     textAlign: "center",
   },
   primaryButtonText: {

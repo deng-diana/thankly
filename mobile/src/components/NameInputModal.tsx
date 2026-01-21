@@ -12,7 +12,7 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  KeyboardAvoidingView,
+  KeyboardAvoidingView, // 键盘避让
   Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -29,10 +29,10 @@ interface NameInputModalProps {
 export default function NameInputModal({
   visible,
   onConfirm,
-  onCancel,
   placeholder,
 }: NameInputModalProps) {
   const [name, setName] = useState("");
+  const [isFocused, setIsFocused] = useState(false);
   const typography = getTypography();
 
   useEffect(() => {
@@ -49,19 +49,13 @@ export default function NameInputModal({
     }
   };
 
-  const handleCancel = () => {
-    setName(""); // 清空输入框
-    if (onCancel) {
-      onCancel();
-    }
-  };
 
   return (
     <Modal
       visible={visible}
       transparent
       animationType="fade"
-      onRequestClose={handleCancel}
+      onRequestClose={() => {}} // 强制环节，不响应关闭
     >
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -73,28 +67,25 @@ export default function NameInputModal({
           <View style={styles.header}>
             <Text
               style={[styles.title, typography.diaryTitle]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
+              numberOfLines={2}
             >
               {t("login.namePrompt.title")}
-            </Text>
-            <Text
-              style={[styles.subtitle, typography.body]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              ellipsizeMode="tail"
-            >
-              {t("login.namePrompt.subtitle")}
             </Text>
           </View>
 
           {/* 输入框 */}
           <TextInput
-            style={[styles.input, typography.body]}
+            style={[
+              styles.input, 
+              typography.body,
+              isFocused && styles.inputFocused
+            ]}
             placeholder={placeholder || t("login.namePrompt.placeholder")}
-            placeholderTextColor="#999"
+            placeholderTextColor="#B8ACA4"
             value={name}
             onChangeText={setName}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => setIsFocused(false)}
             autoFocus
             maxLength={32}
             returnKeyType="done"
@@ -109,17 +100,6 @@ export default function NameInputModal({
           {/* 按钮 */}
           <View style={styles.buttonContainer}>
             <TouchableOpacity
-              style={[styles.button, styles.cancelButton]}
-              onPress={handleCancel}
-              accessibilityLabel={t("common.cancel")}
-              accessibilityHint={t("accessibility.button.cancelHint")}
-              accessibilityRole="button"
-            >
-              <Text style={[styles.cancelButtonText, typography.body]}>
-                {t("common.cancel")}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
               style={[
                 styles.button,
                 styles.confirmButton,
@@ -127,7 +107,7 @@ export default function NameInputModal({
               ]}
               onPress={handleConfirm}
               disabled={name.trim().length === 0}
-              accessibilityLabel={t("common.confirm")}
+              accessibilityLabel={t("login.namePrompt.continue")}
               accessibilityHint={t("accessibility.button.confirmHint")}
               accessibilityRole="button"
               accessibilityState={{ disabled: name.trim().length === 0 }}
@@ -139,7 +119,7 @@ export default function NameInputModal({
                   name.trim().length === 0 && styles.confirmButtonTextDisabled,
                 ]}
               >
-                {t("common.confirm")}
+                {t("login.namePrompt.continue")}
               </Text>
             </TouchableOpacity>
           </View>
@@ -166,8 +146,10 @@ const styles = StyleSheet.create({
   modalContent: {
     backgroundColor: "#fff",
     borderRadius: 20,
-    padding: 24,
-    width: "85%",
+    paddingTop: 36, // 增加标题距离顶部的间距
+    paddingBottom: 32, // 增加按钮距离底部的间距
+    paddingHorizontal: 24,
+    width: "88%",
     maxWidth: 400,
     shadowColor: "#000",
     shadowOffset: {
@@ -179,31 +161,30 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   header: {
-    marginBottom: 20,
+    marginBottom: 24,
   },
   title: {
-    fontSize: 18,
+    fontSize: 20, // 稍微大一点
     color: "#1A1A1A",
-    marginBottom: 8,
+    marginBottom: 0,
     textAlign: "center",
-  },
-  subtitle: {
-    fontSize: 12,
-    color: "#666",
-    textAlign: "center",
-    lineHeight: 18,
   },
   input: {
     width: "100%",
-    height: 50,
+    height: 54, // 稍微高一点更有质感
     backgroundColor: "#FAF6ED",
     borderWidth: 1,
-    borderColor: "#F2E3C2",
+    borderColor: "#F7EEE0",
     borderRadius: 12,
     paddingHorizontal: 16,
+    paddingTop: 0,
+    paddingBottom: 8, // 增加底部边距，使文字视觉上上移，达到垂直居中
     fontSize: 16,
     color: "#1A1A1A",
     marginBottom: 20,
+  },
+  inputFocused: {
+    borderColor: "#E56C45",
   },
   buttonContainer: {
     flexDirection: "row",

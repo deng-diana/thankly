@@ -253,8 +253,16 @@ export default function TextInputModal({
 
   // 模拟处理步骤
   const simulateProcessingSteps = () => {
+    currentProgressRef.current = 5; // ✅ 从 5% 开始
     setProcessingStep(0);
-    setProcessingProgress(0);
+    setProcessingProgress(5);
+
+    // ✅ 新增：启动伪进度，防止在第一个 3s 定时器触发前看起来卡在 0%
+    const pseudoInterval = setInterval(() => {
+      const next = Math.min(currentProgressRef.current + 2, 25); // 慢速增加到 25%
+      currentProgressRef.current = next;
+      setProcessingProgress(next);
+    }, 800);
 
     const totalSteps = processingSteps.length;
     const stepTimers: ReturnType<typeof setTimeout>[] = [];
@@ -262,9 +270,10 @@ export default function TextInputModal({
 
     processingSteps.forEach((step, index) => {
       const timer = setTimeout(() => {
+        if (index === 0) clearInterval(pseudoInterval); // 第一个真实步骤开始时停止伪进度
         setProcessingStep(index);
         const targetProgress = ((index + 1) / totalSteps) * 100;
-        smoothUpdateProgress(targetProgress, 0.8);
+        smoothUpdateProgress(targetProgress); 
       }, accumulatedTime);
 
       stepTimers.push(timer);
@@ -272,9 +281,10 @@ export default function TextInputModal({
     });
 
     return () => {
+      clearInterval(pseudoInterval);
       stepTimers.forEach((timer) => clearTimeout(timer));
       if (progressAnimationRef.current) {
-        clearInterval(progressAnimationRef.current);
+        cancelAnimationFrame(progressAnimationRef.current);
         progressAnimationRef.current = null;
       }
     };
@@ -321,8 +331,9 @@ export default function TextInputModal({
 
         console.log("✅ 后端返回:", diary);
 
-        if (processingProgress < 100) {
-          smoothUpdateProgress(100, 2.0);
+        // 如果进度小于100%，等待动画完成
+        if (currentProgressRef.current < 100) {
+          smoothUpdateProgress(100, 800);
           await new Promise((resolve) => setTimeout(resolve, 1000));
         }
 

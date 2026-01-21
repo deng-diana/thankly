@@ -150,7 +150,7 @@ export const DiaryContentCard: React.FC<DiaryContentCardProps> = ({
             autoFocus
             multiline
             placeholder={t("diary.placeholderContent")}
-            scrollEnabled={true} // ✅ 允许内部滚动，配合 maxHeight 实现框内滑动
+            scrollEnabled={false} // ✅ 禁用内部滚动，让外部 ScrollView 统一处理，解决输入时乱跳到底部的问题
             textAlignVertical="top"
             accessibilityLabel={t("diary.placeholderContent")}
           />
@@ -232,8 +232,8 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 12,
     backgroundColor: "#fff",
-    minHeight: 250, 
-    maxHeight: 400, // ✅ 核心修复：限制编辑框最大高度，当内容超长时在框内滑动
+    minHeight: 300, 
+    // ✅ 移除 maxHeight 和内部滚动，这样编辑框会随内容增长，ScrollView 能够自然滚动到光标位置
     textAlignVertical: "top",
   },
 });

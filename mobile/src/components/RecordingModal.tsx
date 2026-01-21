@@ -16,7 +16,11 @@ import {
   createVoiceDiaryStream,
   deleteDiary,
   ProgressCallback,
+  pollTaskProgress,
+  uploadDiaryImages, // ✅ 添加图片上传
+  addImagesToTask,   // ✅ 添加辅助补充图片
 } from "../services/diaryService";
+import { uploadAudioAndCreateTask } from "../services/audioUploadService";
 import { updateDiary } from "../services/diaryService";
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import {
@@ -270,7 +274,8 @@ export default function RecordingModal({
   const resultSoundRef = useRef<Audio.Sound | null>(null);
   const resultProgressIntervalRef = useRef<NodeJS.Timeout | null>(null); // ✅ 进度更新定时器
 
-  // ✅ 新增:保存状态保护 - 防止重复调用
+  // ✅ 新增:音频播放负载状态(防止双重播放)
+  const isLoadingSoundRef = useRef(false);
   const isSavingRef = useRef(false);
 
   /**
@@ -607,6 +612,33 @@ export default function RecordingModal({
     };
   }, [visible, showResult, isRecording, isPaused]);
 
+  // ✅ 顶级优化：监听 visible 变化，在关闭 Modal 时立即停止并卸载音频
+  useEffect(() => {
+    if (!visible) {
+      (async () => {
+        try {
+          if (resultSoundRef.current) {
+            console.log("🎵 Modal 关闭，停止播放结果音频");
+            await resultSoundRef.current.unloadAsync();
+            resultSoundRef.current = null;
+          }
+          setIsPlayingResult(false);
+          setResultCurrentTime(0);
+          
+          if (resultProgressIntervalRef.current) {
+            clearInterval(resultProgressIntervalRef.current);
+            resultProgressIntervalRef.current = null;
+          }
+          
+          // 重置加载锁
+          isLoadingSoundRef.current = false;
+        } catch (error) {
+          console.log("⚠️ 关闭 Modal 时清理音频失败:", error);
+        }
+      })();
+    }
+  }, [visible]);
+
   useEffect(() => {
     if (!visible && pendingDiaryId && !hasSavedPendingDiary) {
       (async () => {
@@ -722,46 +754,133 @@ export default function RecordingModal({
       // 显示处理中
       setIsProcessing(true);
 
-      // ✅ 重置进度状态（准备接收真实进度）
+      // ✅ 重置进度状态
       setProcessingStep(0);
       setProcessingProgress(0);
-      currentProgressRef.current = 0; // ✅ 重置 ref，确保从 0 开始
-      progressAnimValue.setValue(0); // ✅ 重置动画值，确保从 0 开始
+      currentProgressRef.current = 0; 
+      progressAnimValue.setValue(0); 
+
+      // ✅ 进入处理阶段：启动“伪进度”以消除初始 0% 的僵持感
+      setProcessingProgress(5);
+      currentProgressRef.current = 5; 
+      const uploadInterval = setInterval(() => {
+        const next = Math.min(currentProgressRef.current + 2, 15); // 慢速递增到 15%
+        currentProgressRef.current = next;
+        setProcessingProgress(next);
+      }, 800);
+
+      let taskId: string;
+      let headers: Record<string, string>;
 
       try {
+        try {
+          // 把进度映射逻辑提取出来，确保平滑
+          const updateCombinedProgress = (audioP: number, imageP: number) => {
+            // 音频占 70%, 图片占 30% (在 0-20% 的总进度空间内)
+            const audioWeight = 0.7;
+            const imageWeight = 0.3;
+            
+            let totalUploadProgress = audioP * audioWeight;
+            if (imageUrls && imageUrls.length > 0) {
+              totalUploadProgress += imageP * imageWeight;
+            } else {
+              totalUploadProgress = audioP; // 如果没图片，音频就是 100%
+            }
+            
+            const mappedProgress = Math.round(totalUploadProgress * 0.2);
+            smoothUpdateProgress(Math.max(mappedProgress, currentProgressRef.current));
+          };
+
+          let lastAudioP = 0;
+          let lastImageP = 0;
+
+          // 如果有图片，先启动图片上传任务
+          let imageUploadPromise = Promise.resolve([] as string[]);
+          if (imageUrls && imageUrls.length > 0) {
+            console.log(`📸 正在并行上传 ${imageUrls.length} 张图片...`);
+            imageUploadPromise = uploadDiaryImages(imageUrls, (p) => {
+              lastImageP = p;
+              updateCombinedProgress(lastAudioP, lastImageP);
+            });
+          }
+
+          // ✅ 专家优化：真正的并行启动
+          // 我们不再在这里 await imageUploadPromise，而是直接启动音频上传和任务创建
+          // 这样音频和图片就在同时上传了！速度翻倍！
+          const result = await uploadAudioAndCreateTask(
+            uri!,
+            recordedDuration,
+            (uploadProgress) => {
+              lastAudioP = uploadProgress;
+              updateCombinedProgress(lastAudioP, lastImageP);
+            },
+            undefined,
+            undefined, // 初始不传图片URL，让图片在后台传
+            imageUrls && imageUrls.length > 0 // 如果有图片，告诉后端 expectImages=true
+          );
+          
+          taskId = result.taskId;
+          headers = result.headers;
+          console.log(`✅ [RecordingModal] 任务创建成功 (TaskID: ${taskId})，开始后台处理图片...`);
+
+          // ✅ 后台处理图片补充逻辑 (不阻塞主线程)
+          if (imageUrls && imageUrls.length > 0) {
+            console.log(`📸 [RecordingModal] 检测到 ${imageUrls.length} 张图片，启动补充逻辑...`);
+            (async () => {
+              try {
+                const finalUrls = await imageUploadPromise;
+                console.log(`📸 [RecordingModal] 图片上传终于完成了 (共${finalUrls.length}张)，正在调用补充接口: ${taskId}`);
+                await addImagesToTask(taskId, finalUrls);
+                console.log(`✅ [RecordingModal] 图片已成功补充到后台任务: ${taskId}`);
+              } catch (err) {
+                console.error(`❌ [RecordingModal] 补充图片到任务失败 (ID: ${taskId}):`, err);
+              }
+            })();
+          } else {
+            console.log("ℹ️ [RecordingModal] 此日记无图片需要补充");
+          }
+        } finally {
+          clearInterval(uploadInterval);
+        }
+
+        // ✅ 优化 20% 卡顿：在第一个轮询结果回来前，继续积极推进进度到 30%
+        // 速度: 从 20% 到 32%，每 800ms 推进 1.2%，给后端预留约 8 秒的冷启动时间
+        smoothUpdateProgress(20); 
+        const transitionInterval = setInterval(() => {
+          const next = Math.min(currentProgressRef.current + 1.2, 32); 
+          currentProgressRef.current = next;
+          setProcessingProgress(next);
+        }, 800);
+
+        // ✅ 步骤2: 轮询任务进度
         const progressCallback: ProgressCallback = (progressData) => {
-          console.log("📊 收到进度更新:", progressData);
           const progress = progressData.progress;
           
-          // ✅ 直接使用 pollTaskProgress 中已经映射好的 step（无需再次映射）
-          // pollTaskProgress 已经将后端 step 0-5 正确映射到前端 step 0-4
+          // ✅ 专家优化：只有当后端进度真正“超过”了我们的预测进度时，才停止并切换到真实进度
+          // 否则会造成进度条回退或卡死在 20%
+          if (progress > currentProgressRef.current + 2) {
+            if (transitionInterval) {
+              console.log(`📡 [专家小组] 后端进度 (${progress}%) 已赶上，停止过渡动画`);
+              clearInterval(transitionInterval);
+            }
+          }
           let frontendStep = progressData.step ?? 0;
-
-          // ✅ 确保步骤在有效范围内（0-4，对应5个步骤）
           frontendStep = Math.max(0, Math.min(frontendStep, processingSteps.length - 1));
 
-          console.log(`📊 进度更新: step=${frontendStep}, progress=${progress}%, message=${progressData.message || progressData.step_name}`);
-          
           setProcessingStep(frontendStep);
           smoothUpdateProgress(progress);
         };
 
-        const diary = await createVoiceDiaryStream(
-          uri!,
-          recordedDuration,
-          progressCallback,
-          imageUrls // ✅ 传递图片URL
-        );
+        const diary = await pollTaskProgress(taskId, headers, progressCallback);
+        if (transitionInterval) clearInterval(transitionInterval);
 
         setIsProcessing(false);
         setResultDiary(diary);
         setShowResult(true);
         setPendingDiaryId(diary.diary_id);
         setHasSavedPendingDiary(false);
-
         console.log("✅ 日记创建成功:", diary.diary_id);
       } catch (error: any) {
-        // ✅ 必须立即重置处理状态，确保不遮挡后续的 Alert
         setIsProcessing(false);
         console.log("❌ 处理失败:", error);
         setPendingDiaryId(null);
@@ -769,51 +888,25 @@ export default function RecordingModal({
 
         if (
           error.code === "EMPTY_TRANSCRIPT" ||
-          (error.message &&
-            (error.message.includes("No valid speech detected") ||
-              error.message.includes("空内容") ||
-              error.message.includes("未能识别到") ||
-              error.message.includes("未识别到有效内容") ||
-              error.message.includes("识别到的内容过短") ||
-              error.message.includes("检测到的内容过于简单") ||
-              error.message.includes("检测到的内容主要是语气词") ||
-              error.message.includes("检测到的内容只包含标点符号") ||
-              error.message.includes("未能识别到任何语音内容")))
+          (error.message && error.message.includes("No valid speech detected"))
         ) {
           Alert.alert(
             t("error.emptyRecording.title"),
             t("error.emptyRecording.message"),
-            [
-              {
-                text: t("common.rerecord"),
-                onPress: () => handleRerecord(),
-              },
-            ]
+            [{ text: t("common.rerecord"), onPress: () => handleRerecord() }]
           );
           return;
         }
 
-        let errorMessage = t("error.retryMessage");
-        if (error.message) {
-          errorMessage = error.message;
-        }
-
-        Alert.alert(t("error.genericError"), errorMessage, [
-          {
-            text: t("common.retry"),
-            onPress: () => handleRerecord(),
-          },
-          {
-            text: t("common.cancel"),
-            style: "cancel",
-            onPress: () => handleCancelRecording(), // ✅ 使用统一的取消处理
-          },
+        Alert.alert(t("error.genericError"), error.message || t("error.retryMessage"), [
+          { text: t("common.retry"), onPress: () => handleRerecord() },
+          { text: t("common.cancel"), style: "cancel", onPress: () => handleCancelRecording() },
         ]);
       }
     } catch (error) {
-      console.log("完成录音失败:", error);
+      console.log("完成录音主流程失败:", error);
+      setIsProcessing(false);
       Alert.alert(t("error.genericError"), t("error.recordingFailed"));
-      onCancel();
     }
   };
 
@@ -878,35 +971,37 @@ export default function RecordingModal({
   const handlePlayResultAudio = async () => {
     if (!resultDiary?.audio_url) return;
 
+    // ✅ 顶级保护：防止双击导致并发加载音频
+    if (isLoadingSoundRef.current) {
+      console.log("⏳ 音频正在加载中，跳过重复点击");
+      return;
+    }
+
     try {
-      // 如果正在播放,则暂停
+      // 1. 如果正在播放，则暂停
       if (isPlayingResult) {
         if (resultSoundRef.current) {
           await resultSoundRef.current.pauseAsync();
           setIsPlayingResult(false);
-          // ✅ 暂停时不清除定时器，保持 currentTime 不变（和日记列表页保持一致）
         }
         return;
       }
 
-      // ✅ 恢复播放
+      // 2. 如果已经加载过播放器（处于暂停状态），则直接恢复播放
       if (resultSoundRef.current) {
         await resultSoundRef.current.playAsync();
         setIsPlayingResult(true);
         return;
       }
 
-      // 停止之前的音频
-      if (resultSoundRef.current) {
-        await (resultSoundRef.current as any).unloadAsync();
-        resultSoundRef.current = null;
-      }
+      // 3. 初始加载：设置加载锁
+      isLoadingSoundRef.current = true;
 
-      // 设置音频模式
+      // 设置音频模式：确保使用扬声器外放
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: false,
         playsInSilentModeIOS: true,
-        staysActiveInBackground: false,
+        staysActiveInBackground: true,
         shouldDuckAndroid: true,
         playThroughEarpieceAndroid: false,
       });
@@ -919,29 +1014,25 @@ export default function RecordingModal({
 
       resultSoundRef.current = sound;
       setIsPlayingResult(true);
-      setHasPlayedResultOnce(true); // ✅ 标记为已播放过，显示倒计时
+      setHasPlayedResultOnce(true); 
+      isLoadingSoundRef.current = false; // 加载完成，释放锁
 
-      // ✅ 初始化 duration（优先使用数据库中的 audio_duration）
+      // 初始化进度
       const initialDuration = resultDiary.audio_duration || 0;
       if (initialDuration > 0) {
         setResultDuration(initialDuration);
       }
-
-      // ✅ 初始化 currentTime 为 0
       setResultCurrentTime(0);
 
-      // ✅ 清理之前的定时器
       if (resultProgressIntervalRef.current) {
         clearInterval(resultProgressIntervalRef.current);
-        resultProgressIntervalRef.current = null;
       }
 
-      // ✅ 使用定时器定期更新进度（和日记列表页保持一致）
+      // 启动进度更新定时器
       resultProgressIntervalRef.current = setInterval(async () => {
         try {
           if (!resultSoundRef.current) {
-            clearInterval(resultProgressIntervalRef.current!);
-            resultProgressIntervalRef.current = null;
+            if (resultProgressIntervalRef.current) clearInterval(resultProgressIntervalRef.current);
             return;
           }
 
@@ -951,37 +1042,20 @@ export default function RecordingModal({
             const durationMillis = status.durationMillis;
             const positionMillis = status.positionMillis;
 
-            // ✅ 更新总时长（只在变化时更新）
-            if (durationMillis !== undefined && durationMillis > 0) {
-              const durationSeconds = Math.floor(durationMillis / 1000);
-              setResultDuration((prev) => {
-                if (prev !== durationSeconds) {
-                  return durationSeconds;
-                }
-                return prev;
-              });
+            if (durationMillis && durationMillis > 0) {
+              setResultDuration(Math.floor(durationMillis / 1000));
             }
 
-            // ✅ 更新当前时间（实时更新，确保倒计时正常显示）
             if (positionMillis !== undefined) {
-              // ✅ 使用精确的时间值（保留小数），进度条组件会使用 Animated API 平滑更新
-              const currentTimeSeconds = positionMillis / 1000;
-              setResultCurrentTime((prev) => {
-                // ✅ 只在有变化时更新（避免完全相同的值导致的不必要更新）
-                if (Math.abs(prev - currentTimeSeconds) > 0.001) {
-                  return currentTimeSeconds;
-                }
-                return prev;
-              });
+              setResultCurrentTime(positionMillis / 1000);
             }
 
-            // ✅ 检查播放完成
             if (status.didJustFinish) {
-              clearInterval(resultProgressIntervalRef.current!);
+              if (resultProgressIntervalRef.current) clearInterval(resultProgressIntervalRef.current);
               resultProgressIntervalRef.current = null;
               setIsPlayingResult(false);
               setResultCurrentTime(0);
-              setHasPlayedResultOnce(false); // ✅ 重置播放状态，恢复到默认状态（隐藏进度条）
+              setHasPlayedResultOnce(false); 
               await sound.unloadAsync();
               resultSoundRef.current = null;
             }
@@ -989,18 +1063,11 @@ export default function RecordingModal({
         } catch (error) {
           console.error("❌ 更新播放进度失败:", error);
         }
-      }, 50); // ✅ 每 50ms 更新一次 currentTime，进度条组件使用 Animated API 平滑动画
-
-      // 监听播放状态（用于检测暂停等状态变化）
-      sound.setOnPlaybackStatusUpdate((status) => {
-        if (status.isLoaded && !status.isPlaying) {
-          // 如果暂停了，不需要做任何事，定时器会继续更新currentTime
-          // 这样暂停时也能保持当前时间不变
-        }
-      });
+      }, 100);
 
       console.log("🎵 播放结果音频");
     } catch (error: any) {
+      isLoadingSoundRef.current = false; // 出错也释放锁
       console.error("❌ 播放失败:", error);
       Alert.alert(
         t("error.playbackFailed"),

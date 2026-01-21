@@ -41,7 +41,7 @@ export const EMOTION_MAP: Record<EmotionType, EmotionConfig> = {
   Joyful: {
     labelEn: "Joyful",
     labelZh: "喜悦",
-    color: "#FCF7BD",
+    color: "#FFF698",
     darkText: true,
   }, // 温暖黄色（与Thoughtful共享）
   Grateful: {
@@ -53,7 +53,7 @@ export const EMOTION_MAP: Record<EmotionType, EmotionConfig> = {
   Fulfilled: {
     labelEn: "Fulfilled",
     labelZh: "充实",
-    color: "#FEE7BA",
+    color: "#FFE5B2",
     darkText: true,
   }, // ✅ 新增：柔和淡粉黄 (改色自 #E8DFF5)
   Proud: {
@@ -71,7 +71,7 @@ export const EMOTION_MAP: Record<EmotionType, EmotionConfig> = {
   Excited: {
     labelEn: "Excited",
     labelZh: "期待",
-    color: "#FFD5D5",
+    color: "#EAFA99",
     darkText: true,
   }, // ✅ 新增：柔和粉红 (改色自 #FFDAB3)
   Peaceful: {
@@ -97,7 +97,7 @@ export const EMOTION_MAP: Record<EmotionType, EmotionConfig> = {
   Reflective: {
     labelEn: "Reflective",
     labelZh: "内省",
-    color: "#DAF5EC",
+    color: "#FAF4AF",
     darkText: true,
   }, // 内省 - 清新薄荷绿（更清新的状态）
   Intentional: {
@@ -124,7 +124,7 @@ export const EMOTION_MAP: Record<EmotionType, EmotionConfig> = {
     color: "#F0DBC5",
     darkText: true,
   }, // ✅ 新增：柔和米褐 (改色自 #F5E6D3)
-  Calm: { labelEn: "Calm", labelZh: "淡然", color: "#D1E9FA", darkText: true }, // ✅ 新增：柔和淡蓝 (改色自 #E8F0E8)
+  Calm: { labelEn: "Calm", labelZh: "淡然", color: "#CEF2E6", darkText: true }, // ✅ 新增：柔和淡蓝 (改色自 #E8F0E8)
 
   // 😔 Negative/Release Emotions (8) - 沉稳柔和的色调
   Uncertain: {
@@ -161,7 +161,7 @@ export const EMOTION_MAP: Record<EmotionType, EmotionConfig> = {
   Venting: {
     labelEn: "Venting",
     labelZh: "宣泄",
-    color: "#FFD5D5",
+    color: "#FFB2B2",
     darkText: true,
   }, // 柔和粉红
   Frustrated: {

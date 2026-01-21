@@ -387,7 +387,7 @@ export default function DiaryListScreen() {
    * 加载页面数据
    * 包括:用户信息、日记列表
    */
-  const loadData = async () => {
+  const loadData = React.useCallback(async () => {
     try {
       setLoading(true);
 
@@ -414,12 +414,12 @@ export default function DiaryListScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   /**
    * 加载日记列表
    */
-  const loadDiaries = async () => {
+  const loadDiaries = React.useCallback(async () => {
     try {
       console.log("📖 开始加载日记列表...");
 
@@ -490,12 +490,12 @@ export default function DiaryListScreen() {
 
       setDiaries([]);
     }
-  };
+  }, []);
 
   /**
    * 下拉刷新
    */
-  const onRefresh = async () => {
+  const onRefresh = React.useCallback(async () => {
     setRefreshing(true);
     try {
       await loadData();
@@ -505,7 +505,7 @@ export default function DiaryListScreen() {
     } finally {
       setRefreshing(false);
     }
-  };
+  }, [loadData]);
 
   // ===== 录音相关函数 =====
 
@@ -514,10 +514,11 @@ export default function DiaryListScreen() {
    */
   const openRecordingModal = () => {
     console.log("📱 打开录音Modal");
+    stopAllAudio(); // ✅ 确保打开录音时停止其他音频播放
     setRecordingModalVisible(true);
-    setIsRecording(true); // ✅ 添加这行:开始录音状态
-    setIsPaused(false); // ✅ 添加这行:确保不是暂停状态
-    setRecordingDuration(0); // ✅ 添加这行:重置时长
+    setIsRecording(true); 
+    setIsPaused(false); 
+    setRecordingDuration(0); 
 
     // ✅ 启动计时器
     if (recordingTimerRef.current) {
@@ -610,6 +611,7 @@ export default function DiaryListScreen() {
    */
   const handleTextInput = () => {
     console.log("📝 打开文字输入Modal");
+    stopAllAudio(); // ✅ 确保进入文字输入时停止音频播放
     setTextInputModalVisible(true);
   };
 
@@ -633,18 +635,31 @@ export default function DiaryListScreen() {
    */
   const handleVoiceRecord = () => {
     console.log("🎤 打开录音Modal");
+    stopAllAudio(); // ✅ 确保打开录音时停止音频播放
     setRecordingModalVisible(true);
   };
 
   /**
    * 点击日记卡片
    */
-  const handleDiaryPress = (diary: Diary) => {
+  const handleDiaryPress = React.useCallback((diary: Diary) => {
     console.log("查看日记:", diary.diary_id);
     stopAllAudio();
     setSelectedDiaryForDetail(diary);
     setDiaryDetailVisible(true);
-  };
+  }, [stopAllAudio]);
+
+  // ✅ 顶级优化：当页面失去焦点（如跳转到设置、搜索或进入后台）时，自动停止音频
+  useFocusEffect(
+    React.useCallback(() => {
+      // 页面进入焦点时不执行操作
+      return () => {
+        // 页面失去焦点时停止音频
+        console.log("🚶 页面失去焦点，停止音频播放");
+        stopAllAudio();
+      };
+    }, [stopAllAudio])
+  );
 
 
   // ✅ 新增：音频播放相关函数
@@ -655,10 +670,10 @@ export default function DiaryListScreen() {
   // ✅ 音频播放逻辑已由 useDiaryAudio Hook 统一管理。
 
   // ✅ 处理日记操作菜单
-  const handleDiaryOptions = (item: Diary) => {
+  const handleDiaryOptions = React.useCallback((item: Diary) => {
     setSelectedDiary(item);
     setActionSheetVisible(true);
-  };
+  }, []);
 
   // ===== 轻量 Toast（Android 用原生，iOS 用自绘）=====
   const [toastVisible, setToastVisible] = useState(false);
@@ -673,7 +688,8 @@ export default function DiaryListScreen() {
     setTimeout(() => setToastVisible(false), 1500);
   };
 
-  const handleOpenDrawer = () => {
+  // ✅ 使用 useCallback 锁定 handleOpenDrawer 引用，防止重绘导致 Header 子组件 Remount
+  const handleOpenDrawer = React.useCallback(() => {
     console.log("🍔 点击汉堡菜单");
     try {
       // ✅ 使用 DrawerActions 分发打开指令，它会自动向上查找最近的 Drawer 导航器
@@ -682,7 +698,7 @@ export default function DiaryListScreen() {
       console.error("❌ 打开侧边栏失败:", error);
       // 后备方案：如果DrawerActions失败，不再尝试其他方法（避免类型错误）
     }
-  };
+  }, [navigation]);
 
   type DiaryAction = "copyEntry" | "delete";
 
@@ -697,7 +713,7 @@ export default function DiaryListScreen() {
     return parts.join("\n\n").trim();
   };
 
-  const handleAction = async (action: DiaryAction) => {
+  const handleAction = React.useCallback(async (action: DiaryAction) => {
     setActionSheetVisible(false);
 
     if (!selectedDiary) return;
@@ -725,7 +741,7 @@ export default function DiaryListScreen() {
         ]);
         break;
     }
-  };
+  }, [selectedDiary, t]);
 
   // ✅ 删除日记
   const handleDeleteDiary = async (diaryId: string) => {
@@ -1549,16 +1565,6 @@ export default function DiaryListScreen() {
       </View>
       <Text
         style={[
-          styles.emptyTitle,
-          {
-            fontFamily: getFontFamilyForText(t("home.noDiaries"), "bold"),
-          },
-        ]}
-      >
-        {t("home.noDiaries")}
-      </Text>
-      <Text
-        style={[
           styles.emptySubtitle,
           {
             fontFamily: getFontFamilyForText(t("home.emptySubtitle"), "regular"),
@@ -1568,6 +1574,28 @@ export default function DiaryListScreen() {
         {t("home.emptySubtitle")}
       </Text>
     </View>
+  );
+
+  // ✅ 性能核心优化：通过 useMemo 锁定 Header 和 EmptyState 渲染
+  // 它们不依赖 currentTime，因此音频进度更新时（100ms/次）不会触发它们的重绘
+  const listHeader = React.useMemo(() => renderHeader(), [
+    diaries.length,
+    userDisplayName,
+    greetingWelcome,
+    greetingSubtitle,
+    handleOpenDrawer,
+  ]);
+
+  const listEmpty = React.useMemo(() => renderEmptyState(), [
+    diaries.length,
+    t,
+  ]);
+
+  // ✅ memoize renderDiaryCard 以减少重排开销
+  const renderDiaryCardMemo = React.useCallback(
+    ({ item, index }: { item: Diary; index: number }) =>
+      renderDiaryCard({ item, index }),
+    [currentPlayingId, currentTime, duration, hasPlayedOnce, handleDiaryPress, handleDiaryOptions]
   );
 
   // ========== 主渲染 ==========
@@ -1597,13 +1625,17 @@ export default function DiaryListScreen() {
       ) : (
         <>
           {/* 日记列表 */}
+          {/* ✅ 性能核心优化：通过 useMemo 锁定 Header 和 EmptyState 渲染 */}
+          {/* 它们不依赖 currentTime，因此音频进度更新时（100ms/次）不会触发它们的重绘 */}
+          {/* 这能从根本上解决“播放音频时，搜索框和汉堡菜单点击不灵敏”的问题 */}
           <FlatList
             data={searchQuery.trim() !== '' ? searchResults : diaries}
-            renderItem={({ item, index }) => renderDiaryCard({ item, index })}
+            renderItem={renderDiaryCardMemo}
             keyExtractor={(item) => item.diary_id}
-            ListHeaderComponent={renderHeader}
-            ListEmptyComponent={renderEmptyState}
+            ListHeaderComponent={listHeader}
+            ListEmptyComponent={listEmpty}
             contentContainerStyle={styles.listContent}
+            extraData={{ currentPlayingId, currentTime, duration }}
             refreshControl={
               <RefreshControl
                 refreshing={refreshing}

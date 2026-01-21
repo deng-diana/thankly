@@ -17,7 +17,7 @@ export type DailyReminderSettings = {
 
 const DEFAULT_SETTINGS: DailyReminderSettings = {
   enabled: false,
-  hour: 20,
+  hour: 22,
   minute: 0,
 };
 
@@ -79,7 +79,7 @@ export const getReminderSettings =
     }
     try {
       const parsed = JSON.parse(stored) as DailyReminderSettings;
-      return {
+      const settings = {
         enabled: typeof parsed.enabled === "boolean" ? parsed.enabled : false,
         hour:
           typeof parsed.hour === "number" && parsed.hour >= 0
@@ -90,6 +90,16 @@ export const getReminderSettings =
             ? parsed.minute
             : DEFAULT_SETTINGS.minute,
       };
+
+      // 💡 自动迁移：如果用户还在使用旧的默认时间 (20:00)，自动升级到新的默认时间 (22:00)
+      if (settings.hour === 20 && settings.minute === 0) {
+        console.log("🚀 检测到旧版默认提醒时间 (20:00)，正在自动更新为 22:00...");
+        settings.hour = 22;
+        // 异步保存，不阻塞返回
+        saveReminderSettings(settings).catch(err => console.error("Migration failed:", err));
+      }
+
+      return settings;
     } catch (error) {
       console.warn("Failed to parse reminder settings:", error);
       return DEFAULT_SETTINGS;

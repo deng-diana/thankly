@@ -213,7 +213,7 @@ export default function AppDrawerContent(props: DrawerContentComponentProps) {
           <Image source={{ uri: user.picture }} style={styles.avatar} />
         ) : (
           <View style={styles.avatar}>
-            <AvatarDefault width={34} height={34} />
+            <AvatarDefault width={40} height={40} />
           </View>
         )}
         <View style={styles.userInfo}>
@@ -415,12 +415,13 @@ const styles = StyleSheet.create({
     // marginTop: 40, // 移除额外的 marginTop，因为我们已经用了 padding
   },
   avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 23,
+    width: 40,
+    height: 40,
+    borderRadius: 20, // 确保是圆的 (40/2)
     backgroundColor: "#F2E9DF",
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
   },
   userInfo: {
     flex: 1,

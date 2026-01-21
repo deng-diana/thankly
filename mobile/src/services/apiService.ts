@@ -86,9 +86,14 @@ class APIService {
 
     // 第2步：准备请求头（Headers）
     const headers: Record<string, string> = {
-      "Content-Type": "application/json", // 告诉服务器：我发送的是JSON
       ...config.headers, // 合并自定义headers
     };
+
+    // 如果不是 FormData，默认设置为 application/json
+    const isFormData = config.body instanceof FormData;
+    if (!isFormData && !headers["Content-Type"]) {
+      headers["Content-Type"] = "application/json";
+    }
 
     // 第3步：添加认证Token（如果需要）
     // requireAuth默认为true，表示大多数API都需要登录
@@ -113,14 +118,6 @@ class APIService {
           timeUntilExpiry: `${Math.floor(timeUntilExpiry / 60)}分钟`,
           isExpired: timeUntilExpiry <= 0,
         });
-
-        // 暂时禁用时间检查，因为系统时间可能有问题
-        // if (timeUntilExpiry <= 0) {
-        //   console.warn("⚠️ Token已过期！");
-        // } else if (timeUntilExpiry < 300) {
-        //   // 5分钟内过期
-        //   console.warn("⚠️ Token即将过期！");
-        // }
       } catch (e) {
         console.error("❌ Token解析失败:", e);
       }
@@ -129,11 +126,27 @@ class APIService {
       // 格式：Bearer <token>
       headers["Authorization"] = `Bearer ${token}`;
       console.log("🔐 已添加认证Token");
+
+      // ✅ 自动添加用户名字头，用于AI个性化回复
+      try {
+        const { getCurrentUser } = await import("./authService");
+        const user = await getCurrentUser();
+        if (user?.name) {
+          headers["X-User-Name"] = user.name;
+          console.log(`👤 已自动添加用户名字 Header: ${user.name}`);
+        }
+      } catch (e) {
+        // 静默失败，不影响核心请求
+      }
     }
 
     // 第4步：准备请求体（Body）
     // 只有POST、PUT、PATCH需要body
-    const body = config.body ? JSON.stringify(config.body) : undefined;
+    const body = isFormData
+      ? (config.body as any)
+      : config.body
+      ? JSON.stringify(config.body)
+      : undefined;
 
     try {
       // 第5步：发送HTTP请求

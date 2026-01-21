@@ -23,6 +23,7 @@
 import { API_BASE_URL } from "../config/aws-config";
 import { getAccessToken } from "./authService";
 import * as FileSystem from "expo-file-system";
+import apiService from "./apiService";
 
 /**
  * 获取音频文件的预签名URL
@@ -39,29 +40,22 @@ export async function getAudioPresignedUrl(
   s3_key: string;
   final_url: string;
 }> {
-  const accessToken = await getAccessToken();
-  if (!accessToken) {
-    throw new Error("未登录");
-  }
-
   const formData = new FormData();
   formData.append("file_name", fileName);
   formData.append("content_type", contentType);
 
-  const response = await fetch(`${API_BASE_URL}/diary/audio/presigned-url`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
-    body: formData,
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => "未知错误");
-    throw new Error(`获取预签名URL失败: ${response.status} - ${errorText}`);
+  try {
+    return await apiService.post<{
+      presigned_url: string;
+      s3_key: string;
+      final_url: string;
+    }>("/diary/audio/presigned-url", {
+      body: formData,
+    });
+  } catch (error: any) {
+    console.error("❌ 获取预签名URL失败:", error);
+    throw new Error(`获取请求链接失败: ${error.message}`);
   }
-
-  return await response.json();
 }
 
 /**
@@ -90,19 +84,15 @@ export async function uploadAudioDirectToS3(
       console.log(`  - URI: ${audioUri}`);
       console.log(`  - Content-Type: ${contentType}`);
 
-      // 读取音频文件内容
-      const fileInfo = await FileSystem.getInfoAsync(audioUri, { size: true } as any);
-      if (!fileInfo.exists) {
-        throw new Error("音频文件不存在");
+      // 读取音频文件内容 - 使用 fetch 绕过 getInfoAsync 弃用问题
+      const response = await fetch(audioUri);
+      if (!response.ok) {
+        throw new Error("音频文件读取失败");
       }
-
-      const fileSize = typeof fileInfo.size === "number" ? fileInfo.size : 0;
+      const blob = await response.blob();
+      const fileSize = blob.size;
       const fileSizeMB = (fileSize / (1024 * 1024)).toFixed(2);
       console.log(`  - 文件大小: ${fileSizeMB}MB (${fileSize} bytes)`);
-
-      // 读取文件为blob
-      const response = await fetch(audioUri);
-      const blob = await response.blob();
 
       // 使用XMLHttpRequest进行上传 (支持进度监听)
       const xhr = new XMLHttpRequest();
@@ -171,26 +161,55 @@ export async function uploadAudioAndCreateTask(
   duration: number,
   onUploadProgress?: (progress: number) => void,
   content?: string,
+  imageUrls?: string[],
   expectImages?: boolean
 ): Promise<{ taskId: string; headers: Record<string, string> }> {
   console.log("🎤 优化版音频上传流程启动");
   
   try {
-    // 第1步: 获取预签名URL (快速)
-    console.log("📋 步骤1: 获取预签名URL...");
-    const presignedData = await getAudioPresignedUrl("recording.m4a", "audio/m4a");
-    console.log(`✅ 预签名URL获取成功: ${presignedData.s3_key}`);
-
-    // 第2步: 直接上传音频到S3 (显示精确进度)
-    console.log("📤 步骤2: 直传音频到S3...");
+    // 第1步 & 第2步并行准备: 获取预签名URL 和 准备文件
+    console.log("📋 步骤1: 正在并行获取预签名URL和准备音频文件...");
     const startTime = Date.now();
     
-    await uploadAudioDirectToS3(
-      audioUri,
-      presignedData.presigned_url,
-      "audio/m4a",
-      onUploadProgress
-    );
+    // ✅ 并行执行：1. 获取URL, 2. 读取文件Blob (读取大文件需要时间)
+    const [presignedData, blob] = await Promise.all([
+      getAudioPresignedUrl("recording.m4a", "audio/m4a"),
+      (async () => {
+        const response = await fetch(audioUri);
+        if (!response.ok) throw new Error("音频文件读取失败");
+        return await response.blob();
+      })()
+    ]);
+    
+    console.log(`✅ 准备就绪: URL已获取, 文件已转换为Blob (耗时: ${((Date.now() - startTime)/1000).toFixed(2)}s)`);
+
+    // 第3步: 直接上传音频到S3
+    console.log("📤 步骤2: 直传音频到S3...");
+    const uploadStartTime = Date.now();
+    
+    await new Promise<void>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.upload.addEventListener("progress", (event) => {
+        if (event.lengthComputable && onUploadProgress) {
+          const progress = Math.round((event.loaded / event.total) * 100);
+          onUploadProgress(progress);
+        }
+      });
+      xhr.addEventListener("load", () => {
+        if (xhr.status === 200) {
+          onUploadProgress?.(100);
+          resolve();
+        } else {
+          reject(new Error(`S3上传失败: ${xhr.status}`));
+        }
+      });
+      xhr.addEventListener("error", () => reject(new Error("网络错误")));
+      xhr.open("PUT", presignedData.presigned_url, true);
+      xhr.setRequestHeader("Content-Type", "audio/m4a");
+      xhr.send(blob);
+    });
+    
+    console.log(`✅ 音频上传完成 (耗时${((Date.now() - uploadStartTime) / 1000).toFixed(1)}秒)`);
     
     const uploadTime = ((Date.now() - startTime) / 1000).toFixed(1);
     console.log(`✅ 音频上传完成 (耗时${uploadTime}秒)`);
@@ -224,8 +243,14 @@ export async function uploadAudioAndCreateTask(
     if (content && content.trim()) {
       formData.append("content", content.trim());
     }
-    if (expectImages) {
-      formData.append("expect_images", "true");
+    
+    // ✅ 专家优化：真正的并行逻辑
+    // 只有当已经拿到图片URL时，才传给后端
+    if (imageUrls && imageUrls.length > 0) {
+      formData.append("image_urls", JSON.stringify(imageUrls));
+      formData.append("expect_images", "false"); // 已经有了，不需要后端等
+    } else if (expectImages === true) {
+      formData.append("expect_images", "true"); // 告诉后端：图片随后就到
     }
 
     // 调用新的API端点 (接收audio_url而不是audio文件)

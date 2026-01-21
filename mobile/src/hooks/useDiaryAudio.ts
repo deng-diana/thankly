@@ -20,6 +20,7 @@ export function useDiaryAudio() {
   
   const soundRefs = useRef(new Map<string, ExpoAudioPlayer>());
   const intervalRefs = useRef(new Map<string, NodeJS.Timeout>());
+  const isLoadingRef = useRef<string | null>(null); // ✅ 新增：加载锁，防止重复加载同一音频
 
   // 核心私有函数：重置特定日记的音频 UI 状态
   const resetDiaryStatus = useCallback((diaryId: string) => {
@@ -65,6 +66,12 @@ export function useDiaryAudio() {
     if (!diary.audio_url) return;
     const diaryId = diary.diary_id;
 
+    // ✅ 顶级保护：如果该音频正在加载中，直接跳过，防止并发导致双重播放
+    if (isLoadingRef.current === diaryId) {
+      console.log("⏳ 该音频正在加载中，跳过重复触发");
+      return;
+    }
+
     try {
       // 1. 处理暂停逻辑
       if (currentPlayingId === diaryId) {
@@ -72,7 +79,6 @@ export function useDiaryAudio() {
         if (sound) {
           sound.pause();
           setCurrentPlayingId(null);
-          // 检查播放器是否已经触发了自然结束逻辑（避免手动暂停误触重置）
           if (sound.isLoaded && sound.duration > 0 && sound.currentTime >= sound.duration - 0.5) {
             resetDiaryStatus(diaryId);
           }
@@ -80,7 +86,7 @@ export function useDiaryAudio() {
         return;
       }
 
-      // 2. 停止其他正在播放的音频（互斥播放）
+      // 2. 停止其他正在播放的音频
       if (currentPlayingId) {
         const oldSound = soundRefs.current.get(currentPlayingId);
         if (oldSound) {
@@ -100,20 +106,21 @@ export function useDiaryAudio() {
       if (player && player.isLoaded) {
         isResuming = true;
       } else {
-        // 确保 iOS 静音开关打开时也能播放
+        // 设置加载锁
+        isLoadingRef.current = diaryId;
+
         await Audio.setAudioModeAsync({
           playsInSilentModeIOS: true,
-          staysActiveInBackground: false,
+          staysActiveInBackground: true,
           shouldDuckAndroid: true,
           playThroughEarpieceAndroid: false,
           allowsRecordingIOS: false,
-        }).catch(() => {});
+        }).catch((err) => console.log("Audio mode set failed:", err));
 
         player = createAudioPlayer(diary.audio_url, { updateInterval: 100 });
         soundRefs.current.set(diaryId, player);
         setHasPlayedOnceSet((prev) => new Set(prev).add(diaryId));
 
-        // ✅ 核心修复：如果有关联的旧进度，在新播器加载后立即同步进度
         if (savedProgress > 0) {
           player.seekTo(savedProgress);
         }
@@ -127,22 +134,21 @@ export function useDiaryAudio() {
       const dur = player.duration || diary.audio_duration || 0;
       if (dur > 0) setDurationMap((prev) => new Map(prev).set(diaryId, dur));
       
-      // 注意：如果是从 0 开始的新播放，才强制设置 0；否则保持 savedProgress
       if (!isResuming && savedProgress === 0) {
         setCurrentTimeMap((prev) => new Map(prev).set(diaryId, 0));
       }
 
-      // 6. 开启 50ms 监控
+      // 6. 开启 监控
       setupInterval(diaryId, player, dur);
 
     } catch (e: any) {
       console.error("音频播放器异常:", e);
       const { Alert } = require("react-native");
       const { t } = require("../i18n");
-      Alert.alert(
-        t("error.playbackFailed"),
-        e?.message || t("error.retryMessage")
-      );
+      Alert.alert(t("error.playbackFailed"), e?.message || t("error.retryMessage"));
+    } finally {
+      // 释放加载锁
+      isLoadingRef.current = null;
     }
   };
 
@@ -185,7 +191,7 @@ export function useDiaryAudio() {
         soundRefs.current.delete(diaryId);
         resetDiaryStatus(diaryId);
       }
-    }, 50);
+    }, 100);
 
     intervalRefs.current.set(diaryId, interval);
   };

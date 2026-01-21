@@ -188,70 +188,96 @@ export default function CreateTextDiaryScreen() {
 
   // ========== 文字输入相关函数 ==========
 
-  // 平滑更新进度条
+  /**
+   * 🎯 教科书级别的平滑进度更新（使用 requestAnimationFrame 和缓动函数）
+   * 与 RecordingModal 保持高度一致，解决大跳跃问题
+   */
+  const currentProgressRef = useRef(0);
+  const progressAnimRef = useRef<number | null>(null);
+
   const smoothUpdateProgress = useCallback(
-    (target: number, speed: number = 0.8) => {
-      if (progressAnimationRef.current) {
-        clearInterval(progressAnimationRef.current);
+    (target: number, duration: number = 1500) => {
+      const safeTarget = Math.max(Math.min(target, 100), currentProgressRef.current);
+      const currentValue = currentProgressRef.current;
+      const progressDiff = safeTarget - currentValue;
+
+      if (progressDiff <= 0.01) return;
+
+      if (progressAnimRef.current) {
+        cancelAnimationFrame(progressAnimRef.current);
       }
 
-      progressAnimationRef.current = setInterval(() => {
-        setProcessingProgress((current) => {
-          // 快速增长阶段:还没到目标
-          if (current < target - 1) {
-            const diff = target - current;
-            const step = Math.min(speed, diff);
-            return current + step;
-          }
+      const startTime = Date.now();
+      const startValue = currentValue;
 
-          // 慢速爬升阶段:接近或到达目标
-          if (current < target) {
-            return current + 0.2;
-          }
+      const easeOutCubic = (t: number): number => 1 - Math.pow(1 - t, 3);
 
-          // 微增长阶段:超过目标后继续慢慢爬
-          if (current < 99) {
-            return current + 0.05;
-          }
+      const animate = () => {
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const easedProgress = easeOutCubic(progress);
+        const newValue = startValue + (safeTarget - startValue) * easedProgress;
+        
+        const clampedValue = Math.max(currentProgressRef.current, newValue);
+        currentProgressRef.current = clampedValue;
+        setProcessingProgress(clampedValue);
 
-          // 到达99%,停止
-          if (progressAnimationRef.current) {
-            clearInterval(progressAnimationRef.current);
-            progressAnimationRef.current = null;
-          }
-          return current;
-        });
-      }, 40);
+        if (progress < 1) {
+          progressAnimRef.current = requestAnimationFrame(animate);
+        } else {
+          currentProgressRef.current = safeTarget;
+          setProcessingProgress(safeTarget);
+          progressAnimRef.current = null;
+        }
+      };
+
+      progressAnimRef.current = requestAnimationFrame(animate);
     },
     []
   );
 
   // 模拟处理步骤
   const simulateProcessingSteps = () => {
+    currentProgressRef.current = 5; // ✅ 从 5% 开始
     setProcessingStep(0);
-    setProcessingProgress(0);
+    setProcessingProgress(5);
 
-    const totalSteps = processingSteps.length;
+    // ✅ 新增：启动伪进度，防止在第一个 3s 定时器触发前看起来卡在 0%
+    const pseudoInterval = setInterval(() => {
+      const next = Math.min(currentProgressRef.current + 2, 25); // 慢速增加到 25%
+      currentProgressRef.current = next;
+      setProcessingProgress(next);
+    }, 800);
+
     const stepTimers: ReturnType<typeof setTimeout>[] = [];
     let accumulatedTime = 0;
 
-    processingSteps.forEach((step, index) => {
-      const timer = setTimeout(() => {
-        setProcessingStep(index);
-        const targetProgress = ((index + 1) / totalSteps) * 100;
-        smoothUpdateProgress(targetProgress, 0.8);
-      }, accumulatedTime);
+    // ✅ 通过增加更多的进度采样点，让非任务型的文字日记处理更平滑
+    // 步骤0: 润色 (0 -> 40%)
+    stepTimers.push(setTimeout(() => {
+      clearInterval(pseudoInterval); // 第一个真实步骤开始时停止伪进度
+      setProcessingStep(0);
+      smoothUpdateProgress(40, 3000);
+    }, 0));
 
-      stepTimers.push(timer);
-      accumulatedTime += step.duration;
-    });
+    // 步骤1: 标题 (40 -> 70%)
+    stepTimers.push(setTimeout(() => {
+      setProcessingStep(1);
+      smoothUpdateProgress(70, 2000);
+    }, 3000));
+
+    // 步骤2: 建议 (70 -> 95%)
+    stepTimers.push(setTimeout(() => {
+      setProcessingStep(2);
+      smoothUpdateProgress(95, 2000);
+    }, 5000));
 
     // 返回清理函数
     return () => {
+      clearInterval(pseudoInterval);
       stepTimers.forEach((timer) => clearTimeout(timer));
-      if (progressAnimationRef.current) {
-        clearInterval(progressAnimationRef.current);
-        progressAnimationRef.current = null;
+      if (progressAnimRef.current) {
+        cancelAnimationFrame(progressAnimRef.current);
       }
     };
   };
@@ -302,13 +328,12 @@ export default function CreateTextDiaryScreen() {
 
         console.log("✅ 后端返回:", diary);
 
-        // 如果进度小于100%，等待动画完成
-        if (processingProgress < 100) {
-          console.log(`⏳ 当前进度${processingProgress}%,等待到100%`);
-          // 快速推进到100%
-          smoothUpdateProgress(100, 2.0);
-          // 等待1秒让动画完成
-          await new Promise((resolve) => setTimeout(resolve, 1000));
+        // 如果进度小于100%，快速推进
+        if (currentProgressRef.current < 100) {
+          console.log(`⏳ 当前进度${currentProgressRef.current}%,快速推进到100%`);
+          smoothUpdateProgress(100, 300); // 极速推进
+          // 仅等待 400ms 视觉缓冲
+          await new Promise((resolve) => setTimeout(resolve, 400));
         }
 
         // 停止模拟

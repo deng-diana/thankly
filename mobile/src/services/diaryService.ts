@@ -46,9 +46,10 @@ async function prepareImageForUpload(
 
   let size: number | null = null;
   try {
-    const info = await FileSystem.getInfoAsync(uri, { size: true } as any);
-    if (info.exists && typeof info.size === "number") {
-      size = info.size;
+    const response = await fetch(uri);
+    if (response.ok) {
+      const blob = await response.blob();
+      size = blob.size;
     }
   } catch (_) {
     // 读取大小失败时继续压缩流程
@@ -354,7 +355,7 @@ export async function uploadDiaryImages(
         const retryData = await retryResponse.json();
         const presignedUrls = retryData.presigned_urls;
 
-        return await performSequentialUpload(preparedImages, presignedUrls, contentTypes, onProgress);
+        return await performParallelUpload(preparedImages, presignedUrls, contentTypes, onProgress);
       }
 
       const errorText = await presignedResponse.text();
@@ -363,7 +364,7 @@ export async function uploadDiaryImages(
 
     const presignedData = await presignedResponse.json();
     const presignedUrls = presignedData.presigned_urls;
-    return await performSequentialUpload(preparedImages, presignedUrls, contentTypes, onProgress);
+    return await performParallelUpload(preparedImages, presignedUrls, contentTypes, onProgress);
   } catch (error: any) {
     console.error("❌ 上传图片失败:", error);
     throw error; // 抛出原始错误，方便上层处理
@@ -373,7 +374,7 @@ export async function uploadDiaryImages(
 /**
  * 内部辅助函数：执行并行上传 - 🔥 速度提升3-5倍
  */
-async function performSequentialUpload(
+async function performParallelUpload(
   preparedImages: any[],
   presignedUrls: any[],
   contentTypes: string[],

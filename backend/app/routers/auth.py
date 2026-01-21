@@ -1342,3 +1342,160 @@ async def update_user_name(
     except Exception as e:
         print(f"❌ 更新用户姓名失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"更新失败: {str(e)}")
+
+
+class EmailForgotPasswordRequest(BaseModel):
+    """邮箱忘记密码请求"""
+    email: str
+
+
+@router.post("/email/forgot-password", summary="邮箱忘记密码（发送验证码）")
+async def email_forgot_password(request: EmailForgotPasswordRequest):
+    """
+    邮箱忘记密码端点（发送验证码）
+    
+    流程：
+    1. 检查用户是否存在
+    2. 使用forgot_password流程发送验证码到邮箱
+    """
+    try:
+        print(f"📧 开始处理邮箱忘记密码: {request.email}")
+        
+        email = request.email.strip().lower()
+        username = email
+        
+        # 检查用户是否存在
+        try:
+            cognito_client.admin_get_user(
+                UserPoolId=COGNITO_USER_POOL_ID,
+                Username=username
+            )
+            print(f"✅ 用户存在")
+        except ClientError as e:
+            error_code = e.response['Error']['Code']
+            if error_code == 'UserNotFoundException':
+                raise HTTPException(status_code=404, detail="该邮箱未注册")
+            raise
+        
+        # 使用forgot_password流程发送验证码
+        try:
+            response = cognito_client.forgot_password(
+                ClientId=COGNITO_CLIENT_ID,
+                Username=username
+            )
+            
+            print(f"✅ 验证码已发送到邮箱")
+            
+            return {
+                "success": True,
+                "message": "验证码已发送到您的邮箱",
+                "codeDeliveryDetails": response.get('CodeDeliveryDetails')
+            }
+            
+        except ClientError as e:
+            error_code = e.response['Error']['Code']
+            error_message = e.response['Error']['Message']
+            
+            print(f"❌ 发送验证码失败: [{error_code}] {error_message}")
+            
+            if error_code == 'LimitExceededException':
+                raise HTTPException(status_code=429, detail="发送验证码过于频繁，请稍后再试")
+            else:
+                raise HTTPException(status_code=400, detail=f"发送验证码失败: {error_message}")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ 邮箱忘记密码失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"操作失败: {str(e)}")
+
+
+class EmailResetPasswordRequest(BaseModel):
+    """邮箱重置密码请求"""
+    email: str
+    verification_code: str
+    new_password: str
+
+
+@router.post("/email/reset-password", response_model=AuthResponse, summary="邮箱重置密码（验证码确认）")
+async def email_reset_password(request: EmailResetPasswordRequest):
+    """
+    邮箱重置密码端点
+    
+    流程：
+    1. 使用confirm_forgot_password确认验证码并设置新密码
+    2. 使用新密码登录
+    3. 返回tokens
+    """
+    try:
+        print(f"📧 开始重置密码: {request.email}")
+        
+        email = request.email.strip().lower()
+        verification_code = request.verification_code
+        new_password = request.new_password
+        username = email
+        
+        # 验证密码强度
+        if len(new_password) < 8:
+            raise HTTPException(status_code=400, detail="密码至少需要8个字符")
+        
+        # 1. 确认验证码并设置新密码
+        try:
+            cognito_client.confirm_forgot_password(
+                ClientId=COGNITO_CLIENT_ID,
+                Username=username,
+                ConfirmationCode=verification_code,
+                Password=new_password
+            )
+            print(f"✅ 验证码确认成功，密码已重置")
+        except ClientError as e:
+            error_code = e.response['Error']['Code']
+            error_message = e.response['Error']['Message']
+            
+            print(f"❌ 验证码确认失败: [{error_code}] {error_message}")
+            
+            if error_code == 'CodeMismatchException':
+                raise HTTPException(status_code=400, detail="验证码错误")
+            elif error_code == 'ExpiredCodeException':
+                raise HTTPException(status_code=400, detail="验证码已过期，请重新获取")
+            elif error_code == 'InvalidPasswordException':
+                raise HTTPException(status_code=400, detail="密码不符合要求，请包含大小写字母、数字和特殊字符")
+            else:
+                raise HTTPException(status_code=400, detail=f"验证失败: {error_message}")
+        
+        # 2. 使用新密码登录
+        try:
+            response = cognito_client.admin_initiate_auth(
+                UserPoolId=COGNITO_USER_POOL_ID,
+                ClientId=COGNITO_CLIENT_ID,
+                AuthFlow='ADMIN_NO_SRP_AUTH',
+                AuthParameters={
+                    'USERNAME': username,
+                    'PASSWORD': new_password
+                }
+            )
+            
+            if 'AuthenticationResult' in response:
+                tokens = response['AuthenticationResult']
+                print(f"✅ 密码重置成功，自动登录")
+                
+                return AuthResponse(
+                    accessToken=tokens['AccessToken'],
+                    idToken=tokens['IdToken'],
+                    refreshToken=tokens['RefreshToken']
+                )
+            else:
+                raise HTTPException(status_code=500, detail="登录失败")
+                
+        except ClientError as e:
+            error_code = e.response['Error']['Code']
+            error_message = e.response['Error']['Message']
+            
+            print(f"❌ 登录失败: [{error_code}] {error_message}")
+            raise HTTPException(status_code=401, detail=f"登录失败: {error_message}")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ 重置密码失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"重置密码失败: {str(e)}")

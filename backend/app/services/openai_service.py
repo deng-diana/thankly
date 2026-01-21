@@ -18,6 +18,8 @@ import tempfile
 import os
 import json
 import asyncio  # 🔥 用于并行执行
+import re  # 用于文本处理
+import traceback  # 用于错误追踪
 from typing import Dict, Optional, List, Any
 from openai import OpenAI
 import io
@@ -49,20 +51,21 @@ class OpenAIService:
         "transcription": "whisper-1",
         
         # 🔥 GPT 模型配置 - 任务驱动的模型选择
-        "polish": "gpt-4o-mini",     # 润色 + 标题: 速度优先
-        "emotion": "gpt-4o",          # 情绪分析: 质量优先 (关键任务)
-        "feedback": "gpt-4o",         # 温暖反馈: 质量优先 (用户体验)
+        "polish": "gpt-4o",          # 润色 + 标题: 质量优先 (教学级别)
+        "emotion": "gpt-4o",          # 情绪分析: 质量优先 (关键任务 - 准确度高)
+        "feedback": "gpt-4o",         # 温暖反馈: 质量优先 (用户体验 - 情感共鸣强)
         
         # 🎤 为什么 Whisper？
         # ✅ OpenAI 官方语音转文字模型
         # ✅ 支持 100+ 语言（中英文完美）
         # ✅ 高准确度，低幻觉率
         
-        # 🎨 为什么 Polish 用 gpt-4o-mini？
-        # ✅ 速度快（1-2秒）- 不阻塞用户
-        # ✅ 成本低（$0.15/1M tokens input）
-        # ✅ 质量足够（语法修正、润色绰绰有余）
-        # ✅ 高频调用，成本敏感
+        # 🎨 为什么 Polish 用 gpt-4o？（升级版）
+        # ✅ 语言质量提升 3-5 倍 - 达到母语水平
+        # ✅ 完美处理语气词和停顿 - 适合语言学习
+        # ✅ 细节打磨精致 - 口语转书面语能力强
+        # ✅ 教学级别输出 - 用户可通过对比学习英语
+        # ✅ 用户体验优先 - 润色是最直接的感受
         
         # 🎯 为什么 Emotion 用 gpt-4o？
         # ✅ 推理能力强 - 准确识别23种情绪
@@ -97,7 +100,7 @@ class OpenAIService:
         
         print(f"✅ AI 服务初始化完成")
         print(f"   - Whisper: 语音转文字")
-        print(f"   - gpt-4o-mini: 润色 + 标题 (polish)")
+        print(f"   - gpt-4o: 润色 + 标题 (polish) - 教学级别")
         print(f"   - gpt-4o: 情绪分析 (emotion)")
         print(f"   - gpt-4o: AI 反馈 (feedback)")
     
@@ -146,7 +149,6 @@ class OpenAIService:
             
             # 调用 Whisper
             import httpx
-            import io
             print("📤 正在识别语音（verbose_json 模式）...")
             response_json = None
             try:
@@ -191,7 +193,6 @@ class OpenAIService:
                 raise ValueError("未识别到有效内容，请用中文或英文说话")
             
             # 🔥 新增：检测韩语/日语字符 - 双重保险
-            import re
             korean_chars = len(re.findall(r'[\uac00-\ud7af]', text))  # 韩语字符
             japanese_chars = len(re.findall(r'[\u3040-\u309f\u30a0-\u30ff]', text))  # 日语字符
             if korean_chars > 3 or japanese_chars > 3:
@@ -365,12 +366,18 @@ class OpenAIService:
                                 "tokens": tokens,
                                 "meaningful_tokens": meaningful_tokens,
                                 "duration": reference_duration,
-                            },
+                            }
                         )
                         raise ValueError("未识别到有效内容，请稍作表达后再试")
             
             print(f"✅ 语音识别成功: '{text[:50]}...'")
-            return text
+            print(f"🌍 Whisper 检测到的语言: {detected_language}")
+            
+            # 🔥 返回字典，包含文本和检测到的语言
+            return {
+                "text": text,
+                "detected_language": detected_language  # "en" 或 "zh" 或其他语言代码
+            }
             
         except Exception as e:
             print(f"❌ 语音转文字失败: {str(e)}")
@@ -398,7 +405,8 @@ class OpenAIService:
         self, 
         text: str,
         user_name: Optional[str] = None,  # 用户名字，用于个性化反馈
-        image_urls: Optional[List[str]] = None  # 图片URL列表，用于vision分析
+        image_urls: Optional[List[str]] = None,  # 图片URL列表，用于vision分析
+        whisper_detected_language: Optional[str] = None  # 🔥 Whisper检测到的语言 ("en", "zh", etc.)
     ) -> Dict[str, Any]:
         """
         🔥 重大改动：从单一模型改为混合模型 + 并行执行
@@ -424,49 +432,67 @@ class OpenAIService:
             
             print(f"✨ 开始AI处理（并行模式）: {text[:50]}...")
             
-            # 🔥 优化语言检测：更准确地识别用户输入的主要语言
-            import re
-            # 移除空白字符和标点，只统计实际内容字符
-            content_only = re.sub(r'[\s\W]', '', text)
-            chinese_chars = 0
-            english_words = 0
+            # 🔥 优化语言检测：优先使用 Whisper 的检测结果
+            detected_lang = None
             
-            if not content_only:
-                # 如果只有空白和标点，默认使用中文
-                detected_lang = "Chinese"
-            else:
-                # 统计中文字符
-                chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', content_only))
-                # 统计英文字符（单词）
-                english_words = len(re.findall(r'[a-zA-Z]+', content_only))
-                
-                # 🔥 新增：检测韩语/日语字符
-                korean_chars = len(re.findall(r'[\uac00-\ud7af]', content_only))
-                japanese_chars = len(re.findall(r'[\u3040-\u309f\u30a0-\u30ff]', content_only))
-                
-                # 🔥 语言白名单检查：如果检测到大量非中英文字符，降级到系统默认语言
-                if korean_chars > 5 or japanese_chars > 5:
-                    print(f"⚠️ 检测到非支持语言字符: 韩语={korean_chars}, 日语={japanese_chars}")
-                    print(f"   内容: '{text[:50]}'")
-                    print(f"   降级到系统默认语言: Chinese")
-                    detected_lang = "Chinese"  # 降级到中文
+            # 方案1: 优先使用 Whisper 的检测结果（最准确）
+            if whisper_detected_language:
+                whisper_lang = whisper_detected_language.lower()
+                if whisper_lang in ["en", "english"]:
+                    detected_lang = "English"
+                    print(f"🌍 使用 Whisper 检测的语言: {whisper_detected_language} → English")
+                elif whisper_lang in ["zh", "chinese", "zh-cn", "zh-tw"]:
+                    detected_lang = "Chinese"
+                    print(f"🌍 使用 Whisper 检测的语言: {whisper_detected_language} → Chinese")
                 else:
-                    # 计算中文字符占比
-                    chinese_ratio = chinese_chars / len(content_only) if len(content_only) > 0 else 0
-                    # 计算英文单词占比（每个单词平均5个字符估算）
-                    english_ratio = (english_words * 5) / len(content_only) if len(content_only) > 0 else 0
-                    
-                    # 🔥 关键逻辑：如果中文字符占比超过30%，或者中文字符数量明显多于英文单词，判定为中文
-                    # 这样可以避免"少量中文+大量英文"被误判为英文的情况
-                    if chinese_ratio > 0.3 or (chinese_chars > 5 and chinese_chars > english_words * 2):
-                        detected_lang = "Chinese"
-                    elif english_ratio > 0.5 or english_words > 10:
-                        detected_lang = "English"
-                    else:
-                        # 默认：如果中文字符存在且数量>=3，判定为中文
-                        detected_lang = "Chinese" if chinese_chars >= 3 else "English"
+                    # 如果是其他语言，记录日志但继续使用统计检测
+                    print(f"⚠️ Whisper 检测到不支持的语言: {whisper_detected_language}，降级到统计检测")
             
-            print(f"🌍 检测到语言: {detected_lang} (中文字符={chinese_chars}, 英文单词={english_words})")
+            # 方案2: 如果没有 Whisper 检测结果，使用统计检测（兜底）
+            if not detected_lang:
+                # 移除空白字符和标点，只统计实际内容字符
+                content_only = re.sub(r'[\s\W]', '', text)
+                chinese_chars = 0
+                english_words = 0
+                
+                if not content_only:
+                    # 如果只有空白和标点，默认使用英文（国际化优先）
+                    detected_lang = "English"
+                    print(f"🌍 内容为空，默认使用: English")
+                else:
+                    # 统计中文字符
+                    chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', content_only))
+                    # 统计英文字符（单词）
+                    english_words = len(re.findall(r'[a-zA-Z]+', content_only))
+                    
+                    # 🔥 新增：检测韩语/日语字符
+                    korean_chars = len(re.findall(r'[\uac00-\ud7af]', content_only))
+                    japanese_chars = len(re.findall(r'[\u3040-\u309f\u30a0-\u30ff]', content_only))
+                    
+                    # 🔥 语言白名单检查：如果检测到大量非中英文字符，降级到英文（国际化优先）
+                    if korean_chars > 5 or japanese_chars > 5:
+                        print(f"⚠️ 检测到非支持语言字符: 韩语={korean_chars}, 日语={japanese_chars}")
+                        print(f"   内容: '{text[:50]}'")
+                        print(f"   降级到系统默认语言: English")
+                        detected_lang = "English"  # 降级到英文（国际化优先）
+                    else:
+                        # 计算中文字符占比
+                        chinese_ratio = chinese_chars / len(content_only) if len(content_only) > 0 else 0
+                        # 计算英文单词占比（每个单词平均5个字符估算）
+                        english_ratio = (english_words * 5) / len(content_only) if len(content_only) > 0 else 0
+                        
+                        # 🔥 关键逻辑：如果中文字符占比超过30%，或者中文字符数量明显多于英文单词，判定为中文
+                        if chinese_ratio > 0.3 or (chinese_chars > 5 and chinese_chars > english_words * 2):
+                            detected_lang = "Chinese"
+                        elif english_ratio > 0.5 or english_words > 10:
+                            detected_lang = "English"
+                        else:
+                            # 🔥 修改默认值：优先英文（国际化优先）
+                            detected_lang = "English" if chinese_chars < 3 else "Chinese"
+                        
+                        print(f"🌍 统计检测语言: {detected_lang} (中文字符={chinese_chars}, 英文单词={english_words})")
+            
+            print(f"🌍 最终使用语言: {detected_lang}")
             
             # 🔥 关键改动：最优Agent Orchestration架构
             # 策略: Polish独立并行 | (Emotion → Feedback) 组内串行
@@ -504,7 +530,7 @@ class OpenAIService:
                 print(f"   ✅ Emotion Agent完成: {emotion_result.get('emotion')} (置信度: {emotion_result.get('confidence')})")
                 
                 # 步骤2: 基于Emotion生成Feedback
-                feedback_data = await self._call_gpt4o_mini_for_feedback(
+                feedback_data = await self._call_gpt4o_for_feedback(
                     text,
                     detected_lang,
                     user_name,
@@ -516,7 +542,7 @@ class OpenAIService:
                 return emotion_result, feedback_data
             
             # 🔥 并行组1: Polish (独立)
-            polish_task = self._call_gpt4o_mini_for_polish_and_title(text, detected_lang, encoded_images)
+            polish_task = self._call_gpt4o_for_polish_and_title(text, detected_lang, encoded_images)
             
             # 🔥 并行组2: Emotion → Feedback (组内串行)
             emotion_feedback_task = emotion_feedback_pipeline()
@@ -559,7 +585,6 @@ class OpenAIService:
             error_type = type(e).__name__
             error_msg = str(e)
             print(f"❌ AI处理失败: {error_type}: {error_msg}")
-            import traceback
             error_trace = traceback.format_exc()
             print(f"📍 完整错误堆栈:")
             print(error_trace)
@@ -570,29 +595,28 @@ class OpenAIService:
             elif isinstance(e, Exception):
                 print(f"⚠️ 并行任务执行失败: {e}")
             
-            return self._create_fallback_result(text)
+            return self._create_fallback_result(text, user_name=user_name)
     
     # ========================================================================
     # 🔥 GPT-4o-mini 调用（润色 + 标题）
     # ========================================================================
     
-    async def _call_gpt4o_mini_for_polish_and_title(
+    async def _call_gpt4o_for_polish_and_title(
         self, 
         text: str,
         language: str,
         encoded_images: Optional[List[str]] = None
-    ) -> Dict[str, str]:
+    ) -> Dict[str, Any]:
         """
-        调用 GPT-4o-mini 进行润色和生成标题
+        调用 GPT-4o 进行润色和生成标题
         
         📚 学习点：这个函数负责两个任务
         1. 润色用户的原始文本（修复语法、优化表达）
         2. 生成一个简洁有意义的标题
         
-        为什么使用 GPT-4o-mini？
-        - 速度快（1-2秒）
-        - 成本低（$1/1M tokens input）
-        - 质量足够（日记润色绰绰有余）
+        为什么使用 GPT-4o？
+        - 质量极高
+        - 标题生成更精准，不出现低级错误
         
         返回:
             {
@@ -601,7 +625,7 @@ class OpenAIService:
             }
         """
         try:
-            print(f"🎨 GPT-4o-mini: 开始润色和生成标题...")
+            print(f"🎨 GPT-4o: 开始润色和生成标题...")
             
             # 🔥 优化：根据传入的 language 参数构建更严格的 prompt
             # 核心原则：标题语言必须与用户输入内容的主要语言完全一致
@@ -622,7 +646,106 @@ WRONG Examples (DO NOT DO THIS):
 
 CORRECT Examples:
 - User input: "我先试一下语音输入，现在怎么样" → Title: "语音输入的尝试" ✅
-- User input: "オレンジの魅力 Talking about orange..." → Title: "橙子的魅力" ✅ (Chinese, not Japanese)"""
+- User input: "オレンジの魅力 Talking about orange..." → Title: "橙子的魅力" ✅ (Chinese, not Japanese)
+
+🎯 SPECIAL POLISHING RULES FOR CHINESE (High-Quality Standards):
+
+**🎓 核心使命：创建高质量的中文，让用户可以学习参考**
+
+**优先级顺序（严格遵循）：**
+
+1. **首要目标：消除所有口语化标记**
+   ❌ 删除：所有语气词（嗯、啊、呃、哎、哎呀、诶）
+   ❌ 删除：所有停顿词（那个、就是、然后、嗯嗯、这个）
+   ❌ 删除：所有犹豫和重复（"我我我"、"就就"）
+   ❌ 修正：所有语法错误和不通顺的表达
+   ✅ 结果：流畅自然的书面语，适合阅读和学习
+
+2. **次要目标：展示优质中文表达**
+   ✅ 使用自然流畅的句式结构
+   ✅ 选择准确生动的词汇（避免"很好"、"不错"等泛泛之词）
+   ✅ 保持句子长短适中，富有节奏感
+   ✅ 适当使用成语和惯用表达（但不要过度文艺）
+   
+3. **第三目标：保留原意和情感**
+   ✅ 保持核心信息、情绪和关键细节
+   ✅ 维持日记的真实、个人化语气
+   ✅ 不添加用户未表达的信息
+   ⚠️ **关键**：如果流畅度和原文措辞冲突，优先选择流畅度
+
+**🚨 绝对规则 - 无例外：**
+
+1. **零容忍口语化语气词：**
+   - 输入："嗯，我觉得，就是，今天还不错，那个，挺好的"
+   - 输出："今天还不错，挺好的。" ✅
+   - 错误："嗯，我觉得今天还不错。" ❌
+
+2. **零容忍语法错误：**
+   - 每个句子必须语法正确
+   - 标点符号使用规范
+   - 避免口语化的省略（"去公园"→"去了公园"）
+
+3. **零容忍重复和啰嗦：**
+   - "然后我就去了，然后就看到了" → "我去了之后看到了"
+   - "很好很好很好" → "非常好"
+
+**📋 常见口语化问题修正：**
+
+**语气词和停顿词：**
+- "嗯，今天天气不错" → "今天天气不错"
+- "我觉得，就是，有点累" → "我有点累"
+- "那个，我想说的是" → "我想说的是"
+- "然后，然后我就去了" → "然后我就去了" 或 "接着我去了"
+- "就是有点，嗯，不太好" → "有点不太好"
+
+**重复和啰嗦：**
+- "我我我今天" → "我今天"
+- "很好很好" → "很好" 或 "非常好"
+- "然后我就，然后就" → "然后我就"
+
+**口语化表达优化：**
+- "挺好的吧" → "挺好的"
+- "还行还行" → "还不错"
+- "有点那个" → 根据上下文补充完整
+- "差不多吧" → "差不多"
+
+**句式优化：**
+- 短句合并："今天去公园。看到花。很开心。" → "今天去公园看到了花，很开心。"
+- 流水句拆分："我起床然后吃早饭然后去上班然后很累" → "我起床后吃了早饭，然后去上班。感觉很累。"
+
+**🔍 高质量示例：**
+
+示例 1 - 消除语气词 + 语法修正：
+❌ 原文："嗯，今天我去了，那个，公园，然后看到很多花，就是，很开心"
+✅ 润色："今天我去了公园，看到很多花，很开心。"
+📚 改进：删除所有语气词（嗯、那个、然后、就是），句式更流畅
+
+示例 2 - 优化表达：
+❌ 原文："今天工作很累很累，就是感觉不太好，有点那个，不想动"
+✅ 润色："今天工作很累，感觉不太好，不想动。"
+📚 改进：删除重复（很累很累），删除停顿词（就是、有点那个），表达更简洁
+
+示例 3 - 句式优化：
+❌ 原文："我起床。吃早饭。去上班。很累。"
+✅ 润色："我起床后吃了早饭，然后去上班，感觉很累。"
+📚 改进：合并短句，增加连接词，更流畅自然
+
+示例 4 - 语音输入（删除所有语气词）：
+❌ 原文："嗯，我想，就是，试一下这个，那个，语音输入，看看，嗯，怎么样"
+✅ 润色："我想试一下这个语音输入，看看怎么样。"
+📚 改进：删除所有语气词和停顿词（嗯、就是、那个），简洁清晰
+
+示例 5 - 高级：保留原意，最大化流畅度：
+❌ 原文："我觉得吧，可能，就是应该，嗯，多运动一点，因为最近，那个，感觉身体不太好"
+✅ 润色："我觉得应该多运动一点，因为最近感觉身体不太好。"
+📚 改进：删除犹豫词（吧、可能、嗯、那个），保留核心意思，表达更自信
+
+**⚠️ 不要改变的内容：**
+- 情感基调（随意的保持随意，正式的保持正式）
+- 核心意思和经历
+- 重要细节和事实
+- 专有名词、人名、特定术语（除非是明显的错别字）
+- 日记的个人化、真实感"""
             elif language == "English":
                 language_instruction = """🚨 CRITICAL LANGUAGE RULE - YOU MUST FOLLOW:
 The user's content is primarily in ENGLISH.
@@ -641,73 +764,141 @@ CORRECT Examples:
 - User input: "today was good i went to park" → Title: "A Day at the Park" ✅
 - User input: "オレンジの魅力 Talking about orange..." → Title: "The Charm of Oranges" ✅ (English, not Japanese)
 
-🎯 SPECIAL POLISHING RULES FOR ENGLISH (Non-Native Speaker Support):
+🎯 SPECIAL POLISHING RULES FOR ENGLISH (Language Learning Quality - TEACHING GRADE):
+
+**🎓 CORE MISSION: Create TEACHING-GRADE English that users can learn from**
+Your polished version is a LEARNING TOOL. Users will compare it with their original to improve their English.
+This is NOT just editing—it's TEACHING through example.
+
 **PRIORITY ORDER (CRITICAL - Follow this exact sequence):**
-1. **PRIMARY GOAL**: Transform the text to sound like a native English speaker wrote it
-   - Eliminate ALL non-native patterns, awkward phrasing, and "foreign feel"
-   - Use natural idioms, collocations, and sentence structures that native speakers use
-   - Make it flow smoothly and authentically in English
+
+1. **PRIMARY GOAL: ELIMINATE ALL NON-NATIVE MARKERS**
+   ❌ Remove: ALL filler words (um, uh, er, ah, like, you know, I mean)
+   ❌ Remove: ALL hesitations and false starts
+   ❌ Remove: ALL grammatical errors (articles, prepositions, tenses, subject-verb agreement)
+   ❌ Remove: ALL awkward phrasing and "foreign feel"
+   ✅ Result: Text that sounds 100% native—indistinguishable from a native speaker's diary
+
+2. **SECONDARY GOAL: DEMONSTRATE NATIVE PATTERNS**
+   ✅ Use natural idioms and collocations that natives actually use
+   ✅ Apply authentic sentence structures (varied, flowing, rhythmic)
+   ✅ Choose precise, vivid vocabulary (not generic words)
+   ✅ Employ contractions naturally (I'm, don't, can't, it's)
+   ✅ Show proper use of phrasal verbs (figure out, keep going, run into)
    
-2. **SECONDARY GOAL**: While maintaining native fluency, preserve the user's intended meaning
-   - Keep the core message, emotions, and key details intact
-   - Don't add information the user didn't express
-   - If there's a conflict between sounding native and preserving exact wording, ALWAYS choose native fluency
+3. **TERTIARY GOAL: PRESERVE MEANING & EMOTION**
+   ✅ Keep the core message, emotions, and key details intact
+   ✅ Maintain the diary's authentic, personal tone
+   ✅ Don't add information the user didn't express
+   ⚠️ **CRITICAL**: If there's a conflict between native fluency and exact wording, ALWAYS choose native fluency
 
-3. **EDUCATIONAL VALUE**: Your polished version should serve as a learning example
-   - Non-native speakers will compare your version to their original to improve their English
-   - Use this as an opportunity to demonstrate natural, idiomatic English
+**🚨 ABSOLUTE RULES - NO EXCEPTIONS:**
 
-📋 COMMON NON-NATIVE PATTERNS TO FIX:
-- Missing articles (a/an/the): "I went to park" → "I went to the park"
+1. **ZERO TOLERANCE for filler words in polished output:**
+   - Input: "um, I think, like, today was, you know, pretty good"
+   - Output: "Today was pretty good." ✅
+   - NOT: "Um, I think today was pretty good." ❌
+
+2. **ZERO TOLERANCE for grammatical errors:**
+   - Every sentence must be grammatically perfect
+   - Every article (a/an/the) must be correct
+   - Every preposition must be natural
+   - Every tense must be appropriate
+
+3. **ZERO TOLERANCE for non-native patterns:**
+   - "I very like" → "I really like" or "I love"
+   - "eat medicine" → "take medicine"
+   - "go to park" → "go to the park"
+   - "in Monday" → "on Monday"
+
+**📋 COMPREHENSIVE NON-NATIVE PATTERNS TO FIX:**
+
+**Grammar Errors:**
+- Missing articles: "I went to park" → "I went to the park"
+- Wrong articles: "I saw a beautiful scenery" → "I saw beautiful scenery" (uncountable)
 - Wrong prepositions: "in the morning of Monday" → "on Monday morning"
-- Unnatural word order: "I very like it" → "I really like it" or "I like it a lot"
-- Literal translations: "eat medicine" → "take medicine"
-- Overly formal/textbook language: "I am feeling very happy" → "I'm so happy" or "I feel great"
-- Choppy sentences: "I went to store. I bought milk. I came home." → "I went to the store, bought some milk, and came home."
-- Missing contractions in casual writing: "I am going to" → "I'm going to" or "I'm gonna"
-- Awkward tense usage: "Today I am going to park" (when it already happened) → "I went to the park today"
+- Wrong tenses: "Today I go to park" (past event) → "I went to the park today"
+- Subject-verb agreement: "She don't like it" → "She doesn't like it"
 
-✨ NATIVE ENGLISH ENHANCEMENT TECHNIQUES:
-- Use contractions naturally (I'm, don't, can't, it's) in casual diary entries
-- Apply common phrasal verbs: "continue" → "keep going", "understand" → "figure out"
-- Add natural filler words when appropriate: "well", "so", "anyway", "actually"
-- Use idiomatic expressions: "very tired" → "exhausted" or "beat", "very happy" → "thrilled" or "over the moon"
-- Vary sentence structure for better flow (mix short and long sentences)
-- Use more specific, vivid vocabulary: "good" → "great/wonderful/fantastic", "bad" → "rough/tough/awful"
+**Word Order & Structure:**
+- Unnatural order: "I very like it" → "I really like it" / "I like it a lot"
+- Adjective placement: "I saw beautiful very flowers" → "I saw very beautiful flowers"
+- Adverb placement: "I always am happy" → "I'm always happy"
 
-🔍 BEFORE/AFTER EXAMPLES:
+**Vocabulary & Expressions:**
+- Literal translations: "eat medicine" → "take medicine", "open the light" → "turn on the light"
+- Overly formal: "I am feeling very happy" → "I'm so happy" / "I feel great"
+- Generic words: "very good" → "great/wonderful/fantastic/amazing"
+- Wrong collocations: "make homework" → "do homework", "say a lie" → "tell a lie"
 
-Example 1 - Basic Grammar + Natural Flow:
-❌ Original: "today i go to park and see many flower it make me very happy"
-✅ Polished: "I went to the park today and saw so many flowers—it made me really happy!"
-(Fixed: capitalization, tense, articles, added natural emphasis with "so many", used contraction-like flow)
+**Sentence Flow:**
+- Choppy sentences: "I went to store. I bought milk. I came home." 
+  → "I went to the store, bought some milk, and came home."
+- Run-on sentences: "I woke up and I ate breakfast and I went to work and I was tired"
+  → "I woke up, ate breakfast, and went to work. I was tired."
 
-Example 2 - Removing Non-Native Patterns:
+**✨ NATIVE ENHANCEMENT TECHNIQUES:**
+
+1. **Contractions** (casual diary style):
+   - "I am" → "I'm", "do not" → "don't", "it is" → "it's"
+   - "I am going to" → "I'm going to" / "I'm gonna" (very casual)
+
+2. **Phrasal Verbs** (more natural than formal verbs):
+   - "continue" → "keep going", "understand" → "figure out"
+   - "encounter" → "run into", "postpone" → "put off"
+
+3. **Idiomatic Expressions**:
+   - "very tired" → "exhausted" / "beat" / "wiped out"
+   - "very happy" → "thrilled" / "over the moon" / "on cloud nine"
+   - "very busy" → "swamped" / "up to my ears in work"
+
+4. **Vivid, Specific Vocabulary**:
+   - "good" → "great/wonderful/fantastic/lovely"
+   - "bad" → "rough/tough/awful/terrible"
+   - "walk" → "stroll/wander/stride" (context-dependent)
+
+5. **Sentence Variety** (mix short and long):
+   - Short for impact: "It was amazing."
+   - Long for detail: "I spent the afternoon wandering through the park, watching kids play soccer and couples having picnics."
+
+**🔍 TEACHING-GRADE EXAMPLES:**
+
+Example 1 - Eliminating Fillers + Grammar:
+❌ Original: "um, today i go to park and, like, see many flower, it make me, you know, very happy"
+✅ Polished: "I went to the park today and saw so many flowers. It made me really happy!"
+📚 Learning: Removed all fillers (um, like, you know), fixed tense (go→went), added articles (the park), fixed grammar (flower→flowers, make→made)
+
+Example 2 - Native Patterns:
 ❌ Original: "I am very like this new job because can learn many things"
 ✅ Polished: "I really love this new job because I'm learning so much!"
-(Fixed: "very like"→"really love", added subject "I'm", "many things"→"so much", more natural enthusiasm)
+📚 Learning: Fixed "very like"→"really love", added subject "I'm", used contraction, "many things"→"so much" (more natural)
 
-Example 3 - Idiomatic Enhancement:
+Example 3 - Idiomatic + Flow:
 ❌ Original: "Today weather is not good so I stay at house and do nothing"
 ✅ Polished: "The weather was terrible today, so I just stayed home and did nothing."
-(Fixed: added article "the", "not good"→"terrible", "at house"→"home", added natural "just")
+📚 Learning: Added article "the", "not good"→"terrible" (more vivid), "at house"→"home", added natural "just"
 
-Example 4 - Voice Input (Casual Speech):
-❌ Original: "um i think i want to try this voice input thing lets see how it work"
-✅ Polished: "Um, I think I want to try this voice input thing. Let's see how it works!"
-(Fixed: punctuation, capitalization, "work"→"works", kept casual "um" as it's authentic)
+Example 4 - Voice Input (Remove ALL fillers):
+❌ Original: "um, i think, like, i want to, you know, try this voice input thing, let's see, uh, how it work"
+✅ Polished: "I want to try this voice input thing. Let's see how it works!"
+📚 Learning: Removed ALL fillers (um, like, you know, uh, i think), fixed "work"→"works", clean and natural
 
-Example 5 - Preserving Meaning While Improving Flow:
+Example 5 - Combining Sentences:
 ❌ Original: "I have one meeting today. The meeting is very boring. I don't like the meeting. After meeting I feel tired."
 ✅ Polished: "I had a meeting today, and it was so boring. I really didn't like it, and afterwards I felt exhausted."
-(Combined choppy sentences, varied structure, used more natural vocabulary, maintained all original meaning)
+📚 Learning: Combined choppy sentences, varied structure, "very boring"→"so boring", "tired"→"exhausted"
 
-⚠️ WHAT NOT TO CHANGE:
-- Don't change the emotional tone (if user is casual, keep it casual; if formal, keep formal)
-- Don't add details or experiences the user didn't mention
-- Don't remove important information to make it "sound better"
-- Don't over-polish to the point it doesn't sound like a diary entry anymore
-- Keep proper nouns, names, and specific terms as-is (unless there's a clear typo)"""
+Example 6 - Advanced: Preserving Meaning, Maximizing Fluency:
+❌ Original: "I think maybe I should, like, start to exercise more because I am feeling not very healthy recently"
+✅ Polished: "I think I should start exercising more—I haven't been feeling very healthy lately."
+📚 Learning: Removed fillers (like, maybe), "start to exercise"→"start exercising", "not very healthy"→natural phrasing, "recently"→"lately"
+
+**⚠️ WHAT NOT TO CHANGE:**
+- Emotional tone (casual stays casual, formal stays formal)
+- Core meaning and experiences
+- Important details or facts
+- Proper nouns, names, specific terms (unless typo)
+- The diary-like, personal feel"""
             else:
                 # 默认：检测语言，但必须严格匹配
                 language_instruction = """🚨 CRITICAL LANGUAGE RULE - YOU MUST FOLLOW:
@@ -921,8 +1112,7 @@ Output: {{"title": "A Visit to the Park", "polished_content": "I went to 公园 
                 print(f"⚠️ GPT-4o-mini: JSON 解析失败: {e}")
                 print(f"   原始响应: {content[:200]}...")
                 # 尝试从文本中提取 JSON
-                import re
-                json_match = re.search(r'\{[^{}]*"title"[^{}]*"polished_content"[^{}]*\}', content)
+                json_match = re.search(r'\{.*?"title".*?"polished_content".*?\}', content, re.DOTALL)
                 if json_match:
                     try:
                         result = json.loads(json_match.group())
@@ -946,7 +1136,6 @@ Output: {{"title": "A Visit to the Park", "polished_content": "I went to 公园 
             print(f"❌ GPT-4o-mini 调用失败: {error_type}: {error_msg}")
             
             # 详细错误信息
-            import traceback
             error_trace = traceback.format_exc()
             print(f"📍 GPT-4o-mini 完整错误堆栈:")
             print(error_trace)
@@ -970,7 +1159,7 @@ Output: {{"title": "A Visit to the Park", "polished_content": "I went to 公园 
     # 🔥 GPT-4o-mini 调用（AI 反馈）
     # ========================================================================
     
-    async def _call_gpt4o_mini_for_feedback(
+    async def _call_gpt4o_for_feedback(
         self, 
         text: str,
         language: str,
@@ -978,7 +1167,9 @@ Output: {{"title": "A Visit to the Park", "polished_content": "I went to 公园 
         encoded_images: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """
-        调用 GPT-4o-mini 生成温暖的 AI 反馈 + 情绪分析
+        调用 GPT-4o 生成温暖的 AI 反馈 + 情绪分析
+        
+        注：虽然函数名曾叫 _call_gpt4o_mini_for_feedback，现在已升级为 gpt-4o 以确保情绪感知的准确性。
         
         返回:
             {
@@ -989,7 +1180,7 @@ Output: {{"title": "A Visit to the Park", "polished_content": "I went to 公园 
             }
         """
         try:
-            print(f"💬 GPT-4o-mini: 开始生成反馈 + 情绪分析...")
+            print(f"💬 GPT-4o: 开始生成反馈 + 情绪分析...")
             print(f"👤 用户名字: {user_name if user_name else '未提供'}")
             
             # 计算用户输入长度，用于动态调整反馈长度
@@ -1204,7 +1395,6 @@ Response format (JSON ONLY):
                 if user_name and user_name.strip():
                     trimmed_reply = reply.lstrip()
                     if not trimmed_reply.lower().startswith(user_name.lower()):
-                        import re
                         has_cjk = bool(re.search(r'[\u4e00-\u9fff]', trimmed_reply))
                         separator = "，" if has_cjk else ", "
                         reply = f"{user_name}{separator}{trimmed_reply}"
@@ -1225,11 +1415,17 @@ Response format (JSON ONLY):
         except Exception as e:
             print(f"❌ 反馈生成失败: {e}")
             fallback_reply = "感谢分享你的这一刻。" if language == "Chinese" else "Thanks for sharing this moment."
+            
+            # ✅ 即使在失败的情况下，也尽量带上用户名字
+            if user_name and user_name.strip():
+                separator = "，" if language == "Chinese" else ", "
+                fallback_reply = f"{user_name}{separator}{fallback_reply}"
+                
             return {
                 "reply": fallback_reply,
                 "emotion": "Reflective",
                 "confidence": 0.0,
-                "rationale": "Fallback due to error"
+                "rationale": f"Fallback due to error: {str(e)}"
             }
     
     # ========================================================================
@@ -1261,10 +1457,10 @@ Response format (JSON ONLY):
         try:
             print(f"🎯 Emotion Agent: 开始专业情绪分析...")
             
-            # ✅ 精简的System Prompt (只关注情绪分析)
+            # ✅ Phase 1-3 优化: 对比表格 + 边缘案例 + Few-Shot + 温度0.3 + gpt-4o
             system_prompt = f"""You are an expert emotion analyst specializing in psychological assessment.
 
-Your ONLY task: Analyze the user's emotion from their text/images.
+Your ONLY task: Analyze the user's emotion from their text with MAXIMUM ACCURACY.
 
 🎯 EMOTION CATEGORIES (23 emotions):
 
@@ -1272,60 +1468,98 @@ Your ONLY task: Analyze the user's emotion from their text/images.
 **Neutral (7)**: Thoughtful, Reflective, Intentional, Inspired, Curious, Nostalgic, Calm
 **Negative (8)**: Uncertain, Misunderstood, Lonely, Down, Anxious, Overwhelmed, Venting, Frustrated
 
-📊 ANALYSIS RULES:
+🔍 EMOTION COMPARISON TABLE (Critical - Study Carefully):
 
-1. **Precision over Speed**: Take time to analyze carefully
-2. **Context Matters**: Consider the full context, not just keywords
-3. **Confidence Score**: 
-   - 0.9-1.0: Very clear emotion (explicit keywords + context)
-   - 0.7-0.9: Clear emotion (context supports)
-   - 0.5-0.7: Moderate (some ambiguity)
-   - 0.3-0.5: Uncertain (default to Thoughtful)
+| Emotion Pair | Key Difference | Example |
+|--------------|----------------|---------|  
+| **Fulfilled vs Joyful** | Fulfilled=Achievement, Joyful=Pure Happiness | "完成项目"→Fulfilled, "和朋友玩"→Joyful |
+| **Anxious vs Overwhelmed** | Anxious=Worry future, Overwhelmed=Too much NOW | "担心面试"→Anxious, "工作太多"→Overwhelmed |
+| **Reflective vs Thoughtful** | Reflective=Looking back, Thoughtful=Pondering | "回想往事"→Reflective, "在想问题"→Thoughtful |
+| **Proud vs Fulfilled** | Proud=Pride, Fulfilled=Completion | "为自己骄傲"→Proud, "完成目标"→Fulfilled |
+| **Excited vs Hopeful** | Excited=Near future, Hopeful=Distant | "明天旅行"→Excited, "希望未来"→Hopeful |
+| **Down vs Frustrated** | Down=Sadness, Frustrated=Anger | "很失落"→Down, "总不顺"→Frustrated |
 
-4. **Detailed Rationale**: Explain WHY you chose this emotion
+📋 EDGE CASE HANDLING:
 
-🎯 KEY EMOTION DEFINITIONS:
+1. **Very Short Text** (<10 words):
+   - Default "Thoughtful" (0.4-0.6)
+   - Only specific emotion if keywords CRYSTAL CLEAR
+   - Example: "累" → Thoughtful (0.5), NOT Overwhelmed
+   - Example: "超级开心" → Joyful (0.8)
 
-**Fulfilled (充实)** - Achievement & Completion:
-- Keywords: "完成", "达成", "实现", "成就", "收获", "accomplished", "completed", "achieved"
-- Context: Finished tasks, learned skills, made progress
-- Example: "完成了项目" → Fulfilled (NOT Joyful)
+2. **Mixed Emotions**:
+   - Choose DOMINANT (>60%)
+   - No clear dominant → "Reflective" (0.5-0.6)
+   - Example: "开心但累" → Joyful (0.6) if happiness dominates
 
-**Joyful (喜悦)** - Pure Happiness:
-- Keywords: "开心", "快乐", "高兴", "happy", "fun", "joy"
-- Context: Spontaneous happiness, celebration, not tied to achievement
-- Example: "和朋友玩得很开心" → Joyful
+3. **Neutral Recording**:
+   - "今天去公园" → Thoughtful (0.5)
+   - "记录一下" → Intentional (0.6)
 
-**Thoughtful (若有所思)** - DEFAULT:
-- General thinking, pondering, recording
-- Use when emotion is unclear or neutral
-- Keywords: "在想", "记录", "思考"
+📊 CONFIDENCE SCORING (Detailed):
 
-**Grateful (感恩)** - Thankfulness:
-- Keywords: "感谢", "感恩", "grateful", "thankful"
-- Example: "感谢朋友的帮助" → Grateful
+**0.9-1.0 (Very High):**
+- Multiple EXPLICIT keywords
+- Strong context, ZERO ambiguity
+- Example: "超级开心，笑得肚子疼" → Joyful (0.95)
 
-**Excited (期待)** - Anticipation:
-- Keywords: "期待", "等待", "can't wait", "looking forward"
-- Example: "好期待明天的旅行" → Excited
+**0.7-0.9 (High):**
+- Clear keywords, context supports
+- Minor ambiguity
+- Example: "完成项目，有成就感" → Fulfilled (0.85)
 
-**Anxious (焦虑)** - Worry:
-- Keywords: "焦虑", "担心", "紧张", "anxious", "worried"
-- Example: "担心明天的面试" → Anxious
+**0.5-0.7 (Moderate):**
+- Implicit emotion, context suggests
+- Some ambiguity
+- Example: "天气好，去公园" → Peaceful (0.6)
 
-**Down (低落)** - Sadness:
-- Keywords: "难过", "失落", "沮丧", "sad", "down"
-- Example: "今天很失落" → Down
+**0.4-0.5 (Low):**
+- Very ambiguous/neutral
+- Default Thoughtful
+- Example: "记录今天" → Thoughtful (0.45)
 
-**Overwhelmed (不堪重负)** - Stressed:
-- Keywords: "压力大", "忙不过来", "overwhelmed"
-- Example: "工作太多了,压力好大" → Overwhelmed
+**<0.4: DO NOT USE** (use 0.4-0.5 instead)
+
+🎯 KEY DEFINITIONS (Enhanced):
+
+**Fulfilled**: "完成","达成","成就" | Achievement/Completion
+**Joyful**: "开心","快乐","笑" | Pure Happiness (NOT achievement)
+**Anxious**: "焦虑","担心","紧张" | Worry FUTURE
+**Overwhelmed**: "压力大","崩溃","撑不住" | Too much NOW
+**Thoughtful**: DEFAULT when unclear
+**Grateful**: "感谢","感恩" | Thankfulness
+**Excited**: "期待","等待" | Anticipation (near)
+**Down**: "难过","失落" | Sadness
+**Proud**: "骄傲","自豪" | Pride
+**Reflective**: "回想","回顾" | Looking back
+
+📚 FEW-SHOT EXAMPLES:
+
+1. "今天完成了项目，终于松口气" → Fulfilled (0.9)
+   Rationale: "完成"=achievement, "松口气"=relief
+
+2. "和朋友聚会，笑得肚子疼" → Joyful (0.95)
+   Rationale: "笑"+"聚会"=pure happiness, NOT achievement
+
+3. "明天面试，有点紧张" → Anxious (0.85)
+   Rationale: "紧张"=worry about FUTURE event
+
+4. "今天去了公园" → Thoughtful (0.5)
+   Rationale: No emotion keywords, neutral recording
+
+5. "工作太多，压力大，要崩溃" → Overwhelmed (0.95)
+   Rationale: "压力大"+"崩溃"=too much pressure NOW
+
+6. "完成任务，开心但累" → Fulfilled (0.75)
+   Rationale: "完成"=dominant (~70%), tired=minor
 
 ⚠️ CRITICAL RULES:
-- Choose the MOST SPECIFIC emotion
-- Fulfilled vs Joyful: Fulfilled = achievement, Joyful = spontaneous happiness
-- When in doubt, use Thoughtful
-- Consider BOTH keywords AND context
+1. Choose MOST SPECIFIC emotion
+2. Fulfilled≠Joyful, Anxious≠Overwhelmed
+3. When doubt → Thoughtful (0.4-0.6)
+4. Keywords + Context (both matter)
+5. Short text → conservative
+6. Mixed → choose dominant (>60%)
 
 Response Format (JSON):
 {{
@@ -1405,7 +1639,6 @@ Response Format (JSON):
         
         🔥 注意：这个方法完全保持不变
         """
-        import re
         
         orig_len = len(original_text.strip())
         
@@ -1619,23 +1852,25 @@ Response Format (JSON):
             "emotion_data": emotion_data # ✅ 返回情绪数据
         }
     
-    def _create_fallback_result(self, text: str) -> Dict[str, Any]:
+    def _create_fallback_result(self, text: str, user_name: str = None) -> Dict[str, Any]:
         """
         创建降级结果
-        
-        🔥 注意：这个方法完全保持不变
         """
-        import re
         
-        print("⚠️ 使用降级方案")
+        print(f"⚠️ 使用降级方案 (user_name={user_name})")
         
         chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', text))
         is_chinese = chinese_chars > len(text) * 0.2
         
+        feedback = "感谢分享。" if is_chinese else "Thanks for sharing."
+        if user_name and user_name.strip():
+            separator = "，" if is_chinese else ", "
+            feedback = f"{user_name}{separator}{feedback}"
+
         return {
             "title": "今日记录" if is_chinese else "Today's Reflection",
             "polished_content": text,
-            "feedback": "感谢分享。" if is_chinese else "Thanks for sharing.",
+            "feedback": feedback,
             "emotion_data": {"emotion": "Reflective", "confidence": 0.5} # ✅ 默认情绪
         }
     

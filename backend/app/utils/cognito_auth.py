@@ -225,9 +225,9 @@ async def get_current_user(
     print(f"👤 用户信息提取 - user_id: {user_info['user_id']}, name: '{name}'")
     print(f"   JWT payload中的name相关字段: name={payload.get('name')}, given_name={payload.get('given_name')}, nickname={payload.get('nickname')}")
     print(f"   JWT payload中的所有字段: {list(payload.keys())}")
-    # 如果名字为空，尝试从其他字段获取
-    if not name:
-        print(f"   ⚠️ 警告：JWT token中没有找到name字段！")
+    # 如果是 ID Token 且名字为空，尝试从其他字段获取并警告
+    if not name and payload.get('token_use') == 'id':
+        print(f"   ⚠️ 警告：ID Token中没有找到name字段！")
         print(f"   尝试从其他字段获取...")
         # 检查是否有自定义属性
         for key in payload.keys():

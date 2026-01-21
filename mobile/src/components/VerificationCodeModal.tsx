@@ -43,7 +43,21 @@ export default function VerificationCodeModal({
   const [countdown, setCountdown] = useState(0);
   const [isResending, setIsResending] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
+  
   const isEmailDestination = phoneNumber.includes("@");
+
+  // 邮箱脱敏处理
+  const maskEmail = (email: string) => {
+    if (!email || !email.includes("@")) return email;
+    const [name, domain] = email.split("@");
+    if (name.length <= 4) {
+      return name.substring(0, 1) + "****" + name.substring(name.length - 1) + "@" + domain;
+    }
+    return name.substring(0, 3) + "****" + name.substring(name.length - 2) + "@" + domain;
+  };
+
+  const displayTarget = isEmailDestination ? maskEmail(phoneNumber) : phoneNumber;
+  
   const sentMessage = isEmailDestination
     ? t("login.emailCodeSentMessage")
     : t("login.codeSentMessage");
@@ -53,11 +67,18 @@ export default function VerificationCodeModal({
     message: string;
   } | null>(null);
 
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
   const showFeedback = (
     type: "success" | "error",
     title: string,
     message: string
   ) => {
+    // 成功反馈改用 Toast，不再显示模态框
+    if (type === "success") {
+      setToastMessage(`✅ ${title}`);
+      return;
+    }
     setFeedback({ type, title, message });
   };
 
@@ -78,6 +99,16 @@ export default function VerificationCodeModal({
       setCountdown(60); // 60秒倒计时
     }
   }, [visible]);
+
+  // 自动隐藏 Toast
+  useEffect(() => {
+    if (toastMessage) {
+      const timer = setTimeout(() => {
+        setToastMessage(null);
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [toastMessage]);
 
   // 处理验证
   const handleVerify = async () => {
@@ -136,30 +167,76 @@ export default function VerificationCodeModal({
           <View style={styles.header}>
             <Text style={styles.title}>{t("login.verificationCode")}</Text>
             <Text style={styles.subtitle}>
-              {sentMessage}
-              {"\n"}
-              {phoneNumber}
+              {sentMessage} {displayTarget}
             </Text>
           </View>
 
-          {/* 验证码输入框 */}
+          {/* 验证码输入框 - 6位正方形格子 */}
           <View style={styles.inputContainer}>
-            <Text style={styles.inputLabel}>{t("login.verificationCode")}</Text>
+            <TouchableOpacity 
+              style={styles.codeContainer} 
+              activeOpacity={1}
+              onPress={() => {
+                const input = (global as any).verificationInput;
+                if (input) input.focus();
+              }}
+            >
+              {[0, 1, 2, 3, 4, 5].map((index) => (
+                <View 
+                  key={index} 
+                  style={[
+                    styles.codeBox, 
+                    code.length === index && styles.codeBoxActive,
+                    code.length > index && styles.codeBoxFilled
+                  ]}
+                >
+                  <Text style={styles.codeText}>{code[index] || ""}</Text>
+                  {code.length === index && <View style={styles.cursor} />}
+                </View>
+              ))}
+            </TouchableOpacity>
+
             <TextInput
-              style={styles.input}
-              placeholder={t("login.verificationCodePlaceholder")}
+              ref={(ref) => { (global as any).verificationInput = ref; }}
+              style={styles.hiddenInput}
               value={code}
               onChangeText={setCode}
               keyboardType="number-pad"
               maxLength={6}
               autoFocus={true}
               editable={!isVerifying && !isResending}
-              accessibilityLabel={t("login.verificationCode")}
-              accessibilityHint={t("accessibility.input.codeHint")}
-              accessibilityRole="text"
-              accessibilityState={{ disabled: isVerifying || isResending }}
-              placeholderTextColor="#B8ACA4"
+              textContentType="oneTimeCode"
             />
+
+            {/* 重新发送按钮 - 移至输入框下方 */}
+            <TouchableOpacity
+              style={styles.resendContainer}
+              onPress={handleResend}
+              disabled={isResending || countdown > 0}
+              accessibilityLabel={t("login.resendCode")}
+              accessibilityHint={
+                countdown > 0
+                  ? t("login.countdown", { seconds: countdown })
+                  : t("accessibility.button.continueHint")
+              }
+              accessibilityRole="button"
+              accessibilityState={{ disabled: isResending || countdown > 0 }}
+            >
+              {isResending ? (
+                <ActivityIndicator size="small" color="#E56C45" />
+              ) : (
+                <Text
+                  style={[
+                    styles.resendText,
+                    countdown > 0 && styles.resendTextDisabled,
+                  ]}
+                >
+                  {countdown > 0
+                    ? t("login.countdown", { seconds: countdown })
+                    : t("login.resendCode")}
+                </Text>
+              )}
+            </TouchableOpacity>
           </View>
 
           {/* 按钮区域 */}
@@ -198,36 +275,14 @@ export default function VerificationCodeModal({
               )}
             </TouchableOpacity>
           </View>
-
-          {/* 重新发送按钮 */}
-          <TouchableOpacity
-            style={styles.resendContainer}
-            onPress={handleResend}
-            disabled={isResending || countdown > 0}
-            accessibilityLabel={t("login.resendCode")}
-            accessibilityHint={
-              countdown > 0
-                ? t("login.countdown", { seconds: countdown })
-                : t("accessibility.button.continueHint")
-            }
-            accessibilityRole="button"
-            accessibilityState={{ disabled: isResending || countdown > 0 }}
-          >
-            {isResending ? (
-              <ActivityIndicator size="small" color="#E56C45" />
-            ) : (
-              <Text
-                style={[
-                  styles.resendText,
-                  countdown > 0 && styles.resendTextDisabled,
-                ]}
-              >
-                {countdown > 0
-                  ? t("login.countdown", { seconds: countdown })
-                  : t("login.resendCode")}
-              </Text>
-            )}
-          </TouchableOpacity>
+          {/*黑色 Toast 反馈 */}
+          {toastMessage && (
+            <View style={styles.toastContainer} pointerEvents="none">
+              <View style={styles.toast}>
+                <Text style={styles.toastText}>{toastMessage}</Text>
+              </View>
+            </View>
+          )}
           {feedback ? (
             <View style={styles.feedbackOverlay} pointerEvents="box-none">
               <View
@@ -272,36 +327,78 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     backgroundColor: "#fff",
-    borderRadius: 16,
-    padding: 24,
-    width: "85%",
+    borderRadius: 20,
+    paddingTop: 36, // 增加标题距离顶部的间距
+    paddingBottom: 32, // 增加按钮距离底部的间距
+    paddingHorizontal: 24,
+    width: "88%",
     maxWidth: 400,
   },
   header: {
-    marginBottom: 20,
+    marginBottom: 24, // 缩小标题与输入框的间距
     alignItems: "center",
   },
   title: {
     ...Typography.diaryTitle,
-    fontSize: 20,
+    fontSize: 22,
     color: "#1a1a1a",
-    marginBottom: 6,
+    marginBottom: 8,
   },
   subtitle: {
     ...Typography.body,
     fontSize: 14,
     color: "#5A4B43",
     textAlign: "center",
-    lineHeight: 18,
+    lineHeight: 20,
   },
   inputContainer: {
-    marginBottom: 20,
+    marginBottom: 24, // 缩小输入框与按钮的间距
   },
-  inputLabel: {
-    fontSize: 13,
-    fontWeight: "500",
-    color: "#4A3F38",
-    marginBottom: 8,
+  codeContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    width: "100%",
+    marginBottom: 12,
+  },
+  codeBox: {
+    width: 42,
+    height: 48,
+    borderWidth: 1.5,
+    borderColor: "#E6D5C4",
+    borderRadius: 8,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#f8f9fa",
+  },
+  codeBoxActive: {
+    borderColor: "#E56C45",
+    backgroundColor: "#fff",
+    // 添加一点阴影让激活态更明显
+    shadowColor: "#E56C45",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  codeBoxFilled: {
+    borderColor: "#E6D5C4",
+  },
+  codeText: {
+    ...Typography.diaryTitle,
+    fontSize: 22,
+    color: "#1a1a1a",
+  },
+  cursor: {
+    position: "absolute",
+    width: 2,
+    height: 20,
+    backgroundColor: "#E56C45",
+  },
+  hiddenInput: {
+    position: "absolute",
+    width: 0,
+    height: 0,
+    opacity: 0,
   },
   input: {
     width: "100%",
@@ -320,7 +417,6 @@ const styles = StyleSheet.create({
   buttonContainer: {
     flexDirection: "row",
     gap: 12,
-    marginBottom: 16,
   },
   button: {
     flex: 1,
@@ -351,8 +447,9 @@ const styles = StyleSheet.create({
     color: "#fff",
   },
   resendContainer: {
-    alignItems: "center",
-    paddingVertical: 8,
+    alignItems: "flex-start",
+    paddingVertical: 4,
+    paddingLeft: 2,
   },
   resendText: {
     fontSize: 13,
@@ -408,6 +505,27 @@ const styles = StyleSheet.create({
   feedbackButtonText: {
     color: "#fff",
     fontSize: 15,
+    fontWeight: "600",
+  },
+  toastContainer: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: "40%",
+    alignItems: "center",
+    zIndex: 9999,
+  },
+  toast: {
+    backgroundColor: "rgba(0, 0, 0, 0.85)",
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 24,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  toastText: {
+    color: "#fff",
+    fontSize: 14,
     fontWeight: "600",
   },
 });
