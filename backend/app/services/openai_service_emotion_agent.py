@@ -32,9 +32,9 @@
 
 Your ONLY task: Analyze the user's emotion from their text/images.
 
-🎯 EMOTION CATEGORIES (23 emotions):
+🎯 EMOTION CATEGORIES (24 emotions):
 
-**Positive (8)**: Joyful, Grateful, Fulfilled, Proud, Surprised, Excited, Peaceful, Hopeful
+**Positive (9)**: Joyful, Grateful, Fulfilled, Proud, Surprised, Excited, Loved, Peaceful, Hopeful
 **Neutral (7)**: Thoughtful, Reflective, Intentional, Inspired, Curious, Nostalgic, Calm
 **Negative (8)**: Uncertain, Misunderstood, Lonely, Down, Anxious, Overwhelmed, Venting, Frustrated
 
@@ -74,6 +74,11 @@ Your ONLY task: Analyze the user's emotion from their text/images.
 **Excited (期待)** - Anticipation:
 - Keywords: "期待", "等待", "can't wait", "looking forward"
 - Example: "好期待明天的旅行" → Excited
+
+**Loved (被爱着)** - Feeling Cherished:
+- Keywords: "被爱", "被珍惜", "被关心", "温暖", "陪伴", "loved", "cherished", "cared for", "supported"
+- Context: Feeling valued, supported by others, experiencing deep connection
+- Example: "朋友一直陪着我,感觉很温暖" → Loved
 
 **Anxious (焦虑)** - Worry:
 - Keywords: "焦虑", "担心", "紧张", "anxious", "worried"

@@ -1462,9 +1462,9 @@ Response format (JSON ONLY):
 
 Your ONLY task: Analyze the user's emotion from their text with MAXIMUM ACCURACY.
 
-🎯 EMOTION CATEGORIES (23 emotions):
+🎯 EMOTION CATEGORIES (24 emotions):
 
-**Positive (8)**: Joyful, Grateful, Fulfilled, Proud, Surprised, Excited, Peaceful, Hopeful
+**Positive (9)**: Joyful, Grateful, Fulfilled, Proud, Surprised, Excited, Loved, Peaceful, Hopeful
 **Neutral (7)**: Thoughtful, Reflective, Intentional, Inspired, Curious, Nostalgic, Calm
 **Negative (8)**: Uncertain, Misunderstood, Lonely, Down, Anxious, Overwhelmed, Venting, Frustrated
 
@@ -1473,6 +1473,7 @@ Your ONLY task: Analyze the user's emotion from their text with MAXIMUM ACCURACY
 | Emotion Pair | Key Difference | Example |
 |--------------|----------------|---------|  
 | **Fulfilled vs Joyful** | Fulfilled=Achievement, Joyful=Pure Happiness | "完成项目"→Fulfilled, "和朋友玩"→Joyful |
+| **Loved vs Grateful** | Loved=Feeling Cherished, Grateful=Thankfulness | "被深深地挂念着"→Loved, "感谢朋友帮忙"→Grateful |
 | **Anxious vs Overwhelmed** | Anxious=Worry future, Overwhelmed=Too much NOW | "担心面试"→Anxious, "工作太多"→Overwhelmed |
 | **Reflective vs Thoughtful** | Reflective=Looking back, Thoughtful=Pondering | "回想往事"→Reflective, "在想问题"→Thoughtful |
 | **Proud vs Fulfilled** | Proud=Pride, Fulfilled=Completion | "为自己骄傲"→Proud, "完成目标"→Fulfilled |
@@ -1685,6 +1686,10 @@ Response Format (JSON):
         if is_chinese != feedback_has_chinese:
             print(f"⚠️ 反馈语言不一致！")
             feedback = "感谢分享你的这一刻。" if is_chinese else "Thanks for sharing this moment."
+            # ✅ 即使是 fallback，也要加上用户名字
+            if user_name and user_name.strip():
+                separator = "，" if is_chinese else ", "
+                feedback = f"{user_name}{separator}{feedback}"
             used_fallback = True
         
         # 清理函数
@@ -1837,6 +1842,10 @@ Response Format (JSON):
         if not used_fallback and len(feedback) < self.LENGTH_LIMITS.get("feedback_min", 20):
             print(f"⚠️ 反馈过短，使用降级")
             feedback = "感谢分享你的这一刻。" if is_chinese else "Thanks for sharing this moment."
+            # ✅ 即使是 fallback，也要加上用户名字
+            if user_name and user_name.strip():
+                separator = "，" if is_chinese else ", "
+                feedback = f"{user_name}{separator}{feedback}"
         
         if len(feedback) > self.LENGTH_LIMITS["feedback_max"]:
             print(f"📏 反馈过长，按完整句子截断")
