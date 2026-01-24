@@ -1,3 +1,4 @@
+import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { EmotionType, EMOTION_MAP, DEFAULT_EMOTION } from '../types/emotion';
 import { getFontFamilyForText } from '../styles/typography';
@@ -9,7 +10,8 @@ interface EmotionCapsuleProps {
   content?: string; // ✅ 新增:日记内容,用于自动检测语言
 }
 
-export const EmotionCapsule: React.FC<EmotionCapsuleProps> = ({ emotion, language = 'en', content }) => {
+// ✅ 紧急修复：使用React.memo防止过度渲染
+export const EmotionCapsule = React.memo<EmotionCapsuleProps>(({ emotion, language = 'en', content }) => {
   // 1. 获取配置,如果没有匹配的则不显示或显示默认
   // 当前策略:如果不识别,回退到 Thoughtful（默认中性标签）
   const config = emotion && EMOTION_MAP[emotion as EmotionType] 
@@ -34,7 +36,7 @@ export const EmotionCapsule: React.FC<EmotionCapsuleProps> = ({ emotion, languag
   
   const label = isChinese ? config.labelZh : config.labelEn;
   
-  // ✅ 调试:检查language参数
+  // ✅ 调试:检查language参数（仅在开发环境）
   if (__DEV__) {
     console.log(`🎭 EmotionCapsule: emotion=${emotion}, language=${language}, isChinese=${isChinese}, label=${label}`);
   }
@@ -49,7 +51,10 @@ export const EmotionCapsule: React.FC<EmotionCapsuleProps> = ({ emotion, languag
       </Text>
     </View>
   );
-};
+});
+
+// ✅ 添加displayName用于调试
+EmotionCapsule.displayName = 'EmotionCapsule';
 
 const styles = StyleSheet.create({
   container: {

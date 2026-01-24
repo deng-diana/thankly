@@ -53,7 +53,7 @@ class OpenAIService:
         # 🔥 GPT 模型配置 - 速度与质量平衡
         "polish": "gpt-4o",              # 润色 + 标题: 质量优先（用户直接感受）
         "emotion": "gpt-4o-mini",        # 情绪分析: 速度优先（3x faster, 准确度85%→90%）
-        "feedback": "gpt-4o-mini",       # 温暖反馈: 速度优先（2x faster, 温暖度足够）
+        "feedback": "gpt-4o",       # 温暖反馈: 速度优先（2x faster, 温暖度足够）
         
         # 🎤 为什么 Whisper？
         # ✅ OpenAI 官方语音转文字模型
@@ -548,14 +548,57 @@ class OpenAIService:
             # 🔥 并行组2: Emotion → Feedback (组内串行)
             emotion_feedback_task = emotion_feedback_pipeline()
             
-            # 🔥 两组并行执行
+            # 🔥 两组并行执行 - ✅ 关键修复：添加 return_exceptions=True
             print(f"   🚀 启动两组并行...")
-            polish_result, (emotion_result, feedback_data) = await asyncio.gather(
+            results = await asyncio.gather(
                 polish_task,                # 组1: Polish独立
-                emotion_feedback_task       # 组2: Emotion → Feedback
+                emotion_feedback_task,      # 组2: Emotion → Feedback
+                return_exceptions=True      # ✅ 防止单个失败导致整体失败
             )
             
+            # ✅ 检查每个结果，提供兜底值
+            polish_result = results[0]
+            emotion_feedback_result = results[1]
+            
+            # 🔥 关键修复：提前初始化变量，防止NameError
+            emotion_result = None
+            feedback_data = None
+            
+            # 处理Polish结果
+            if isinstance(polish_result, Exception):
+                print(f"❌ Polish Agent失败: {polish_result}")
+                print(f"   使用兜底：原文 + 默认标题")
+                polish_result = {
+                    "title": "今日记录" if detected_lang == "Chinese" else "Today's Reflection",
+                    "polished_content": text
+                }
+            
+            # 处理Emotion+Feedback结果
+            if isinstance(emotion_feedback_result, Exception):
+                print(f"❌ Emotion+Feedback Agent失败: {emotion_feedback_result}")
+                print(f"   使用兜底：默认情绪 + 简单反馈")
+                emotion_result = {"emotion": "Thoughtful", "confidence": 0.5, "rationale": "默认情绪"}
+                feedback_data = "感谢分享你的故事。" if detected_lang == "Chinese" else "Thanks for sharing your story."
+                if user_name:
+                    separator = "，" if detected_lang == "Chinese" else ", "
+                    feedback_data = f"{user_name}{separator}{feedback_data}"
+            else:
+                emotion_result, feedback_data = emotion_feedback_result
+
+            
             print(f"✅ 两组并行完成")
+            
+            # 🔥 最终兜底检查：确保变量不为None
+            if emotion_result is None:
+                print(f"⚠️ emotion_result为None，使用默认值")
+                emotion_result = {"emotion": "Thoughtful", "confidence": 0.5, "rationale": "默认情绪"}
+            
+            if feedback_data is None:
+                print(f"⚠️ feedback_data为None，使用默认值")
+                feedback_data = "感谢分享你的故事。" if detected_lang == "Chinese" else "Thanks for sharing your story."
+                if user_name:
+                    separator = "，" if detected_lang == "Chinese" else ", "
+                    feedback_data = f"{user_name}{separator}{feedback_data}"
             
             # 处理反馈结果
             if isinstance(feedback_data, dict):

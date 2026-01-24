@@ -60,16 +60,73 @@ const HappinessJarScreen: React.FC = () => {
     setLocalDiaries(diaries);
   }, [diaries]);
 
-  // 1. 筛选 + 排序幸福日记（按时间排序，最新在前）
+  // 1. 筛选 + 排序幸福日记
+  // ✅ 新逻辑：前5条按幸福程度排序，之后按时间倒序
   const happyDiaries = useMemo(() => {
     const filtered = localDiaries.filter((d) =>
       isHappyEmotion(d.emotion_data?.emotion)
     );
-    // ✅ 按创建时间倒序排列（最新的在最前面）
-    return filtered.sort((a, b) => 
-      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-    );
+    
+    if (filtered.length <= 5) {
+      // 如果总数≤5条，全部按幸福程度排序
+      return filtered.sort((a, b) => {
+        const emotionA = a.emotion_data?.emotion;
+        const emotionB = b.emotion_data?.emotion;
+        
+        const happinessOrder: Record<string, number> = {
+          'Joyful': 5,
+          'Loved': 4,
+          'Fulfilled': 3,
+          'Excited': 2,
+          'Proud': 1,
+        };
+        
+        const scoreA = happinessOrder[emotionA || ''] || 0;
+        const scoreB = happinessOrder[emotionB || ''] || 0;
+        
+        if (scoreA !== scoreB) {
+          return scoreB - scoreA;
+        }
+        
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      });
+    }
+    
+    // 按幸福程度排序（用于选出前5条）
+    const sortedByHappiness = [...filtered].sort((a, b) => {
+      const emotionA = a.emotion_data?.emotion;
+      const emotionB = b.emotion_data?.emotion;
+      
+      const happinessOrder: Record<string, number> = {
+        'Joyful': 5,
+        'Loved': 4,
+        'Fulfilled': 3,
+        'Excited': 2,
+        'Proud': 1,
+      };
+      
+      const scoreA = happinessOrder[emotionA || ''] || 0;
+      const scoreB = happinessOrder[emotionB || ''] || 0;
+      
+      if (scoreA !== scoreB) {
+        return scoreB - scoreA;
+      }
+      
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+    
+    // 取前5条最幸福的
+    const top5 = sortedByHappiness.slice(0, 5);
+    const top5Ids = new Set(top5.map(d => d.diary_id));
+    
+    // 剩余的按时间倒序排序
+    const rest = filtered
+      .filter(d => !top5Ids.has(d.diary_id))
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    
+    return [...top5, ...rest];
   }, [localDiaries]);
+
 
   // 2. 入场动画
   useEffect(() => {

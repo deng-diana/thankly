@@ -359,7 +359,7 @@ export function useVoiceRecording(
           audioEncoder: Audio.AndroidAudioEncoder.AAC,
           sampleRate: 44100,
           numberOfChannels: 2,
-          bitRate: 128000,
+          bitRate: 96000, // ✅ 优化: 减少25%文件大小，加快上传
         },
         ios: {
           extension: ".m4a",
@@ -367,14 +367,14 @@ export function useVoiceRecording(
           audioQuality: Audio.IOSAudioQuality.HIGH,
           sampleRate: 44100,
           numberOfChannels: 2,
-          bitRate: 128000,
+          bitRate: 96000, // ✅ 优化: 减少25%文件大小，加快上传
           linearPCMBitDepth: 16,
           linearPCMIsBigEndian: false,
           linearPCMIsFloat: false,
         },
         web: {
           mimeType: "audio/webm",
-          bitsPerSecond: 128000,
+          bitsPerSecond: 96000, // ✅ 优化: 减少25%文件大小
         },
       };
 

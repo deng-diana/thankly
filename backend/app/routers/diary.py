@@ -266,15 +266,44 @@ async def create_voice_diary(
                 expected_duration=duration
             )
         
-        # 并行执行（同时进行，节省时间）
-        audio_url, transcription_result = await asyncio.gather(
+        # 并行执行（同时进行，节省时间）- ✅ 添加容错
+        results = await asyncio.gather(
             upload_to_s3_async(),
-            transcribe_async()
+            transcribe_async(),
+            return_exceptions=True  # ✅ S3失败不影响转录
         )
+        
+        # 检查结果
+        audio_url_result = results[0]
+        transcription_result = results[1]
+        
+        # 处理转录结果（优先检查，因为是核心功能）
+        if isinstance(transcription_result, Exception):
+            print(f"❌ Whisper转录失败: {transcription_result}")
+            raise transcription_result  # 转录失败必须抛出
         
         # 🔥 提取转录文本和检测到的语言
         transcription = transcription_result["text"]
         detected_language = transcription_result.get("detected_language")
+        
+        # 处理S3上传结果
+        if isinstance(audio_url_result, Exception):
+            print(f"⚠️ S3并行上传失败，转录后重试: {audio_url_result}")
+            # 重试上传（此时转录已完成，不影响总时间）
+            try:
+                audio_url = await asyncio.to_thread(
+                    s3_service.upload_audio,
+                    file_content=audio_content,
+                    file_name=audio.filename or "recording.m4a",
+                    content_type=audio.content_type or "audio/m4a"
+                )
+                print(f"✅ S3重试上传成功: {audio_url}")
+            except Exception as retry_error:
+                print(f"❌ S3重试上传仍失败: {retry_error}")
+                raise HTTPException(status_code=500, detail="音频上传失败，请重试")
+        else:
+            audio_url = audio_url_result
+
         
         print(f"✅ 并行处理完成")
         print(f"  - 音频 URL: {audio_url}")
@@ -416,14 +445,14 @@ async def process_pure_voice_diary_async(
         user_lang = get_user_language(request)
         validate_audio_quality(duration, len(audio_content), language=user_lang)
         
-        # ✅ 验证完成，立即跳到 25%
-        update_task_progress(task_id, "processing", 25, 1, "处理中", "准备正式开始处理...", user_id=user['user_id'])
+        # ✅ 验证完成，立即跳到 15%（Demo优化：给转录更多进度空间）
+        update_task_progress(task_id, "processing", 15, 1, "处理中", "准备正式开始处理...", user_id=user['user_id'])
         await asyncio.sleep(0.1)  # 短暂延迟，让前端看到进度变化
         
         # ============================================
-        # Step 1: 并行处理 S3 上传 + 语音转文字 (25% → 50%)
+        # Step 1: 并行处理 S3 上传 + 语音转文字 (15% → 60%) ← Demo优化
         # ============================================
-        update_task_progress(task_id, "processing", 28, 1, "转录中", "正在努力识别你的声音...", user_id=user['user_id'])
+        update_task_progress(task_id, "processing", 18, 1, "转录中", "正在努力识别你的声音...", user_id=user['user_id'])
         
         async def upload_to_s3_async():
             if audio_url:
@@ -439,10 +468,10 @@ async def process_pure_voice_diary_async(
         async def transcribe_with_progress():
             # 内部虚拟进度，保持“呼吸感”，不轻易跳跃
             async def smooth_progress():
-                current_p = 28 # 从 28% 开始积极推进
-                while current_p < 48:
-                    await asyncio.sleep(1.2) # 缩短等待时间
-                    current_p += 4 # 步进小一点，更平滑
+                current_p = 18 # Demo优化：从 18% 开始
+                while current_p < 58:  # Demo优化：到 58% 结束
+                    await asyncio.sleep(0.6) # ✅ Demo优化: 更快的更新频率
+                    current_p += 2 # ✅ Demo优化: 更平滑的步进
                     update_task_progress(task_id, "processing", current_p, 1, "转录中", "正在努力识别你的声音...", user_id=user['user_id'])
             
             progress_task = asyncio.create_task(smooth_progress())
@@ -466,65 +495,36 @@ async def process_pure_voice_diary_async(
         detected_language = transcription_result.get("detected_language")
         print(f"🌍 Whisper 检测到的语言: {detected_language}")
         
-        update_task_progress(task_id, "processing", 50, 1, "处理中", "语音识别完成", user_id=user['user_id'])
+        update_task_progress(task_id, "processing", 60, 1, "处理中", "语音识别完成", user_id=user['user_id'])  # Demo优化：60%
         
         # 验证转录内容
         validate_transcription(transcription, duration)
         
         # ============================================
-        # Step 2: AI 处理 - 润色 + 反馈 (50% → 85%)
+        # Step 2: AI 处理 - 润色 + 反馈 (60% → 90%) ← Demo优化
         # ============================================
-        update_task_progress(task_id, "processing", 55, 2, "AI润色", "正在美化文字...", user_id=user['user_id'])
+        update_task_progress(task_id, "processing", 65, 2, "AI润色", "正在美化文字...", user_id=user['user_id'])  # Demo优化：65%
         
         # 获取用户名字（优先使用 X-User-Name header）
         user_display_name = get_display_name(user, request)
         
-        # ✅ 专家优化：在 AI 润色期间启动虚拟进度，消除 60% 处的漫长等待
-        async def do_ai_work():
-            # 开启后台平滑进度
-            async def ai_smooth_progress():
-                current_ai_p = 60
-                messages = [
-                    "正在美化文字表达...",
-                    "正在读懂你的情绪...",
-                    "正在提炼暖心标题...",
-                    "正在准备暖心回复..."
-                ]
-                msg_idx = 0
-                while current_ai_p < 82:
-                    await asyncio.sleep(1.0)
-                    current_ai_p += 3
-                    update_task_progress(
-                        task_id, 
-                        "processing", 
-                        current_ai_p, 
-                        2, 
-                        "AI润色", 
-                        messages[min(msg_idx, len(messages)-1)], 
-                        user_id=user['user_id']
-                    )
-                    msg_idx += 1
-
-            ai_progress_task = asyncio.create_task(ai_smooth_progress())
-            try:
-                # 真正的 AI 调用
-                return await openai_service.polish_content_multilingual(
-                    transcription, 
-                    user_name=user_display_name,
-                    whisper_detected_language=detected_language
-                )
-            finally:
-                ai_progress_task.cancel()
-
-        ai_result = await do_ai_work()
+        # ✅ Demo优化：直接调用AI，不使用虚拟进度（更真实）
+        update_task_progress(task_id, "processing", 55, 2, "AI润色", "正在美化文字...", user_id=user['user_id'])
         
-        # ✅ 更新到收尾阶段
-        update_task_progress(task_id, "processing", 85, 3, "完成处理", "AI处理完成", user_id=user['user_id'])
+        ai_result = await openai_service.polish_content_multilingual(
+            transcription, 
+            user_name=user_display_name,
+            whisper_detected_language=detected_language
+        )
+
+        
+        # ✅ 更新到收尾阶段（Demo优化：90%）
+        update_task_progress(task_id, "processing", 90, 3, "完成处理", "AI处理完成", user_id=user['user_id'])
         
         # ============================================
-        # Step 3: 保存到数据库 (85% → 100%)
+        # Step 3: 保存到数据库 (90% → 100%) ← Demo优化
         # ============================================
-        update_task_progress(task_id, "processing", 90, 3, "保存", "正在保存日记...", user_id=user['user_id'])
+        update_task_progress(task_id, "processing", 93, 3, "保存", "正在保存日记...", user_id=user['user_id'])  # Demo优化：93%
         
         # --------------------------------------------------------
         # 🔥 Step 2.5: 情绪分析结果 (Pure Text Analysis)
@@ -614,21 +614,13 @@ async def process_voice_diary_async(
         # 启动上传任务
         s3_upload_task = asyncio.create_task(upload_to_s3_async())
 
-        # ============================================
-        # Step 1.5: 启动音频情绪分析 (并行)
-        # ============================================
-        async def analyze_audio_emotion_async():
-            emotion_service = get_emotion_service()
-            return await emotion_service.analyze_audio_emotion(audio_content, audio_filename)
-
-        # 启动情绪分析任务
-        audio_emotion_task = asyncio.create_task(analyze_audio_emotion_async())
-
+        # ✅ Demo优化：移除无用的音频情绪分析（已改用文本情绪分析）
+        
         
         # ============================================
-        # Step 2 & 4: 并行处理 (28% → 70%)
+        # Step 2 & 4: 并行处理 (18% → 70%) ← Demo优化
         # ============================================
-        update_task_progress(task_id, "processing", 28, 2, "并行处理", "正在同时处理语音和内容...", user_id=user['user_id'])
+        update_task_progress(task_id, "processing", 18, 2, "并行处理", "正在同时处理语音和内容...", user_id=user['user_id'])  # Demo优化：18%
         
         # 预先下载并编码图片（如果存在）
         # 🚀 优化：不再下载和分析图片，避免 AI 被图片内容误导（如生成日文标题）
@@ -650,15 +642,15 @@ async def process_voice_diary_async(
 
         # 🚀 优化并行逻辑：转录任务独占 30% -> 50% 进度
         async def do_transcription():
-            update_task_progress(task_id, "processing", 30, 2, "语音识别", "正在倾听你的故事...", user_id=user['user_id'])
+            update_task_progress(task_id, "processing", 20, 2, "语音识别", "正在倾听你的故事...", user_id=user['user_id'])  # Demo优化：20%
             
             # 内部虚拟进度，保持“呼吸感”，不轻易跳跃
             async def smooth_progress():
-                current_p = 30
-                while current_p < 48:
-                    await asyncio.sleep(1.0) # 更快的轮询感
-                    current_p += 4
-                    update_task_progress(task_id, "processing", min(current_p, 48), 2, "语音识别", "正在将语音转为文字...", user_id=user['user_id'])
+                current_p = 20  # Demo优化：从 20% 开始
+                while current_p < 58:  # Demo优化：到 58% 结束
+                    await asyncio.sleep(0.5) # ✅ Demo优化: 更快的更新频率
+                    current_p += 2 # ✅ Demo优化: 更平滑的步进
+                    update_task_progress(task_id, "processing", min(current_p, 58), 2, "语音识别", "正在将语音转为文字...", user_id=user['user_id'])
             
             progress_task = asyncio.create_task(smooth_progress())
             try:
@@ -674,7 +666,7 @@ async def process_voice_diary_async(
                 return {"text": text, "detected_language": detected_lang}
             finally:
                 progress_task.cancel()
-                update_task_progress(task_id, "processing", 50, 2, "语音识别", "识别完成", user_id=user['user_id'])
+                update_task_progress(task_id, "processing", 60, 2, "语音识别", "识别完成", user_id=user['user_id'])  # Demo优化：60%
         
         # 立即启动转录任务
         transcription_task = asyncio.create_task(do_transcription())
@@ -889,7 +881,7 @@ async def process_pure_voice_diary_with_url_async(
         # 下载音频内容用于转录
         import httpx
         async with httpx.AsyncClient(timeout=60.0) as client:
-            print(f"📥 正在获取音频内容: {audio_url}")
+            print(f"📥 [Task:{task_id}] 正在获取音频内容: {audio_url}", flush=True)
             response = await client.get(audio_url)
             response.raise_for_status()
             audio_content = response.content
@@ -921,32 +913,24 @@ async def process_voice_diary_with_url_async(
 ):
     """优化版混合媒体处理函数 - 使用已上传URL"""
     try:
-        # 下载音频内容用于转录
+        update_task_progress(task_id, "processing", 18, 1, "下载资源", "正在获取音频...", user_id=user["user_id"])
         import httpx
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            print(f"📥 正在获取音频内容: {audio_url}")
+        timeout = httpx.Timeout(30.0, connect=10.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            print(f"📥 [Task:{task_id}] 正在下载音频: {audio_url}", flush=True)
             response = await client.get(audio_url)
             response.raise_for_status()
             audio_content = response.content
-        
-        # 调用核心处理函数
         await process_voice_diary_async(
-            task_id=task_id,
-            audio_content=audio_content,
-            audio_filename="recording.m4a",
-            audio_content_type="audio/m4a",
-            duration=duration,
-            user=user,
-            request=request,
-            image_urls=image_urls,
-            content=content,
-            audio_url=audio_url
+            task_id=task_id, audio_content=audio_content, audio_filename="recording.m4a",
+            audio_content_type="audio/m4a", duration=duration, user=user,
+            request=request, image_urls=image_urls, content=content, audio_url=audio_url
         )
     except Exception as e:
-        print(f"❌ 获取已上传音频失败: {str(e)}")
-        update_task_progress(task_id, "failed", 0, 0, "错误", f"下载音频失败: {str(e)}", error=str(e), user_id=user['user_id'])
-
-
+        print(f"❌ [Task:{task_id}] 后台任务异常: {str(e)}", flush=True)
+        import traceback
+        traceback.print_exc()
+        update_task_progress(task_id, "failed", 0, 0, "错误", f"处理任务失败: {str(e)}", error=str(e), user_id=user["user_id"])
 @router.post("/voice/stream", summary="创建语音日记（实时进度版）")
 async def create_voice_diary_stream(
     audio: UploadFile = File(...),
@@ -1335,7 +1319,6 @@ async def create_voice_diary_async_with_url(
 ):
     """
     ✅ 优化版: 创建语音日记 - 使用已上传的音频URL
-    
     📚 学习点: 这是优化后的工作流程
     
     传统流程 (慢):
@@ -1370,6 +1353,7 @@ async def create_voice_diary_async_with_url(
     """
     try:
         # 验证audio_url
+        print("🚀 [Task] create_voice_diary_async_with_url hit", flush=True)
         if not audio_url or not audio_url.startswith("https://"):
             raise HTTPException(status_code=400, detail="无效的音频URL")
         
@@ -1396,7 +1380,7 @@ async def create_voice_diary_async_with_url(
         pending_image_upload = bool(expect_images) and not parsed_image_urls
         task_data = {
             "status": "processing",
-            "progress": 10,  # ✅ 音频已上传,直接从10%开始
+            "progress": 15,  # ✅ 音频已上传,直接从10%开始
             "step": 1,
             "step_name": "音频已上传",
             "message": "音频上传完成,开始AI处理...",

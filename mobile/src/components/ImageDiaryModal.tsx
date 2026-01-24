@@ -870,9 +870,7 @@ export default function ImageDiaryModal({
         // ✅ 1. 使用优化的音频上传服务（预签名URL + 直接上传到S3）
         console.log("🚀 使用优化的音频上传方案（预签名URL + 直接S3上传）");
         
-        // ✅ 启动并行图片上传
-        const localImages = [...images];
-        const imageUploadPromise = uploadDiaryImages(localImages);
+        // ✅ 关键修复：移除重复的图片上传声明，使用之前的imageUploadPromise（行821-828）
 
         const createResult = await uploadAudioAndCreateTask(
           uri,
@@ -884,26 +882,15 @@ export default function ImageDiaryModal({
           },
           textContent.trim() || undefined,
           undefined, // 第5个参数：目前还不传URL，让图片后台传
-          localImages.length > 0 // 第6个参数：声明随后补充
+          images.length > 0 // 第6个参数：声明随后补充
         );
         
         taskId = createResult.taskId;
         headers = createResult.headers;
         console.log(`✅ [ImageDiaryModal] 任务创建成功 (TaskID: ${taskId})，开始后台处理图片...`);
 
-        // ✅ 异步补充图片逻辑
-        if (localImages.length > 0) {
-          (async () => {
-            try {
-              const finalUrls = await imageUploadPromise;
-              console.log(`📸 [ImageDiaryModal] 图片上传完成，正在向任务 ${taskId} 补充...`);
-              await addImagesToTask(taskId, finalUrls);
-              console.log("✅ [ImageDiaryModal] 补充成功");
-            } catch (err) {
-              console.error("❌ [ImageDiaryModal] 补充图片失败:", err);
-            }
-          })();
-        }
+        // ✅ 移除重复的异步补充逻辑，统一在后面的attachImagesPromise中处理
+
       } finally {
         clearInterval(uploadInterval);
       }
@@ -981,6 +968,15 @@ export default function ImageDiaryModal({
 
       console.log("✅ 图片+语音日记创建成功:", diary);
       console.log("📸 日记中的图片URLs:", diary.image_urls);
+
+      // ✅ 紧急修复：延迟显示结果，给列表足够时间刷新
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // ✅ 再次检查组件是否已卸载
+      if (!isMounted.current) {
+        console.log("⚠️ 延迟后组件已卸载,跳过结果显示");
+        return;
+      }
 
       setIsProcessing(false);
       setResultDiary(diary);
