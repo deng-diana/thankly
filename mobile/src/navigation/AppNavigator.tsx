@@ -22,6 +22,7 @@ import { navigationRef } from "./navigationRef";
 import AppDrawerContent from "../components/AppDrawerContent";
 import DiaryListScreen from "../screens/DiaryListScreen";
 import SearchScreen from "../screens/SearchScreen";
+import HappinessJarScreen from "../screens/HappinessJarScreen";
 
 export type RootStackParamList = {
   Welcome: undefined;
@@ -35,6 +36,7 @@ export type RootStackParamList = {
   Login: undefined;
   DiaryList: undefined;
   Search: { diaries: any[] };  // 搜索页面
+  HappinessJar: { diaries: any[] };  // ✅ 幸福罐页面
   CreateDiary: { inputMode?: "voice" | "text" };
   Test: undefined;
   MainDrawer: undefined;
@@ -51,6 +53,17 @@ const MainStackNavigator = () => (
     <MainStack.Screen 
       name="Search" 
       component={SearchScreen}
+    />
+    <MainStack.Screen 
+      name="HappinessJar" 
+      component={HappinessJarScreen}
+      options={{ 
+        headerShown: false, // ✅ 隐藏默认 header，使用自定义 header
+        animation: "slide_from_right", // ✅ 从右侧滑入（标准 push 动画）
+        contentStyle: {
+          backgroundColor: '#FFE699',
+        },
+      }}
     />
     <MainStack.Screen name="CreateDiary" component={CreateTextDiaryScreen} />
     <MainStack.Screen name="Test" component={TestScreen} />

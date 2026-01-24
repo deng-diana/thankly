@@ -54,6 +54,7 @@ interface DiaryCardProps {
   index?: number;
   totalCount?: number;
   searchQuery?: string;
+  disableShadow?: boolean;
   
   // 音频播放相关
   isPlaying?: boolean;
@@ -79,6 +80,7 @@ export function DiaryCard({
   index = 0,
   totalCount = 0,
   searchQuery = "",
+  disableShadow = false,
   isPlaying = false,
   currentTime = 0,
   totalDuration = 0,
@@ -208,7 +210,10 @@ export function DiaryCard({
 
   return (
     <TouchableOpacity
-      style={styles.diaryCard}
+      style={[
+        styles.diaryCard,
+        disableShadow ? styles.diaryCardNoShadow : null,
+      ]}
       onPress={onPress}
       activeOpacity={0.7}
       accessibilityLabel={accessibilityLabel}
@@ -373,6 +378,13 @@ const styles = StyleSheet.create({
     elevation: 3,
     overflow: "visible",
     position: "relative",
+  },
+  diaryCardNoShadow: {
+    shadowColor: "transparent",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
   },
   cardContentContainer: {
     padding: 24,

@@ -565,7 +565,7 @@ export default function CreateTextDiaryScreen() {
                     onChangeText={setContent}
                     multiline
                     autoFocus
-                    maxLength={1000}
+                    maxLength={2000}
                     accessibilityLabel={t("createTextDiary.textPlaceholder")}
                     accessibilityHint={t("accessibility.input.textHint")}
                     accessibilityRole="text"
@@ -580,7 +580,7 @@ export default function CreateTextDiaryScreen() {
                         styles.charCountWarning,
                     ]}
                   >
-                    {content.length}/1000
+                    {content.length}/2000
                   </Text>
 
                   {/* ✅ 新增: 自动保存指示器 */}

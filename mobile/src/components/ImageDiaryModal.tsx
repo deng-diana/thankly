@@ -1790,7 +1790,7 @@ export default function ImageDiaryModal({
                           onChangeText={setTextContent}
                           onSelectionChange={handleTextSelectionChange}
                           multiline
-                          maxLength={1000}
+                          maxLength={2000}
                           textAlignVertical="top"
                           accessibilityLabel={t(
                             "createImageDiary.textPlaceholder"
@@ -1850,13 +1850,13 @@ export default function ImageDiaryModal({
                               styles.charCountWarning,
                             {
                               fontFamily: getFontFamilyForText(
-                                `${textContent.length}/1000`,
+                                `${textContent.length}/2000`,
                                 "regular"
                               ),
                             },
                           ]}
                         >
-                          {textContent.length}/1000
+                          {textContent.length}/2000
                         </Text>
                       </View>
 

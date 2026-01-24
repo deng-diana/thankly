@@ -38,6 +38,7 @@ import {
   saveUser,
   isValidUserName,
   updateUserName,
+  hasPreferredName, // ✅ 新增：检查用户是否有偏好称呼
 } from "../services/authService";
 import VerificationCodeModal from "../components/VerificationCodeModal";
 import GoogleIcon from "../components/GoogleIcon";
@@ -95,12 +96,13 @@ export default function LoginScreen() {
       try {
         const currentUser = await getCurrentUser();
         if (currentUser) {
-          if (!isValidUserName(currentUser.name, currentUser.email)) {
-            console.log("📝 检测到未完成姓名的登录状态，自动弹出输入框");
+          // ✅ 使用 hasPreferredName 替代 isValidUserName
+          if (!hasPreferredName(currentUser)) {
+            console.log("📝 检测到未完成偏好称呼的登录状态，自动弹出输入框");
             setEmailForVerification(currentUser.email);
             setShowNameInputModal(true);
           } else {
-            // 如果姓名有效且已登录，说明可能应该在主界面了
+            // 如果偏好称呼有效且已登录，说明可能应该在主界面了
             // 这里我们不做强制跳转，让 AppNavigator 处理
           }
         }
@@ -130,9 +132,9 @@ export default function LoginScreen() {
 
       console.log("登录成功!", user);
 
-      // ✅ 检查姓名是否有效，如果无效则弹出输入框
-      if (!isValidUserName(user.name, user.email)) {
-        console.log("📝 Apple登录用户姓名无效，弹出姓名输入框");
+      // ✅ 检查偏好称呼是否有效，如果无效则弹出输入框
+      if (!hasPreferredName(user)) {
+        console.log("📝 Apple登录用户偏好称呼无效，弹出姓名输入框");
         setPendingEmail(user.email);
         setPendingPassword("");
         setShowNameInputModal(true);
@@ -200,9 +202,9 @@ export default function LoginScreen() {
 
       console.log("登录成功!", user);
 
-      // ✅ 检查姓名是否有效，如果无效则弹出输入框
-      if (!isValidUserName(user.name, user.email)) {
-        console.log("📝 Google登录用户姓名无效，弹出姓名输入框");
+      // ✅ 检查偏好称呼是否有效，如果无效则弹出输入框
+      if (!hasPreferredName(user)) {
+        console.log("📝 Google登录用户偏好称呼无效，弹出姓名输入框");
         setPendingEmail(user.email);
         setPendingPassword("");
         setShowNameInputModal(true);
@@ -328,7 +330,8 @@ export default function LoginScreen() {
       if (result.status === "SIGNED_IN") {
         const { user } = result;
 
-        if (!isValidUserName(user.name, user.email)) {
+        // ✅ 检查偏好称呼是否有效，如果无效则弹出输入框
+        if (!hasPreferredName(user)) {
           setPendingEmail(user.email || normalizedEmail);
           setPendingPassword(password);
           setShowNameInputModal(true);
@@ -414,9 +417,9 @@ export default function LoginScreen() {
       console.log("✅ 邮箱确认并登录成功!", user);
       setShowEmailVerificationModal(false);
 
-      // ✅ 检查姓名是否有效，如果无效则弹出输入框
-      if (!isValidUserName(user.name, user.email)) {
-        console.log("📝 邮箱注册用户姓名无效，弹出姓名输入框");
+      // ✅ 检查偏好称呼是否有效，如果无效则弹出输入框
+      if (!hasPreferredName(user)) {
+        console.log("📝 邮箱注册用户偏好称呼无效，弹出姓名输入框");
         setPendingEmail(user.email);
         setPendingPassword(verificationPassword);
         setShowNameInputModal(true);

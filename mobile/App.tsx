@@ -32,6 +32,7 @@ import { ensureNotificationChannel } from "./src/services/notificationService";
 import * as SecureStore from "expo-secure-store";
 import { ErrorBoundary } from "./src/components/ErrorBoundary";
 import * as Sentry from '@sentry/react-native';
+import * as Updates from 'expo-updates';
 
 Sentry.init({
   dsn: 'https://76689860c832af9ae294f1729a01a7e0@o4510687210962944.ingest.us.sentry.io/4510687420350464',
@@ -55,7 +56,7 @@ Sentry.init({
   environment: __DEV__ ? 'development' : 'production',
   
   // ✅ 添加版本信息
-  release: 'thankly@1.1.0',
+  release: 'thankly@1.2.0',
 });
 
 // ✅ 保持 splash screen，直到应用准备好再关闭
@@ -132,6 +133,85 @@ export default function App() {
     });
 
     return () => subscription.remove();
+  }, []);
+
+  // ✅ OTA Update Check (Production Only)
+  // This checks for updates on app launch and logs the result to Sentry for monitoring
+  useEffect(() => {
+    // Only check for updates in production builds (not in dev or Expo Go)
+    if (__DEV__ || !Updates.isEnabled) {
+      return;
+    }
+
+    const checkForUpdates = async () => {
+      try {
+        // Get current update info for logging
+        const updateInfo = {
+          updateId: Updates.updateId,
+          channel: Updates.channel,
+          runtimeVersion: Updates.runtimeVersion,
+          createdAt: Updates.createdAt,
+          isEmbeddedLaunch: Updates.isEmbeddedLaunch,
+        };
+
+        // Log current update state to Sentry
+        Sentry.setContext('update_info', updateInfo);
+
+        // Check for available updates
+        const checkResult = await Updates.checkForUpdateAsync();
+        
+        if (checkResult.isAvailable) {
+          console.log('[OTA] Update available, downloading...');
+          Sentry.captureMessage('OTA update available', {
+            level: 'info',
+            tags: { update_type: 'available' },
+            extra: {
+              manifest: checkResult.manifest,
+              updateInfo,
+            },
+          });
+
+          // Download the update
+          const fetchResult = await Updates.fetchUpdateAsync();
+          
+          if (fetchResult.isNew) {
+            console.log('[OTA] New update downloaded, will apply on next restart');
+            Sentry.captureMessage('OTA update downloaded', {
+              level: 'info',
+              tags: { update_type: 'downloaded' },
+              extra: {
+                manifest: fetchResult.manifest,
+                updateInfo,
+              },
+            });
+
+            // Apply update on next app restart
+            // Note: We don't auto-reload here to avoid disrupting user experience
+            // The update will be applied when the app is restarted
+          } else {
+            console.log('[OTA] Update downloaded but not new');
+          }
+        } else {
+          console.log('[OTA] No update available');
+          // Log to Sentry for monitoring (helps track if updates are being checked)
+          Sentry.setTag('update_check', 'no_update_available');
+        }
+      } catch (error: any) {
+        // Log update check failures to Sentry for debugging
+        console.error('[OTA] Update check failed:', error);
+        Sentry.captureException(error, {
+          tags: { update_type: 'check_failed' },
+          extra: {
+            errorMessage: error.message,
+            errorStack: error.stack,
+          },
+        });
+      }
+    };
+
+    // Check for updates after a short delay to not block app startup
+    const timeoutId = setTimeout(checkForUpdates, 2000);
+    return () => clearTimeout(timeoutId);
   }, []);
 
   useEffect(() => {

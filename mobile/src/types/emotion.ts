@@ -1,11 +1,12 @@
 export type EmotionType =
-  // 🌟 Positive Emotions (8)
+  // 🌟 Positive Emotions (9)
   | "Joyful"
   | "Grateful"
   | "Fulfilled" // ✅ 新增：充实 - 完成目标、获得成就
   | "Proud" // ✅ 更新翻译：欣慰（原：自豪）
   | "Surprised" // ✅ 新增：惊喜 - 不期而遇的美好
   | "Excited" // ✅ 新增：期待 - 对未来充满期待
+  | "Loved" // ✅ 新增：被爱着 - 感受到被珍惜、被关心
   | "Peaceful"
   | "Hopeful" // ✅ 新增：希望 - 对未来抱有希望
 
@@ -35,9 +36,9 @@ export interface EmotionConfig {
   darkText: boolean;
 }
 
-// 情绪配色表 - 🎨 温暖、简洁、沉稳的配色方案（2026-01-10 更新 v4 - 23个情绪，Reflective拆分为Thoughtful和Reflective）
+// 情绪配色表 - 🎨 温暖、简洁、沉稳的配色方案（2026-01-23 更新 v5 - 24个情绪，新增 Loved）
 export const EMOTION_MAP: Record<EmotionType, EmotionConfig> = {
-  // 🌟 Positive Emotions (8) - 温暖柔和的色调
+  // 🌟 Positive Emotions (9) - 温暖柔和的色调
   Joyful: {
     labelEn: "Joyful",
     labelZh: "喜悦",
@@ -74,6 +75,12 @@ export const EMOTION_MAP: Record<EmotionType, EmotionConfig> = {
     color: "#EAFA99",
     darkText: true,
   }, // ✅ 新增：柔和粉红 (改色自 #FFDAB3)
+  Loved: {
+    labelEn: "Loved",
+    labelZh: "被爱着",
+    color: "#FFD9E6",
+    darkText: true,
+  }, // ✅ 新增：柔和粉色（温暖的被爱感）
   Peaceful: {
     labelEn: "Peaceful",
     labelZh: "平静",

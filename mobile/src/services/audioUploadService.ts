@@ -1,5 +1,5 @@
 /**
- * ✅ 音频直传S3服务
+ * ✅ 音频直传S3服务（Expo SDK 54+ 兼容版）
  * 
  * 优化音频上传速度的专业解决方案
  * 
@@ -18,11 +18,16 @@
  * - 5分钟音频只需10-20秒
  * 
  * 速度提升: 50-70%
+ * 
+ * ✅ SDK 54 迁移说明:
+ * - 不再使用废弃的 createUploadTask()
+ * - 使用标准 XMLHttpRequest 实现上传
+ * - 使用 fetch() 读取本地文件内容
+ * - 完全可控的进度跟踪
  */
 
 import { API_BASE_URL } from "../config/aws-config";
 import { getAccessToken } from "./authService";
-import * as FileSystem from "expo-file-system";
 import apiService from "./apiService";
 
 /**
@@ -61,10 +66,11 @@ export async function getAudioPresignedUrl(
 /**
  * 直接上传音频文件到S3 (使用预签名URL)
  * 
- * 📚 学习点: 这是专业的大文件上传方案
- * - 使用XMLHttpRequest而不是fetch,因为需要监听上传进度
- * - 直接上传到S3,不经过Lambda
- * - 支持精确的进度回调 (1%, 2%, 3%...)
+ * ✅ SDK 54 新实现：
+ * - 使用 XMLHttpRequest 替代废弃的 createUploadTask()
+ * - 使用 fetch() 读取本地文件内容
+ * - 完全可控的进度跟踪
+ * - 不依赖 expo-file-system 的上传功能
  * 
  * @param audioUri - 本地音频文件URI
  * @param presignedUrl - S3预签名URL
@@ -84,58 +90,55 @@ export async function uploadAudioDirectToS3(
       console.log(`  - URI: ${audioUri}`);
       console.log(`  - Content-Type: ${contentType}`);
 
-      // 读取音频文件内容 - 使用 fetch 绕过 getInfoAsync 弃用问题
-      const response = await fetch(audioUri);
-      if (!response.ok) {
-        throw new Error("音频文件读取失败");
+      // ✅ Step 1: 使用 fetch 读取本地文件内容
+      console.log("📖 读取音频文件内容...");
+      const fileResponse = await fetch(audioUri);
+      if (!fileResponse.ok) {
+        throw new Error("无法读取音频文件");
       }
-      const blob = await response.blob();
-      const fileSize = blob.size;
-      const fileSizeMB = (fileSize / (1024 * 1024)).toFixed(2);
-      console.log(`  - 文件大小: ${fileSizeMB}MB (${fileSize} bytes)`);
+      const blob = await fileResponse.blob();
+      console.log(`  - 文件大小: ${(blob.size / 1024 / 1024).toFixed(2)} MB`);
 
-      // 使用XMLHttpRequest进行上传 (支持进度监听)
+      // ✅ Step 2: 使用 XMLHttpRequest 上传（支持进度跟踪）
       const xhr = new XMLHttpRequest();
 
       // 监听上传进度
-      xhr.upload.addEventListener("progress", (event) => {
+      xhr.upload.onprogress = (event) => {
         if (event.lengthComputable && onProgress) {
-          const progress = Math.round((event.loaded / event.total) * 100);
-          onProgress(progress);
-          console.log(`📊 上传进度: ${progress}% (${event.loaded}/${event.total} bytes)`);
+          const percent = Math.round((event.loaded / event.total) * 100);
+          onProgress(percent);
+          console.log(
+            `📊 上传进度: ${percent}% (${event.loaded}/${event.total} bytes)`
+          );
         }
-      });
+      };
 
       // 监听上传完成
-      xhr.addEventListener("load", () => {
+      xhr.onload = () => {
         if (xhr.status === 200) {
           console.log("✅ 音频直传S3成功");
-          if (onProgress) {
-            onProgress(100);
-          }
+          onProgress?.(100);
           resolve();
         } else {
           reject(new Error(`S3上传失败: HTTP ${xhr.status}`));
         }
-      });
+      };
 
       // 监听上传错误
-      xhr.addEventListener("error", () => {
-        reject(new Error("网络错误: 上传失败"));
-      });
+      xhr.onerror = () => {
+        reject(new Error("网络错误，上传失败"));
+      };
 
-      // 监听上传超时
-      xhr.addEventListener("timeout", () => {
-        reject(new Error("上传超时"));
-      });
+      // 监听上传中断
+      xhr.onabort = () => {
+        reject(new Error("上传已取消"));
+      };
 
-      // 配置请求
-      xhr.open("PUT", presignedUrl, true);
+      // 配置并发送请求
+      xhr.open("PUT", presignedUrl);
       xhr.setRequestHeader("Content-Type", contentType);
-      xhr.timeout = 5 * 60 * 1000; // 5分钟超时
-
-      // 开始上传
       xhr.send(blob);
+
     } catch (error: any) {
       console.error("❌ 音频直传S3失败:", error);
       reject(error);
@@ -167,52 +170,30 @@ export async function uploadAudioAndCreateTask(
   console.log("🎤 优化版音频上传流程启动");
   
   try {
-    // 第1步 & 第2步并行准备: 获取预签名URL 和 准备文件
-    console.log("📋 步骤1: 正在并行获取预签名URL和准备音频文件...");
+    // 第1步: 获取预签名URL
+    console.log("📋 步骤1: 获取预签名URL...");
     const startTime = Date.now();
     
-    // ✅ 并行执行：1. 获取URL, 2. 读取文件Blob (读取大文件需要时间)
-    const [presignedData, blob] = await Promise.all([
-      getAudioPresignedUrl("recording.m4a", "audio/m4a"),
-      (async () => {
-        const response = await fetch(audioUri);
-        if (!response.ok) throw new Error("音频文件读取失败");
-        return await response.blob();
-      })()
-    ]);
+    const presignedData = await getAudioPresignedUrl("recording.m4a", "audio/m4a");
     
-    console.log(`✅ 准备就绪: URL已获取, 文件已转换为Blob (耗时: ${((Date.now() - startTime)/1000).toFixed(2)}s)`);
+    console.log(
+      `✅ 准备就绪: URL已获取 (耗时: ${(
+        (Date.now() - startTime) / 1000
+      ).toFixed(2)}s)`
+    );
 
-    // 第3步: 直接上传音频到S3
+    // 第2步: 直接上传音频到S3（使用新的 XMLHttpRequest 实现）
     console.log("📤 步骤2: 直传音频到S3...");
     const uploadStartTime = Date.now();
     
-    await new Promise<void>((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.upload.addEventListener("progress", (event) => {
-        if (event.lengthComputable && onUploadProgress) {
-          const progress = Math.round((event.loaded / event.total) * 100);
-          onUploadProgress(progress);
-        }
-      });
-      xhr.addEventListener("load", () => {
-        if (xhr.status === 200) {
-          onUploadProgress?.(100);
-          resolve();
-        } else {
-          reject(new Error(`S3上传失败: ${xhr.status}`));
-        }
-      });
-      xhr.addEventListener("error", () => reject(new Error("网络错误")));
-      xhr.open("PUT", presignedData.presigned_url, true);
-      xhr.setRequestHeader("Content-Type", "audio/m4a");
-      xhr.send(blob);
-    });
+    await uploadAudioDirectToS3(
+      audioUri,
+      presignedData.presigned_url,
+      "audio/m4a",
+      onUploadProgress
+    );
     
     console.log(`✅ 音频上传完成 (耗时${((Date.now() - uploadStartTime) / 1000).toFixed(1)}秒)`);
-    
-    const uploadTime = ((Date.now() - startTime) / 1000).toFixed(1);
-    console.log(`✅ 音频上传完成 (耗时${uploadTime}秒)`);
 
     // 第3步: 创建语音日记任务 (使用final_url,不再上传音频)
     console.log("📝 步骤3: 创建语音日记任务...");
@@ -223,16 +204,16 @@ export async function uploadAudioAndCreateTask(
     }
 
     // 获取用户名字
-    const { getCurrentUser } = await import("./authService");
-    const currentUser = await getCurrentUser();
-    const userName = currentUser?.name?.trim();
+    const { getCurrentUser, getPreferredName } = await import("./authService");
+    const preferredName = await getPreferredName();
 
     const headers: Record<string, string> = {
       Authorization: `Bearer ${accessToken}`,
     };
 
-    if (userName) {
-      headers["X-User-Name"] = userName;
+    if (preferredName) {
+      headers["X-User-Name"] = preferredName;
+      console.log(`📤 通过请求头传递用户偏好称呼: ${preferredName}`);
     }
 
     // 创建FormData (只传元数据,不传音频文件)
@@ -276,18 +257,21 @@ export async function uploadAudioAndCreateTask(
 }
 
 /**
- * 检查音频文件大小
+ * 获取音频文件大小
+ * 
+ * ✅ SDK 54 新实现：使用 fetch + blob.size
  * 
  * @param audioUri - 音频文件URI
- * @returns 文件大小(字节)
+ * @returns 文件大小(字节)，失败返回0
  */
 export async function getAudioFileSize(audioUri: string): Promise<number> {
   try {
-    const fileInfo = await FileSystem.getInfoAsync(audioUri, { size: true } as any);
-    if (!fileInfo.exists) {
-      throw new Error("音频文件不存在");
+    const response = await fetch(audioUri);
+    if (!response.ok) {
+      throw new Error("文件不存在");
     }
-    return typeof fileInfo.size === "number" ? fileInfo.size : 0;
+    const blob = await response.blob();
+    return blob.size;
   } catch (error) {
     console.warn("⚠️ 无法获取音频文件大小:", error);
     return 0;

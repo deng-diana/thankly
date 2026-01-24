@@ -55,8 +55,11 @@ import * as SecureStore from "expo-secure-store";
 import RecordingModal from "../components/RecordingModal";
 import TextInputModal from "../components/TextInputModal";
 import ImageDiaryModal from "../components/ImageDiaryModal";
+// ✅ 已删除：NameInputModal 导入（不再需要老用户强制弹窗）
 import { EmotionCapsule } from "../components/EmotionCapsule"; // ✅ 导入情绪标签
 import { EmotionGlow } from "../components/EmotionGlow"; // ✅ 导入光晕效果
+import HappinessBanner from "../components/HappinessBanner"; // ✅ 幸福罐 Banner
+import { isHappyEmotion } from "../constants/happinessEmotions"; // ✅ 幸福情绪辅助函数
 
 // ============================================================================
 // 🌍 导入翻译函数
@@ -69,6 +72,7 @@ import {
   User,
   signOut,
   startAutoRefresh,
+  getPreferredName, // ✅ 保留：用于获取用户偏好称呼显示问候语
 } from "../services/authService";
 import { handleAuthErrorOnly } from "../utils/errorHandler";
 import {
@@ -86,6 +90,7 @@ import {
   useNavigation,
   useFocusEffect,
   DrawerActions,
+  useRoute,
 } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/AppNavigator";
@@ -115,6 +120,9 @@ export default function DiaryListScreen() {
   // ✅ 添加navigation
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  
+  // ✅ 获取路由参数（用于触发 greeting 刷新）
+  const route = useRoute();
 
   // 获取 Typography 样式（动态字体）
   const typography = getTypography();
@@ -128,6 +136,11 @@ export default function DiaryListScreen() {
 
   // 日记列表
   const [diaries, setDiaries] = useState<Diary[]>([]);
+
+  // ✅ 幸福日记列表（用于幸福罐 Banner）
+  const happyDiaries = React.useMemo(() => {
+    return diaries.filter((d) => isHappyEmotion(d.emotion_data?.emotion));
+  }, [diaries]);
 
   // 加载状态
   const [loading, setLoading] = useState(false);
@@ -189,6 +202,8 @@ export default function DiaryListScreen() {
   const [isSearching, setIsSearching] = useState(false);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // ✅ 已删除：showNamePromptForExistingUser 状态（不再需要老用户强制弹窗）
+
   /**
    * 录音成功回调
    */
@@ -226,6 +241,29 @@ export default function DiaryListScreen() {
     loadGreeting();
   }, [user]); // 当用户信息变化时重新加载问候语
 
+  // ✅ 监听页面焦点，当从汉堡菜单返回时重新加载 greeting
+  useFocusEffect(
+    React.useCallback(() => {
+      loadGreeting();
+    }, [])
+  );
+
+  // ✅ 监听导航参数变化（从汉堡菜单更新名字后触发）
+  useEffect(() => {
+    const params = route.params as any;
+    if (params?.refreshGreeting) {
+      console.log("🔄 收到刷新 greeting 指令，立即刷新");
+      loadGreeting();
+    }
+    // ✅ 如果有 Toast 消息，显示 Toast
+    if (params?.showSuccessToast) {
+      showToast(params.showSuccessToast);
+    }
+  }, [route.params]);
+
+  // ✅ 已删除：老用户强制弹窗逻辑（用户体验不好）
+  // 老用户可以通过汉堡菜单主动修改偏好称呼
+
   async function loadGreeting() {
     // 检测用户语言
     const locales = Localization.getLocales();
@@ -237,11 +275,12 @@ export default function DiaryListScreen() {
 
     console.log("📍 用户语言:", userLocale, "→ 使用:", language);
 
-    // 获取用户姓名（用于替换占位符）
+    // ✅ 获取用户偏好称呼（优先使用 preferredName）
     let displayName = "";
-    if (user?.name && user.name.length > 0) {
+    const preferredName = await getPreferredName();
+    if (preferredName && preferredName.length > 0) {
       // 提取名字（去掉可能的空格和特殊字符，只取第一个词）
-      const firstName = user.name.trim().split(/\s+/)[0];
+      const firstName = preferredName.trim().split(/\s+/)[0];
       // 如果名字不是从邮箱提取的默认值（长度大于1且不是纯数字），则使用
       if (firstName.length > 1 && !/^[0-9]+$/.test(firstName)) {
         displayName = firstName;
@@ -1167,6 +1206,18 @@ export default function DiaryListScreen() {
         </View>
       </View>
 
+      {/* ✅ 幸福罐 Banner - 只在有幸福日记时显示（放在分割线上方） */}
+      {happyDiaries.length > 0 && (
+        <HappinessBanner
+          count={happyDiaries.length}
+          onPress={() => {
+            navigation.navigate("HappinessJar" as any, {
+              diaries: happyDiaries,
+            });
+          }}
+        />
+      )}
+
       {/* 分割线 - 始终显示，作为顶部区域的结尾 */}
       <View style={styles.divider} />
 
@@ -1761,6 +1812,8 @@ export default function DiaryListScreen() {
         onClose={() => setImagePreviewVisible(false)}
       />
 
+      {/* ✅ 已删除：老用户偏好称呼弹窗（体验不好，改为让用户主动去汉堡菜单修改） */}
+
       {/* iOS 轻量 Toast 提示 - 使用全屏容器确保居中 */}
       {Platform.OS === "ios" && toastVisible && (
         <View style={styles.toastOverlay} pointerEvents="none">
@@ -1946,8 +1999,8 @@ const styles = StyleSheet.create({
   divider: {
     height: 1,
     backgroundColor: "#F2E2C3",
-    marginTop: 24,
-    marginBottom: 8,
+  
+    marginBottom: 0, // ✅ 距离下方16px（设计稿要求）
   },
 
   greetingContainer: {

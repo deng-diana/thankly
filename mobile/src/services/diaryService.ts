@@ -147,15 +147,14 @@ export async function createTextDiary(
 ): Promise<Diary> {
   console.log("📝 创建文字日记");
   
-  // ✅ 获取用户名字并传递到请求头（与语音日记和图片日记保持一致）
-  const { getCurrentUser } = await import("./authService");
-  const currentUser = await getCurrentUser();
-  const userName = currentUser?.name?.trim();
+  // ✅ 获取用户偏好称呼并传递到请求头（与语音日记和图片日记保持一致）
+  const { getPreferredName } = await import("./authService");
+  const preferredName = await getPreferredName();
   
   const headers: Record<string, string> = {};
-  if (userName) {
-    headers["X-User-Name"] = userName;
-    console.log(`📤 通过请求头传递用户名字: ${userName}`);
+  if (preferredName) {
+    headers["X-User-Name"] = preferredName;
+    console.log(`📤 通过请求头传递用户偏好称呼: ${preferredName}`);
   }
   
   const response = await apiService.post<Diary>("/diary/text", {
@@ -233,15 +232,14 @@ export async function createImageOnlyDiary(
       requestBody.content = content.trim();
     }
 
-    // ✅ 获取用户名字并传递到请求头（与文字日记和语音日记保持一致）
-    const { getCurrentUser } = await import("./authService");
-    const currentUser = await getCurrentUser();
-    const userName = currentUser?.name?.trim();
+    // ✅ 获取用户偏好称呼并传递到请求头（与文字日记和语音日记保持一致）
+    const { getPreferredName } = await import("./authService");
+    const preferredName = await getPreferredName();
 
     const headers: Record<string, string> = {};
-    if (userName) {
-      headers["X-User-Name"] = userName;
-      console.log(`📤 通过请求头传递用户名字: ${userName}`);
+    if (preferredName) {
+      headers["X-User-Name"] = preferredName;
+      console.log(`📤 通过请求头传递用户偏好称呼: ${preferredName}`);
     }
 
     const response = await apiService.post<Diary>("/diary/image-only", {
@@ -288,8 +286,8 @@ export async function uploadDiaryImages(
     let token = await getAccessToken();
     if (!token) {
       console.log("🔄 Token 不存在，尝试刷新...");
-      await refreshAccessToken();
-      token = await getAccessToken();
+      // ✅ 直接使用返回的新 Token
+      token = await refreshAccessToken();
       if (!token) {
         throw new Error("未登录，请先登录");
       }
@@ -326,8 +324,8 @@ export async function uploadDiaryImages(
       // Handle token refresh
       if (presignedResponse.status === 401) {
         console.log("🔄 Token 过期，刷新后重试...");
-        await refreshAccessToken();
-        const newToken = await getAccessToken();
+        // ✅ 直接使用返回的新 Token
+        const newToken = await refreshAccessToken();
 
         if (!newToken) {
           throw new Error("登录已过期，请重新登录");
@@ -470,10 +468,9 @@ export async function createVoiceDiary(
       throw new Error("未登录");
     }
 
-    // ✅ 获取用户名字（从本地存储）
-    const { getCurrentUser } = await import("./authService");
-    const currentUser = await getCurrentUser();
-    const userName = currentUser?.name?.trim();
+    // ✅ 获取用户偏好称呼（从本地存储）
+    const { getPreferredName } = await import("./authService");
+    const preferredName = await getPreferredName();
 
     // 发送请求的封装（方便重试）
     const sendWithToken = async (token: string) => {
@@ -481,10 +478,10 @@ export async function createVoiceDiary(
         Authorization: `Bearer ${token}`,
       };
 
-      // ✅ 如果JWT token中没有名字，通过请求头传递（作为备用方案）
-      if (userName) {
-        headers["X-User-Name"] = userName;
-        console.log(`📤 通过请求头传递用户名字: ${userName}`);
+      // ✅ 如果JWT token中没有名字，通过请求头传递偏好称呼（作为备用方案）
+      if (preferredName) {
+        headers["X-User-Name"] = preferredName;
+        console.log(`📤 通过请求头传递用户偏好称呼: ${preferredName}`);
       }
 
       const resp = await fetch(`${API_BASE_URL}/diary/voice`, {
@@ -502,8 +499,8 @@ export async function createVoiceDiary(
     if (response.status === 401) {
       console.log("🔄 语音上传遇到401，尝试刷新token后重试...");
       try {
-        await refreshAccessToken();
-        const newToken = await getAccessToken();
+        // ✅ 直接使用返回的新 Token
+        const newToken = await refreshAccessToken();
         if (!newToken) {
           throw new Error("刷新后无法获取新token");
         }
@@ -586,13 +583,14 @@ async function checkAudioFileSize(
   duration: number
 ): Promise<number> {
   try {
-    const fileInfo = await FileSystem.getInfoAsync(audioUri, { size: true } as any);
-    
-    if (!fileInfo.exists) {
+    // ✅ 修复：使用 fetch 替代废弃的 getInfoAsync
+    const response = await fetch(audioUri);
+    if (!response.ok) {
       throw new Error("音频文件不存在");
     }
+    const blob = await response.blob();
+    const sizeBytes = blob.size;
     
-    const sizeBytes = typeof fileInfo.size === "number" ? fileInfo.size : 0;
     const sizeMB = (sizeBytes / (1024 * 1024)).toFixed(2);
     const sizeKB = (sizeBytes / 1024).toFixed(2);
     
@@ -750,18 +748,17 @@ export async function createVoiceDiaryTask(
       throw new Error("未登录");
     }
 
-    // 获取用户名字
-    const { getCurrentUser } = await import("./authService");
-    const currentUser = await getCurrentUser();
-    const userName = currentUser?.name?.trim();
+    // 获取用户偏好称呼
+    const { getPreferredName } = await import("./authService");
+    const preferredName = await getPreferredName();
 
     // 第3步：创建任务（发送到异步端点）
     const headers: Record<string, string> = {
       Authorization: `Bearer ${accessToken}`,
     };
 
-    if (userName) {
-      headers["X-User-Name"] = userName;
+    if (preferredName) {
+      headers["X-User-Name"] = preferredName;
     }
 
     console.log("📤 开始上传音频文件到服务器...");
@@ -810,8 +807,8 @@ export async function createVoiceDiaryTask(
     // 处理401错误（token过期）
     if (createResponse.status === 401) {
       console.log("🔄 Token过期，尝试刷新...");
-      await refreshAccessToken();
-      const newToken = await getAccessToken();
+      // ✅ 直接使用返回的新 Token
+      const newToken = await refreshAccessToken();
       if (!newToken) {
         throw new Error("登录已过期，请重新登录");
       }
@@ -923,18 +920,17 @@ export async function createVoiceDiaryStream(
       throw new Error("未登录");
     }
 
-    // 获取用户名字
-    const { getCurrentUser } = await import("./authService");
-    const currentUser = await getCurrentUser();
-    const userName = currentUser?.name?.trim();
+    // 获取用户偏好称呼
+    const { getPreferredName } = await import("./authService");
+    const preferredName = await getPreferredName();
 
     // 第3步：创建任务（发送到异步端点）
     const headers: Record<string, string> = {
       Authorization: `Bearer ${accessToken}`,
     };
 
-    if (userName) {
-      headers["X-User-Name"] = userName;
+    if (preferredName) {
+      headers["X-User-Name"] = preferredName;
     }
 
     console.log("📤 开始上传音频文件到服务器...");
@@ -983,8 +979,8 @@ export async function createVoiceDiaryStream(
     // 处理401错误（token过期）
     if (createResponse.status === 401) {
       console.log("🔄 Token过期，尝试刷新...");
-      await refreshAccessToken();
-      const newToken = await getAccessToken();
+      // ✅ 直接使用返回的新 Token
+      const newToken = await refreshAccessToken();
       if (!newToken) {
         throw new Error("登录已过期，请重新登录");
       }

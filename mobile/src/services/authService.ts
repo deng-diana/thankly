@@ -27,6 +27,7 @@ export interface User {
   id: string; // 用户唯一ID
   email: string; // 邮箱
   name: string; // 姓名
+  preferredName?: string; // 用户偏好称呼
   provider: "apple" | "google" | "username"; // 登录方式
   idToken: string; // JWT Token
   accessToken?: string; // Cognito Access Token
@@ -118,11 +119,17 @@ export async function signInWithApple(): Promise<User> {
       identityToken
     );
 
+    // ✅ 从 Cognito idToken 获取 preferred_username
+    const idTokenInfo = parseJWT(cognitoTokenData.idToken);
+    const preferredNameFromCognito =
+      idTokenInfo.preferred_username || idTokenInfo.name || "";
+
     // 第5步: 构造用户信息
     const user: User = {
       id: credential.user,
       email: credential.email || tokenInfo.email || "",
-      name: userName,
+      name: preferredNameFromCognito || userName,
+      preferredName: preferredNameFromCognito || undefined,
       provider: "apple",
       idToken: cognitoTokenData.idToken,
       accessToken: cognitoTokenData.accessToken,
@@ -141,7 +148,6 @@ export async function signInWithApple(): Promise<User> {
     // ✅ 调试：检查token过期时间
     try {
       const accessTokenInfo = parseJWT(cognitoTokenData.accessToken);
-      const idTokenInfo = parseJWT(cognitoTokenData.idToken);
 
       console.log("🔍 Access Token 信息:", {
         exp: accessTokenInfo.exp,
@@ -361,10 +367,18 @@ export async function signInWithGoogle(): Promise<User> {
 
     console.log("🔍 pictureUrl:", pictureUrl);
 
+    const preferredNameFromCognito = userInfo.preferred_username || "";
+    const resolvedName =
+      preferredNameFromCognito ||
+      userInfo.name ||
+      userInfo.email?.split("@")[0] ||
+      "Google用户";
+
     const user: User = {
       id: userInfo.sub,
       email: userInfo.email || "",
-      name: userInfo.name || userInfo.email?.split("@")[0] || "Google用户",
+      name: resolvedName,
+      preferredName: preferredNameFromCognito || undefined,
       provider: "google",
       idToken: tokens.idToken,
       accessToken: tokens.accessToken,
@@ -628,8 +642,19 @@ export function parseJWT(token: string): any {
  */
 export async function saveUser(user: User): Promise<void> {
   try {
+    // 保留已存在的 preferredName（避免被登录流程覆盖）
+    let preferredName = user.preferredName;
+    if (!preferredName) {
+      const existingUser = await getCurrentUser();
+      preferredName = existingUser?.preferredName;
+    }
+
+    const userToSave = preferredName
+      ? { ...user, preferredName }
+      : user;
+
     // 保存完整用户信息（包括所有tokens）
-    await SecureStore.setItemAsync("user", JSON.stringify(user));
+    await SecureStore.setItemAsync("user", JSON.stringify(userToSave));
     await SecureStore.setItemAsync("idToken", user.idToken);
 
     // 保存 Cognito tokens（如果存在）
@@ -650,22 +675,68 @@ export async function saveUser(user: User): Promise<void> {
  * 更新 Cognito 用户的姓名属性
  * @param name 用户姓名
  */
+/**
+ * 更新用户姓名（同步更新 Cognito name 和 preferred_username）
+ * 
+ * ✅ 生产级 Token 刷新逻辑：
+ * 1. 使用最新的 accessToken 发起请求
+ * 2. 如果 401，自动刷新并直接使用返回的新 Token（避免 SecureStore 延迟）
+ * 3. 重试请求
+ */
 export async function updateUserName(name: string): Promise<void> {
   try {
-    const currentUser = await getCurrentUser();
-    if (!currentUser || !currentUser.accessToken) {
+    // ✅ 第一步：获取当前 accessToken
+    let accessToken = await getAccessToken();
+    if (!accessToken) {
       throw new Error("用户未登录或缺少访问令牌");
     }
 
-    const response = await fetch(`${API_BASE_URL}/auth/user/name`, {
+    console.log("🔐 使用 accessToken 更新用户名:", name);
+
+    // ✅ 第二步：第一次尝试
+    let response = await fetch(`${API_BASE_URL}/auth/user/name`, {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${currentUser.accessToken}`,
+        Authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify({ name }),
     });
 
+    console.log(`📡 更新响应: ${response.status}`);
+
+    // ✅ 第三步：如果 401（Token 过期），自动刷新后重试
+    if (response.status === 401) {
+      console.log("🔄 Token 过期，自动刷新后重试...");
+      
+      try {
+        // ✅ 刷新并直接获取新 Token（避免二次读取 SecureStore）
+        const newAccessToken = await refreshAccessToken();
+        
+        if (!newAccessToken) {
+          throw new Error("Token 刷新后仍无法获取访问令牌");
+        }
+
+        console.log("✅ 使用刷新后的新 Token 重试");
+
+        // ✅ 使用新 Token 重试请求
+        response = await fetch(`${API_BASE_URL}/auth/user/name`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${newAccessToken}`,
+          },
+          body: JSON.stringify({ name }),
+        });
+
+        console.log(`📡 重试响应: ${response.status}`);
+      } catch (refreshError: any) {
+        console.error("❌ Token 刷新失败:", refreshError);
+        throw new Error("登录已过期，请重新登录");
+      }
+    }
+
+    // ✅ 第四步：检查响应
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       throw new Error(errorData.detail || `更新失败: ${response.status}`);
@@ -674,14 +745,35 @@ export async function updateUserName(name: string): Promise<void> {
     const data = await response.json();
     console.log("✅ Cognito 用户姓名更新成功:", data);
 
-    // ✅ 更新本地存储的用户信息
-    const updatedUser = { ...currentUser, name: name };
-    await saveUser(updatedUser);
-    console.log("✅ 本地用户信息已更新:", name);
+    // ✅ 第五步：更新本地存储的用户信息
+    const currentUser = await getCurrentUser();
+    if (currentUser) {
+      const updatedUser = { ...currentUser, name, preferredName: name };
+      await saveUser(updatedUser);
+      console.log("✅ 本地用户信息已更新:", name);
+    }
   } catch (error: any) {
     console.error("❌ 更新 Cognito 用户姓名失败:", error);
     throw error;
   }
+}
+
+/**
+ * 获取用户偏好称呼（优先使用 preferredName）
+ */
+export async function getPreferredName(): Promise<string | null> {
+  const user = await getCurrentUser();
+  if (!user) return null;
+  const preferred = user.preferredName?.trim();
+  if (preferred) return preferred;
+  return user.name?.trim() || null;
+}
+
+/**
+ * 是否已设置偏好称呼
+ */
+export function hasPreferredName(user: User | null): boolean {
+  return !!user?.preferredName?.trim();
 }
 
 /**
@@ -811,8 +903,10 @@ export async function getAccessToken(): Promise<string | null> {
 
 /**
  * 刷新Access Token（增强版 - 带重试和超时控制）
+ * 
+ * ✅ 返回新的 accessToken，避免二次读取 SecureStore 导致的延迟问题
  */
-export async function refreshAccessToken(): Promise<void> {
+export async function refreshAccessToken(): Promise<string> {
   const MAX_RETRIES = 3;
   const TIMEOUT = 10000; // 10秒超时
 
@@ -874,15 +968,19 @@ export async function refreshAccessToken(): Promise<void> {
         throw new Error("INVALID_TOKENS");
       }
 
-      // 保存新的tokens
-      await SecureStore.setItemAsync("accessToken", tokens.accessToken);
-      await SecureStore.setItemAsync("idToken", tokens.idToken);
-      if (tokens.refreshToken) {
-        await SecureStore.setItemAsync("refreshToken", tokens.refreshToken);
-      }
+      // ✅ 保存新的tokens（并行写入，提高性能）
+      await Promise.all([
+        SecureStore.setItemAsync("accessToken", tokens.accessToken),
+        SecureStore.setItemAsync("idToken", tokens.idToken),
+        tokens.refreshToken
+          ? SecureStore.setItemAsync("refreshToken", tokens.refreshToken)
+          : Promise.resolve(),
+      ]);
 
       console.log("✅ Token刷新成功");
-      return; // 成功，退出循环
+      
+      // ✅ 直接返回新的 accessToken，避免二次读取
+      return tokens.accessToken;
     } catch (error: any) {
       console.log(`⚠️ 第${attempt}次刷新失败:`, error.message);
 
@@ -903,6 +1001,9 @@ export async function refreshAccessToken(): Promise<void> {
       await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
     }
   }
+  
+  // ✅ 如果所有重试都失败，抛出错误
+  throw new Error("REFRESH_FAILED_MAX_RETRIES");
 }
 
 /**
@@ -1001,12 +1102,17 @@ export async function emailLoginOrSignUp(
     if (data.status === "SIGNED_IN") {
       // 登录成功，保存tokens
       const userInfo = parseJWT(data.idToken);
+      const preferredNameFromCognito = userInfo.preferred_username || "";
 
       const user: User = {
         id: userInfo.sub,
         email: userInfo.email || email,
         name:
-          userInfo.name || userInfo.email?.split("@")[0] || email.split("@")[0],
+          preferredNameFromCognito ||
+          userInfo.name ||
+          userInfo.email?.split("@")[0] ||
+          email.split("@")[0],
+        preferredName: preferredNameFromCognito || undefined,
         provider: "username",
         idToken: data.idToken,
         accessToken: data.accessToken,
@@ -1082,12 +1188,17 @@ export async function emailConfirmAndLogin(
 
     // 解析idToken获取用户信息
     const userInfo = parseJWT(data.idToken);
+    const preferredNameFromCognito = userInfo.preferred_username || "";
 
     const user: User = {
       id: userInfo.sub,
       email: userInfo.email || email,
       name:
-        userInfo.name || userInfo.email?.split("@")[0] || email.split("@")[0],
+        preferredNameFromCognito ||
+        userInfo.name ||
+        userInfo.email?.split("@")[0] ||
+        email.split("@")[0],
+      preferredName: preferredNameFromCognito || undefined,
       provider: "username",
       idToken: data.idToken,
       accessToken: data.accessToken,
@@ -1173,11 +1284,17 @@ export async function signInWithUsernamePassword(
 
     // 解析idToken获取用户信息
     const userInfo = parseJWT(data.idToken);
+    const preferredNameFromCognito = userInfo.preferred_username || "";
 
     const user: User = {
       id: userInfo.sub,
       email: userInfo.email || "",
-      name: userInfo.name || userInfo.email?.split("@")[0] || username,
+      name:
+        preferredNameFromCognito ||
+        userInfo.name ||
+        userInfo.email?.split("@")[0] ||
+        username,
+      preferredName: preferredNameFromCognito || undefined,
       provider: "username",
       idToken: data.idToken,
       accessToken: data.accessToken,
@@ -1245,11 +1362,13 @@ export async function signUp(
 
     // 解析idToken获取用户信息
     const userInfo = parseJWT(data.idToken);
+    const preferredNameFromCognito = userInfo.preferred_username || "";
 
     const user: User = {
       id: userInfo.sub,
       email: userInfo.email || email,
-      name: userInfo.name || username,
+      name: preferredNameFromCognito || userInfo.name || username,
+      preferredName: preferredNameFromCognito || undefined,
       provider: "username",
       idToken: data.idToken,
       accessToken: data.accessToken,
@@ -1369,11 +1488,13 @@ export async function verifyPhoneCode(
 
     // 解析idToken获取用户信息
     const userInfo = parseJWT(data.idToken);
+    const preferredNameFromCognito = userInfo.preferred_username || "";
 
     const user: User = {
       id: userInfo.sub,
       email: userInfo.email || "",
-      name: userInfo.name || phoneNumber,
+      name: preferredNameFromCognito || userInfo.name || phoneNumber,
+      preferredName: preferredNameFromCognito || undefined,
       provider: "username",
       idToken: data.idToken,
       accessToken: data.accessToken,
@@ -1496,11 +1617,13 @@ export async function verifyPhoneLoginCode(
 
     // 解析idToken获取用户信息
     const userInfo = parseJWT(data.idToken);
+    const preferredNameFromCognito = userInfo.preferred_username || "";
 
     const user: User = {
       id: userInfo.sub,
       email: userInfo.email || "",
-      name: userInfo.name || phoneNumber,
+      name: preferredNameFromCognito || userInfo.name || phoneNumber,
+      preferredName: preferredNameFromCognito || undefined,
       provider: "username",
       idToken: data.idToken,
       accessToken: data.accessToken,

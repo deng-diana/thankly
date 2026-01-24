@@ -89,9 +89,11 @@ export default {
     resendCode: "Resend code",
     verifyAndLogin: "Verify",
     namePrompt: {
-      title: "What should we call you?",
-      placeholder: "Your name or a nickname",
-      continue: "Continue",
+      title: "What should we call you?", // ✅ 更轻松、更自然的表达
+      placeholder: "Your name or nickname",
+      helper:
+        "This name will be used in greetings and AI responses. You can change it anytime.",
+      continue: "Confirm",
     },
     codeSent: "Code Sent",
     codeSentMessage: "Verification code has been sent to your phone",
@@ -167,7 +169,20 @@ export default {
     privacyPolicy: "Privacy Policy",
     termsOfService: "Terms of Service",
     reminderSettings: "Daily Reminder",
+    namePreference: "How should we call you?",
     deleteAccount: "Delete Account",
+  },
+
+  // Happiness Jar (幸福罐)
+  happinessJar: {
+    bannerTitle: "Revisit your Happiness Jar",
+    bannerTitleHighlight: "Happiness",
+    bannerSubtitle: "{{count}} moments that brighten your days",
+    pageTitle: "Happiness Moment",
+    pageSubtitle: "Collected {{count}} moments of joy",
+    emptyMessage: "No happiness moments yet",
+    headerTitle: "Moments that made you smile",
+    headerDescription: "Come back whenever you need a little warmth.",
   },
 
   // Search功能
@@ -229,6 +244,7 @@ export default {
     emptyContentToast: "Nothing yet, write a few words first 💭",
     needMoreChars: "Need at least ",
     moreChars: " more characters",
+    maxCharactersHint: "Maximum 2000 characters", // ✅ 新增：最大字数提示
   },
 
   // Image diary
@@ -243,6 +259,7 @@ export default {
     selectImage: "Add photos",
     takePhoto: "Take a Picture",
     selectFromAlbum: "Select from Album",
+    maxCharactersHint: "Maximum 2000 characters", // ✅ 新增：最大字数提示
   },
 
   // 日记通用（创建后的结果页面）
@@ -344,6 +361,7 @@ export default {
     copied: "✅ Copied",
     diaryCreated: "✅ Gratitude moment saved",
     accountDeleted: "✅ Account deleted",
+    nameUpdated: "✅ Name updated successfully", // ✅ 新增：名字更新成功
   },
 
   // 确认对话框

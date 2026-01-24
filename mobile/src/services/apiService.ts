@@ -206,12 +206,11 @@ class APIService {
           try {
             const { refreshAccessToken } = await import("./authService");
 
-            // 刷新token（内置重试机制）
-            await refreshAccessToken();
+            // ✅ 刷新token并直接使用返回的新 Token
+            const newToken = await refreshAccessToken();
             console.log("✅ Token刷新成功，自动重试请求");
 
-            // 重新获取新token
-            const newToken = await getAccessToken();
+            // ✅ 验证新 Token
             if (!newToken) {
               console.log("⚠️ 刷新后无法获取token");
               this.triggerAuthExpired();

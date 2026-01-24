@@ -18,9 +18,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { t } from "../i18n";
 import { getTypography, getFontFamilyForText } from "../styles/typography";
 import AvatarDefault from "../assets/icons/avatar-default.svg";
-import { getCurrentUser, signOut, type User } from "../services/authService";
+import { getCurrentUser, signOut, type User, hasPreferredName, getPreferredName, updateUserName } from "../services/authService";
 import { deleteAccount } from "../services/accountService";
 import { navigationRef } from "../navigation/navigationRef";
+import NameInputModal from "./NameInputModal"; // ✅ 新增：用户偏好称呼输入
 import pkg from "../../package.json";
 
 const VERSION = pkg.version;
@@ -30,6 +31,7 @@ export default function AppDrawerContent(props: DrawerContentComponentProps) {
   const typography = getTypography();
   const [user, setUser] = useState<User | null>(null);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const [showNameEditModal, setShowNameEditModal] = useState(false); // ✅ 新增：偏好称呼编辑弹窗
 
   useEffect(() => {
     getCurrentUser()
@@ -231,6 +233,34 @@ export default function AppDrawerContent(props: DrawerContentComponentProps) {
 
       <View style={styles.divider} />
 
+      {/* ✅ 新增：称呼偏好菜单项（位于 Daily Reminder 上方） */}
+      <TouchableOpacity
+        style={styles.item}
+        onPress={() => {
+          closeDrawer();
+          setShowNameEditModal(true);
+        }}
+        accessibilityLabel={t("home.namePreference")}
+        accessibilityHint={t("accessibility.button.openSettingsHint")}
+        accessibilityRole="button"
+      >
+        <Ionicons name="person-outline" size={20} color="#332824" />
+        <Text
+          style={[
+            styles.itemText,
+            typography.body,
+            {
+              fontFamily: getFontFamilyForText(
+                t("home.namePreference"),
+                "regular"
+              ),
+            },
+          ]}
+        >
+          {t("home.namePreference")}
+        </Text>
+      </TouchableOpacity>
+
       <TouchableOpacity
         style={styles.item}
         onPress={() => navigateTo("ReminderSettings")}
@@ -395,6 +425,46 @@ export default function AppDrawerContent(props: DrawerContentComponentProps) {
           {t("home.signOut")}
         </Text>
       </TouchableOpacity>
+
+      {/* ✅ 偏好称呼编辑Modal（可取消） */}
+      <NameInputModal
+        visible={showNameEditModal}
+        onConfirm={async (name) => {
+          try {
+            // ✅ 1. 立即关闭弹窗（避免多个弹窗叠加）
+            setShowNameEditModal(false);
+            
+            // ✅ 2. 更新用户偏好称呼
+            await updateUserName(name);
+            
+            // ✅ 3. 刷新用户显示
+            const currentUser = await getCurrentUser();
+            setUser(currentUser);
+            
+            // ✅ 4. 关闭 Drawer
+            closeDrawer();
+            
+            // ✅ 5. 使用导航参数触发首页刷新并显示 Toast
+            navigation.navigate("Home", {
+              screen: "DiaryList",
+              params: { 
+                refreshGreeting: Date.now(), // 使用时间戳确保每次都触发
+                showSuccessToast: t("success.nameUpdated"), // ✅ 传递 Toast 消息
+              },
+            });
+            
+            console.log("✅ 用户偏好称呼已更新:", name);
+          } catch (error: any) {
+            console.error("❌ 更新偏好称呼失败:", error);
+            Alert.alert(
+              t("error.updateFailed"),
+              error.message || t("error.retryMessage")
+            );
+          }
+        }}
+        onCancel={() => setShowNameEditModal(false)}
+        dismissible={true} // ✅ 从菜单进入，可以取消
+      />
 
     </DrawerContentScrollView>
   );

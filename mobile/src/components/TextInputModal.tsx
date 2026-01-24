@@ -692,7 +692,7 @@ export default function TextInputModal({
                 onChangeText={setContent}
                 multiline
                 autoFocus
-                maxLength={1000}
+                maxLength={2000}
                 accessibilityLabel={t("createTextDiary.textPlaceholder")}
                 accessibilityHint={t("accessibility.input.textHint")}
                 accessibilityRole="text"
@@ -704,7 +704,7 @@ export default function TextInputModal({
                   !isTextValid && content.length > 0 && styles.charCountWarning,
                 ]}
               >
-                {content.length}/1000
+                {content.length}/2000
               </Text>
             </View>
           </ScrollView>

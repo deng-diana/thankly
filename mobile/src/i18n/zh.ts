@@ -87,9 +87,10 @@ export default {
     resendCode: "重新发送",
     verifyAndLogin: "验证",
     namePrompt: {
-      title: "我们该怎么称呼你？",
+      title: "我们该怎么称呼你？", // ✅ 更轻松、更自然的表达
       placeholder: "你的名字或昵称",
-      continue: "继续",
+      helper: "这个名字会用于问候和 AI 回复，你可以随时修改。",
+      continue: "确认",
     },
     codeSent: "验证码已发送",
     codeSentMessage: "验证码已发送到您的手机，请查收",
@@ -162,7 +163,20 @@ export default {
     privacyPolicy: "隐私政策",
     termsOfService: "服务条款",
     reminderSettings: "提醒设置",
+    namePreference: "称呼偏好",
     deleteAccount: "删除账号",
+  },
+
+  // 幸福罐
+  happinessJar: {
+    bannerTitle: "回顾你的幸福时光",
+    bannerTitleHighlight: "幸福",
+    bannerSubtitle: "{{count}} 个温暖的瞬间，点亮你的心",
+    pageTitle: "幸福时刻",
+    pageSubtitle: "收集了 {{count}} 个快乐时刻",
+    emptyMessage: "还没有幸福时刻",
+    headerTitle: "那些让你微笑的瞬间",
+    headerDescription: "当你需要一点温暖时，随时回来看看。",
   },
 
   // 搜索功能
@@ -224,6 +238,7 @@ export default {
     emptyContentToast: "还没写呢，先写下几个字吧 💭",
     needMoreChars: "至少再写",
     moreChars: "个字",
+    maxCharactersHint: "最多可输入 2000 字", // ✅ 新增：最大字数提示
   },
 
   // 图片日记
@@ -238,6 +253,7 @@ export default {
     selectImage: "添加照片",
     takePhoto: "拍照",
     selectFromAlbum: "从相册选择",
+    maxCharactersHint: "最多可输入 2000 字", // ✅ 新增：最大字数提示
   },
 
   // 日记通用（创建后的结果页面）
@@ -334,6 +350,7 @@ export default {
     copied: "✅ 已复制",
     diaryCreated: "✅ 感恩时刻已保存",
     accountDeleted: "✅ 账号已删除",
+    nameUpdated: "✅ 名字设定成功", // ✅ 新增：名字更新成功
   },
 
   // 确认对话框
