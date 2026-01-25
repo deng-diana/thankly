@@ -390,9 +390,16 @@ export default {
     restoreMessage: "Do you want to restore your last unsaved content?",
     restore: "Restore",
     discard: "Discard",
-    unsavedTitle: "Unsaved Content",
-    unsavedMessage: "Your content hasn't been saved yet. It will be saved as a draft when you exit, and you can restore it next time you open.",
+    unsavedTitle: "Unsaved changes",
+    unsavedMessage: "Do you want to save this as a draft before leaving?",
+    saveDraft: "Save draft",
+    dontSave: "Don't save",
     lastSaved: "Auto-saved",
+    // Recording draft restore
+    recordingRestoreTitle: "Previous recording found",
+    recordingRestoreMessage: "Your previous recording has been saved. Would you like to continue recording from where you left off?",
+    continueRecording: "Continue recording",
+    startNew: "Start new",
   },
 
   support: {

@@ -10,6 +10,7 @@ import { ActivityIndicator } from "react-native";
 import { Audio } from "expo-av";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { Alert } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useVoiceRecording } from "../hooks/useVoiceRecording";
 import {
   createVoiceDiary,
@@ -93,6 +94,7 @@ export default function RecordingModal({
     resumeRecording,
     stopRecording,
     cancelRecording,
+    saveRecordingDraft, // ✅ 获取保存草稿函数
   } = useVoiceRecording();
 
   const [isProcessing, setIsProcessing] = useState(false);
@@ -292,6 +294,16 @@ export default function RecordingModal({
     setToastVisible(true);
     setTimeout(() => setToastVisible(false), 1500);
   };
+
+  // ✅ 录音草稿恢复相关状态
+  const RECORDING_DRAFT_KEY = "recording_draft";
+  const MAX_DRAFT_AGE = 24 * 60 * 60 * 1000; // 24小时
+  const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
+  const [restoredDraft, setRestoredDraft] = useState<{
+    audioUri: string;
+    duration: number;
+    startTime: number;
+  } | null>(null);
 
   // ✅ 录音相关 Refs
   const recordingRef = useRef<Audio.Recording | null>(null);
@@ -546,12 +558,70 @@ export default function RecordingModal({
   const autoStartAttemptedRef = useRef(false);
   const startFailedRef = useRef(false);
 
-  // ✅ Modal 打开时自动开始录音（仅尝试一次）
+  // ✅ 检查录音文件是否存在
+  const checkFileExists = async (uri: string): Promise<boolean> => {
+    try {
+      const response = await fetch(uri, { method: 'HEAD' });
+      return response.ok;
+    } catch (error) {
+      return false;
+    }
+  };
+
+  // ✅ 恢复录音草稿
+  // 返回 true 表示有草稿，false 表示没有草稿
+  const restoreRecordingDraft = useCallback(async (): Promise<boolean> => {
+    try {
+      const draft = await AsyncStorage.getItem(RECORDING_DRAFT_KEY);
+      if (!draft) return false;
+
+      const draftData = JSON.parse(draft);
+      
+      // 检查草稿是否过期（24小时）
+      const now = Date.now();
+      const draftAge = now - draftData.timestamp;
+      
+      if (draftAge >= MAX_DRAFT_AGE) {
+        // 草稿过期，清除
+        await AsyncStorage.removeItem(RECORDING_DRAFT_KEY);
+        return false;
+      }
+
+      if (draftData.audioUri) {
+        // 检查录音文件是否还存在
+        const fileExists = await checkFileExists(draftData.audioUri);
+        
+        if (fileExists) {
+          // 文件存在，显示恢复确认弹窗
+          setRestoredDraft({
+            audioUri: draftData.audioUri,
+            duration: draftData.duration || 0,
+            startTime: draftData.startTime || Date.now(),
+          });
+          setShowRestoreConfirm(true);
+          return true; // 返回 true 表示有草稿
+        } else {
+          // 文件不存在，清除草稿
+          await AsyncStorage.removeItem(RECORDING_DRAFT_KEY);
+          return false;
+        }
+      }
+      
+      return false;
+    } catch (error) {
+      console.error("❌ 恢复录音草稿失败:", error);
+      return false;
+    }
+  }, []);
+
+  // ✅ Modal 打开时检查草稿并自动开始录音（仅尝试一次）
   useEffect(() => {
     // Reset on modal close
     if (!visible) {
       autoStartAttemptedRef.current = false;
       startFailedRef.current = false;
+      setShowRestoreConfirm(false);
+      setRestoredDraft(null);
       return;
     }
 
@@ -576,7 +646,15 @@ export default function RecordingModal({
     // Delay to avoid animation conflicts
     const timer = setTimeout(async () => {
       try {
-        await startRecording();
+        // ✅ 先检查是否有录音草稿
+        const hasDraft = await restoreRecordingDraft();
+        
+        // 如果没有草稿，则自动开始录音
+        if (!hasDraft) {
+          await startRecording();
+        }
+        // 如果有草稿，restoreRecordingDraft 已经设置了 showRestoreConfirm = true
+        // 用户会在弹窗中选择"继续录音"或"重新开始"
       } catch (error) {
         console.error("Auto-start failed:", error);
         startFailedRef.current = true;
@@ -585,7 +663,7 @@ export default function RecordingModal({
     }, 150);
 
     return () => clearTimeout(timer);
-  }, [visible, isRecording, isProcessing, showResult, isStarting]);
+  }, [visible, isRecording, isProcessing, showResult, isStarting, restoreRecordingDraft]);
 
   // ✅ 录音时保持屏幕常亮，防止自动锁屏导致录音中断
   useEffect(() => {
@@ -617,6 +695,11 @@ export default function RecordingModal({
     if (!visible) {
       (async () => {
         try {
+          // ✅ Modal 关闭前，如果有正在进行的录音，立即保存草稿
+          if (isRecording && !showResult) {
+            await saveRecordingDraft();
+          }
+          
           if (resultSoundRef.current) {
             console.log("🎵 Modal 关闭，停止播放结果音频");
             await resultSoundRef.current.unloadAsync();
@@ -637,7 +720,7 @@ export default function RecordingModal({
         }
       })();
     }
-  }, [visible]);
+  }, [visible, isRecording, showResult, saveRecordingDraft]);
 
   useEffect(() => {
     if (!visible && pendingDiaryId && !hasSavedPendingDiary) {
@@ -808,8 +891,8 @@ export default function RecordingModal({
           // 我们不再在这里 await imageUploadPromise，而是直接启动音频上传和任务创建
           // 这样音频和图片就在同时上传了！速度翻倍！
           const result = await uploadAudioAndCreateTask(
-            uri!,
-            recordedDuration,
+            savedUri!,
+            savedDuration,
             (uploadProgress) => {
               lastAudioP = uploadProgress;
               updateCombinedProgress(lastAudioP, lastImageP);
@@ -886,6 +969,38 @@ export default function RecordingModal({
         setPendingDiaryId(null);
         setHasSavedPendingDiary(false);
 
+        // ✅ 弱网保护：上传失败时保存草稿
+        // 检查是否是网络错误或上传失败
+        const isNetworkError = 
+          error.message?.includes("网络") ||
+          error.message?.includes("network") ||
+          error.message?.includes("timeout") ||
+          error.message?.includes("超时") ||
+          error.message?.includes("上传失败") ||
+          error.message?.includes("upload failed") ||
+          error.code === "NETWORK_ERROR" ||
+          error.code === "TIMEOUT";
+        
+        if (isNetworkError && savedUri) {
+          console.log("⚠️ 检测到网络错误，保存录音草稿以便稍后重试");
+          // 保存录音草稿（包含 URI 和时长）
+          try {
+            const draftData = {
+              audioUri: savedUri,
+              startTime: Date.now(),
+              duration: savedDuration,
+              isPaused: false,
+              timestamp: Date.now(),
+              uploadFailed: true, // 标记为上传失败
+              imageUrls: imageUrls || [],
+            };
+            await AsyncStorage.setItem("recording_draft", JSON.stringify(draftData));
+            console.log("💾 录音草稿已保存（上传失败）");
+          } catch (draftError) {
+            console.error("❌ 保存草稿失败:", draftError);
+          }
+        }
+
         if (
           error.code === "EMPTY_TRANSCRIPT" ||
           (error.message && error.message.includes("No valid speech detected"))
@@ -898,14 +1013,49 @@ export default function RecordingModal({
           return;
         }
 
-        Alert.alert(t("error.genericError"), error.message || t("error.retryMessage"), [
-          { text: t("common.retry"), onPress: () => handleRerecord() },
-          { text: t("common.cancel"), style: "cancel", onPress: () => handleCancelRecording() },
-        ]);
+        // 如果是网络错误，提示用户稍后重试
+        if (isNetworkError) {
+          Alert.alert(
+            t("error.genericError") || "网络错误",
+            (t("error.networkError") || "网络连接失败，录音已保存为草稿，稍后可以重试") + (error.message ? `\n\n${error.message}` : ""),
+            [
+              { text: t("common.retry") || "重试", onPress: () => handleRerecord() },
+              { text: t("common.cancel") || "取消", style: "cancel", onPress: () => handleCancelRecording() },
+            ]
+          );
+        } else {
+          Alert.alert(t("error.genericError"), error.message || t("error.retryMessage"), [
+            { text: t("common.retry"), onPress: () => handleRerecord() },
+            { text: t("common.cancel"), style: "cancel", onPress: () => handleCancelRecording() },
+          ]);
+        }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.log("完成录音主流程失败:", error);
       setIsProcessing(false);
+      
+      // ✅ 弱网保护：主流程失败时也尝试保存草稿
+      // 注意：这里 uri 可能未定义，需要从作用域获取
+      const finalUri = savedUri;
+      const finalDuration = savedDuration;
+      if (finalUri) {
+        try {
+          const draftData = {
+            audioUri: finalUri,
+            startTime: Date.now(),
+            duration: finalDuration,
+            isPaused: false,
+            timestamp: Date.now(),
+            uploadFailed: true,
+            imageUrls: imageUrls || [],
+          };
+          await AsyncStorage.setItem("recording_draft", JSON.stringify(draftData));
+          console.log("💾 录音草稿已保存（主流程失败）");
+        } catch (draftError) {
+          console.error("❌ 保存草稿失败:", draftError);
+        }
+      }
+      
       Alert.alert(t("error.genericError"), t("error.recordingFailed"));
     }
   };
@@ -1560,6 +1710,165 @@ export default function RecordingModal({
             }))}
           />
         )}
+
+        {/* ✅ 录音草稿恢复确认弹窗（与TextInputModal样式一致） */}
+        <Modal
+          visible={showRestoreConfirm}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowRestoreConfirm(false)}
+        >
+          <View style={styles.confirmOverlay}>
+            <View style={styles.confirmContainer}>
+              {/* ✅ 右上角关闭按钮 */}
+              <TouchableOpacity
+                style={styles.confirmCloseButton}
+                onPress={async () => {
+                  // 点击关闭按钮：清除草稿并开始新录音
+                  await AsyncStorage.removeItem(RECORDING_DRAFT_KEY);
+                  setShowRestoreConfirm(false);
+                  setRestoredDraft(null);
+                  // 开始新录音
+                  try {
+                    await startRecording();
+                  } catch (error) {
+                    console.error("开始新录音失败:", error);
+                  }
+                }}
+              >
+                <Ionicons name="close-outline" size={24} color="#666" />
+              </TouchableOpacity>
+
+              {/* 标题 */}
+              <Text
+                style={[
+                  styles.confirmTitle,
+                  {
+                    fontFamily: getFontFamilyForText(
+                      t("draft.recordingRestoreTitle"),
+                      "semibold"
+                    ),
+                  },
+                ]}
+              >
+                {t("draft.recordingRestoreTitle")}
+              </Text>
+
+              {/* 正文 */}
+              <Text
+                style={[
+                  styles.confirmMessage,
+                  {
+                    fontFamily: getFontFamilyForText(
+                      t("draft.recordingRestoreMessage"),
+                      "regular"
+                    ),
+                  },
+                ]}
+              >
+                {t("draft.recordingRestoreMessage")}
+              </Text>
+
+              {/* 按钮容器 */}
+              <View style={styles.confirmButtons}>
+                {/* Secondary 按钮：重新开始 */}
+                <TouchableOpacity
+                  style={styles.confirmButtonSecondary}
+                  onPress={async () => {
+                    // 用户选择重新开始，清除草稿并开始新录音
+                    await AsyncStorage.removeItem(RECORDING_DRAFT_KEY);
+                    setShowRestoreConfirm(false);
+                    setRestoredDraft(null);
+                    // 开始新录音
+                    try {
+                      await startRecording();
+                    } catch (error) {
+                      console.error("开始新录音失败:", error);
+                    }
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.confirmButtonTextSecondary,
+                      {
+                        fontFamily: getFontFamilyForText(
+                          t("draft.startNew"),
+                          "medium"
+                        ),
+                      },
+                    ]}
+                  >
+                    {t("draft.startNew")}
+                  </Text>
+                </TouchableOpacity>
+
+                {/* Primary 按钮：继续录音（橙色背景，白色文字） */}
+                <TouchableOpacity
+                  style={styles.confirmButtonPrimary}
+                  onPress={async () => {
+                    // 用户选择继续录音
+                    if (restoredDraft) {
+                      setShowRestoreConfirm(false);
+                      
+                      // 清除草稿，因为我们要使用已保存的录音
+                      await AsyncStorage.removeItem(RECORDING_DRAFT_KEY);
+                      
+                      // 直接使用已保存的录音文件，进入处理流程
+                      const savedAudioUri = restoredDraft.audioUri;
+                      const savedDuration = restoredDraft.duration;
+                      
+                      // 清除恢复状态
+                      setRestoredDraft(null);
+                      
+                      // 直接使用已保存的录音文件开始处理
+                      // 调用处理流程，使用已保存的录音文件
+                      try {
+                        setIsProcessing(true);
+                        setProcessingStep(0);
+                        setProcessingProgress(0);
+                        currentProgressRef.current = 0;
+                        
+                        // 使用已保存的录音文件创建日记
+                        const diary = await createVoiceDiaryStream(
+                          savedAudioUri,
+                          savedDuration,
+                          (step, progress, message) => {
+                            updateProcessingProgress(step, progress);
+                          },
+                          imageUrls
+                        );
+                        
+                        // 处理成功
+                        setResultDiary(diary);
+                        setShowResult(true);
+                        setIsProcessing(false);
+                        showToast(t("diary.saveToJournal") || "已保存");
+                      } catch (error: any) {
+                        console.error("❌ 处理已保存录音失败:", error);
+                        setIsProcessing(false);
+                        showToast(error.message || "处理失败");
+                      }
+                    }
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.confirmButtonTextPrimary,
+                      {
+                        fontFamily: getFontFamilyForText(
+                          t("draft.continueRecording"),
+                          "semibold"
+                        ),
+                      },
+                    ]}
+                  >
+                    {t("draft.continueRecording")}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </Modal>
     </GestureHandlerRootView>
   );
@@ -1855,6 +2164,82 @@ const styles = StyleSheet.create({
   toastText: {
     ...Typography.caption,
     color: "#fff",
+  },
+  // ===== 自定义确认弹窗样式（与TextInputModal一致）=====
+  confirmOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 24,
+  },
+  confirmContainer: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 24,
+    width: "100%",
+    maxWidth: 340,
+    position: "relative", // ✅ 为关闭按钮提供定位参照
+  },
+  confirmCloseButton: {
+    position: "absolute",
+    top: 16,
+    right: 16,
+    padding: 4,
+    zIndex: 10,
+  },
+  confirmTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#1A1A1A",
+    textAlign: "left", // ✅ 左对齐
+    marginTop: 8, // ✅ 为关闭按钮留出空间
+    marginBottom: 12,
+  },
+  confirmMessage: {
+    fontSize: 16,
+    color: "#666",
+    textAlign: "left", // ✅ 左对齐
+    lineHeight: 24,
+    marginBottom: 16, // ✅ 缩小间距
+  },
+  confirmButtons: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  confirmButtonSecondary: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#F5F5F5", // ✅ 很浅很浅的灰色背景
+  },
+  confirmButtonTextSecondary: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#666",
+  },
+  confirmButtonPrimary: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#E56C45", // ✅ Primary 按钮：橙色背景
+    shadowColor: "#E56C45",
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  confirmButtonTextPrimary: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#fff", // ✅ Primary 按钮：白色文字
   },
   // ===== 处理中UI =====
   processingCenter: {

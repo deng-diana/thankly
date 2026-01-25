@@ -14,6 +14,8 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { Audio } from "expo-av";
 import { Alert, AppState } from "react-native";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as FileSystem from "expo-file-system";
 
 // ============================================================================
 // Global State Management
@@ -96,12 +98,19 @@ export interface UseVoiceRecordingReturn {
   resumeRecording: () => Promise<void>;
   stopRecording: () => Promise<string | null>;
   cancelRecording: () => Promise<void>;
+  saveRecordingDraft: () => Promise<void>; // ✅ 导出保存草稿函数
 }
 
 export function useVoiceRecording(
   maxDurationSeconds: number = 600
 ): UseVoiceRecordingReturn {
   const KEEP_AWAKE_TAG = "voice-recording-session";
+  
+  // ============================================================================
+  // Recording Draft Constants
+  // ============================================================================
+  const RECORDING_DRAFT_KEY = "recording_draft";
+  const DRAFT_SAVE_INTERVAL = 5000; // 5秒保存一次
 
   // ============================================================================
   // State
@@ -112,6 +121,12 @@ export function useVoiceRecording(
   const [duration, setDuration] = useState(0);
   const [isStarting, setIsStarting] = useState(false);
   const [nearLimit, setNearLimit] = useState(false);
+  
+  // ============================================================================
+  // Recording Draft Refs
+  // ============================================================================
+  const startedAtRef = useRef<number | null>(null); // 录音开始时间戳
+  const draftSaveIntervalRef = useRef<NodeJS.Timeout | null>(null); // 定时保存定时器
 
   // ============================================================================
   // Refs (for values that shouldn't trigger re-renders)
@@ -165,6 +180,36 @@ export function useVoiceRecording(
   }, []);
 
   // ============================================================================
+  // Auto-save recording draft (every 5 seconds)
+  // ============================================================================
+
+  useEffect(() => {
+    // ✅ 每 5 秒自动保存录音草稿
+    if (isRecording && !isPaused) {
+      // 立即保存一次（不等待5秒）
+      saveRecordingDraft();
+      
+      // 然后每5秒保存一次
+      draftSaveIntervalRef.current = setInterval(() => {
+        saveRecordingDraft();
+      }, DRAFT_SAVE_INTERVAL);
+    } else {
+      // 停止定时保存
+      if (draftSaveIntervalRef.current) {
+        clearInterval(draftSaveIntervalRef.current);
+        draftSaveIntervalRef.current = null;
+      }
+    }
+
+    return () => {
+      if (draftSaveIntervalRef.current) {
+        clearInterval(draftSaveIntervalRef.current);
+        draftSaveIntervalRef.current = null;
+      }
+    };
+  }, [isRecording, isPaused, duration, saveRecordingDraft]);
+
+  // ============================================================================
   // Cleanup on unmount
   // ============================================================================
 
@@ -174,6 +219,17 @@ export function useVoiceRecording(
       // Component unmounting - clean up everything
       (async () => {
         console.log(`🗑️ [${instanceId}] useVoiceRecording unmounting...`);
+        
+        // ✅ 组件卸载前，如果有正在进行的录音，立即保存草稿
+        if (recordingRef.current && isRecording) {
+          await saveRecordingDraft();
+        }
+        
+        // 停止定时保存
+        if (draftSaveIntervalRef.current) {
+          clearInterval(draftSaveIntervalRef.current);
+          draftSaveIntervalRef.current = null;
+        }
         
         // If this instance owns the global recording, release it
         if (globalActiveInstanceId === instanceId) {
@@ -195,40 +251,145 @@ export function useVoiceRecording(
         } catch (e) {}
       })();
     };
-  }, []);
+  }, [isRecording, saveRecordingDraft, stopDurationTimer, instanceId]);
+
+  // ============================================================================
+  // Save Recording Draft
+  // ============================================================================
+
+  /**
+   * ✅ 将录音文件复制到持久化存储（应用文档目录）
+   * 临时文件可能在应用关闭后被系统清理，需要复制到持久化存储
+   */
+  const copyRecordingToPermanentStorage = useCallback(async (tempUri: string): Promise<string | null> => {
+    try {
+      // 生成唯一的文件名
+      const fileName = `recording-${Date.now()}-${Math.random().toString(36).substring(7)}.m4a`;
+      const permanentUri = `${FileSystem.documentDirectory}${fileName}`;
+      
+      // 复制文件到文档目录
+      await FileSystem.copyAsync({
+        from: tempUri,
+        to: permanentUri,
+      });
+      
+      console.log(`📁 [${instanceId}] 录音文件已复制到持久化存储: ${permanentUri}`);
+      return permanentUri;
+    } catch (error: any) {
+      console.error(`❌ [${instanceId}] 复制录音文件到持久化存储失败:`, error.message);
+      // 如果复制失败，返回原始 URI（总比没有好）
+      return tempUri;
+    }
+  }, [instanceId]);
+
+  /**
+   * ✅ 保存录音草稿到 AsyncStorage
+   * 保存录音 URI、时长、状态等信息，用于恢复
+   * 如果可能，将临时文件复制到持久化存储
+   */
+  const saveRecordingDraft = useCallback(async () => {
+    if (!recordingRef.current || !isRecording) {
+      return;
+    }
+
+    try {
+      const tempUri = recordingRef.current.getURI();
+      if (!tempUri) {
+        // 录音还未开始，没有 URI
+        return;
+      }
+
+      // ✅ 尝试将临时文件复制到持久化存储
+      // 如果复制失败，仍然使用临时 URI（总比没有好）
+      const permanentUri = await copyRecordingToPermanentStorage(tempUri);
+      const audioUri = permanentUri || tempUri;
+
+      const draftData = {
+        audioUri: audioUri,
+        startTime: startedAtRef.current || Date.now(),
+        duration: duration,
+        isPaused: isPaused,
+        timestamp: Date.now(),
+        isPermanent: permanentUri !== null, // 标记是否为持久化存储
+      };
+
+      await AsyncStorage.setItem(RECORDING_DRAFT_KEY, JSON.stringify(draftData));
+      console.log(`💾 [${instanceId}] 录音草稿已保存: ${audioUri.substring(0, 50)}... (时长: ${duration}秒, 持久化: ${permanentUri !== null})`);
+    } catch (error: any) {
+      console.error(`❌ [${instanceId}] 保存录音草稿失败:`, error.message);
+    }
+  }, [isRecording, duration, isPaused, instanceId, copyRecordingToPermanentStorage]);
 
   // ============================================================================
   // App state handling (background/foreground)
   // ============================================================================
 
   useEffect(() => {
-    const subscription = AppState.addEventListener("change", async (state) => {
-      if (state !== "active" || !recordingRef.current) {
-        return;
+    const subscription = AppState.addEventListener("change", async (nextAppState) => {
+      // ✅ 应用切换到后台时，立即保存录音草稿
+      if (nextAppState === "background" || nextAppState === "inactive") {
+        if (recordingRef.current && isRecording) {
+          await saveRecordingDraft();
+        }
       }
 
-      try {
-        const status = await recordingRef.current.getStatusAsync();
-        const seconds = Math.floor(status.durationMillis / 1000);
-        setDuration(seconds);
+      // 原有的恢复逻辑
+      if (nextAppState === "active" && recordingRef.current) {
+        try {
+          const status = await recordingRef.current.getStatusAsync();
+          const seconds = Math.floor(status.durationMillis / 1000);
+          setDuration(seconds);
 
-        if (status.isRecording) {
-          setIsRecording(true);
-          setIsPaused(false);
-          startDurationTimer();
-          await activateKeepAwakeAsync(KEEP_AWAKE_TAG);
-        } else if (status.canRecord) {
-          setIsRecording(true);
-          setIsPaused(true);
-          await activateKeepAwakeAsync(KEEP_AWAKE_TAG);
+          if (status.isRecording) {
+            setIsRecording(true);
+            setIsPaused(false);
+            startDurationTimer();
+            await activateKeepAwakeAsync(KEEP_AWAKE_TAG);
+          } else if (status.canRecord) {
+            setIsRecording(true);
+            setIsPaused(true);
+            await activateKeepAwakeAsync(KEEP_AWAKE_TAG);
+          }
+        } catch (error) {
+          console.log("Error restoring recording state:", error);
         }
-      } catch (error) {
-        console.log("Error restoring recording state:", error);
       }
     });
 
     return () => subscription.remove();
-  }, [startDurationTimer]);
+  }, [startDurationTimer, isRecording, saveRecordingDraft]);
+
+  // ============================================================================
+  // Audio Interruption Listener (电话来电等中断)
+  // ============================================================================
+
+  useEffect(() => {
+    if (!isRecording) {
+      return;
+    }
+
+    // ✅ 监听音频中断事件（电话来电、其他应用播放音频等）
+    const interruptionSubscription = Audio.addAudioInterruptionListener((interruption) => {
+      console.log(`⚠️ [${instanceId}] 音频中断事件:`, interruption);
+      
+      if (interruption.type === 'began') {
+        // 录音被中断（可能是电话来电或其他应用播放音频）
+        console.log(`⚠️ [${instanceId}] 录音被中断，立即保存草稿`);
+        if (recordingRef.current && isRecording) {
+          // 立即保存当前录音
+          saveRecordingDraft();
+        }
+      } else if (interruption.type === 'ended') {
+        // 中断结束（电话挂断等）
+        console.log(`✅ [${instanceId}] 音频中断结束`);
+        // 可以在这里恢复录音，但通常用户需要手动恢复
+      }
+    });
+
+    return () => {
+      interruptionSubscription.remove();
+    };
+  }, [isRecording, saveRecordingDraft, instanceId]);
 
   // ============================================================================
   // Audio Mode Configuration
@@ -433,9 +594,16 @@ export function useVoiceRecording(
       setDuration(0);
       setNearLimit(false);
       hasShownWarningRef.current = false;
+      
+      // ✅ 记录录音开始时间
+      startedAtRef.current = Date.now();
 
       // Step 11: Start duration timer
       startDurationTimer();
+      
+      // ✅ Step 12: 启动定时保存录音草稿（每5秒）
+      // 注意：这里不立即保存，因为录音刚开始可能还没有 URI
+      // 第一次保存会在定时器中执行
 
       console.log("✅ Recording flow completed successfully");
     } catch (error: any) {
@@ -487,6 +655,9 @@ export function useVoiceRecording(
       setIsPaused(true);
       stopDurationTimer();
       console.log("⏸️ Recording paused");
+      
+      // ✅ 暂停后立即保存草稿
+      await saveRecordingDraft();
     } catch (error) {
       console.error("Failed to pause recording:", error);
     }
@@ -508,6 +679,9 @@ export function useVoiceRecording(
       setIsPaused(false);
       startDurationTimer();
       console.log("▶️ Recording resumed");
+      
+      // ✅ 恢复后立即保存草稿
+      await saveRecordingDraft();
     } catch (error) {
       console.error("Failed to resume recording:", error);
     }
@@ -558,10 +732,24 @@ export function useVoiceRecording(
 
         // Stop timer
         stopDurationTimer();
+        
+        // ✅ 停止定时保存
+        if (draftSaveIntervalRef.current) {
+          clearInterval(draftSaveIntervalRef.current);
+          draftSaveIntervalRef.current = null;
+        }
 
         // Update state
         setIsRecording(false);
         setIsPaused(false);
+        
+        // ✅ 录音完成后，清除草稿（因为录音已完成，不需要再保存草稿）
+        try {
+          await AsyncStorage.removeItem(RECORDING_DRAFT_KEY);
+          console.log(`🗑️ [${instanceId}] 录音完成，已清除草稿`);
+        } catch (error) {
+          console.error(`❌ [${instanceId}] 清除草稿失败:`, error);
+        }
 
         // Deactivate keep awake
         try {
@@ -646,9 +834,10 @@ export function useVoiceRecording(
 
   const startRecordingCallback = useCallback(startRecording, [isStarting, isRecording, maxDurationSeconds, startDurationTimer, stopDurationTimer]);
   const stopRecordingCallback = useCallback(stopRecording, [stopDurationTimer]);
-  const pauseRecordingCallback = useCallback(pauseRecording, [isRecording, isPaused, stopDurationTimer]);
-  const resumeRecordingCallback = useCallback(resumeRecording, [isRecording, isPaused, startDurationTimer]);
+  const pauseRecordingCallback = useCallback(pauseRecording, [isRecording, isPaused, stopDurationTimer, saveRecordingDraft]);
+  const resumeRecordingCallback = useCallback(resumeRecording, [isRecording, isPaused, startDurationTimer, saveRecordingDraft]);
   const cancelRecordingCallback = useCallback(cancelRecording, [stopDurationTimer, isCleaningUpRef]);
+  const saveRecordingDraftCallback = useCallback(saveRecordingDraft, [saveRecordingDraft]);
 
   // ============================================================================
   // Return
@@ -665,5 +854,6 @@ export function useVoiceRecording(
     resumeRecording: resumeRecordingCallback,
     stopRecording: stopRecordingCallback,
     cancelRecording: cancelRecordingCallback,
+    saveRecordingDraft: saveRecordingDraftCallback, // ✅ 导出保存草稿函数
   };
 }

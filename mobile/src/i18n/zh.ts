@@ -376,9 +376,16 @@ export default {
     restoreMessage: "是否恢复上次未保存的内容？",
     restore: "恢复",
     discard: "放弃",
-    unsavedTitle: "有未保存的内容",
-    unsavedMessage: "您输入的内容尚未保存，退出后内容将保存在草稿中，下次打开时可恢复。",
+    unsavedTitle: "尚未保存的内容",
+    unsavedMessage: "离开前，是否要将内容保存为草稿？",
+    saveDraft: "保存草稿",
+    dontSave: "不保存",
     lastSaved: "已自动保存",
+    // Recording draft restore
+    recordingRestoreTitle: "发现之前的录音",
+    recordingRestoreMessage: "你之前的录音已被保存。是否要继续之前的录音？",
+    continueRecording: "继续录音",
+    startNew: "重新开始",
   },
 
   support: {
