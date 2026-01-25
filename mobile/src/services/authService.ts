@@ -125,6 +125,7 @@ export async function signInWithApple(): Promise<User> {
       idTokenInfo.preferred_username || idTokenInfo.name || "";
 
     // 第5步: 构造用户信息
+    // ✅ Apple登录不提供头像，picture字段为undefined，UI会显示应用默认头像
     const user: User = {
       id: credential.user,
       email: credential.email || tokenInfo.email || "",
@@ -134,6 +135,7 @@ export async function signInWithApple(): Promise<User> {
       idToken: cognitoTokenData.idToken,
       accessToken: cognitoTokenData.accessToken,
       refreshToken: cognitoTokenData.refreshToken,
+      // picture字段不设置（undefined），UI会显示默认头像
     };
     console.log("✅ 构造的用户信息（包含Cognito tokens）:", {
       id: user.id,
@@ -143,6 +145,7 @@ export async function signInWithApple(): Promise<User> {
       hasAccessToken: !!user.accessToken,
       hasIdToken: !!user.idToken,
       hasRefreshToken: !!user.refreshToken,
+      hasPicture: false, // ✅ Apple登录不提供头像，使用默认头像
     });
 
     // ✅ 调试：检查token过期时间
@@ -342,10 +345,11 @@ export async function signInWithGoogle(): Promise<User> {
       }
     }
 
-    // 如果仍然没有头像，使用备用方案
+    // ✅ 如果仍然没有头像，不设置picture字段，让UI显示默认头像
+    // 不要设置可能无效的URL，避免显示空白头像
     if (!pictureUrl) {
-      pictureUrl = "https://lh3.googleusercontent.com/a/default-user";
-      console.log("🖼️ 使用Google默认头像");
+      console.log("🖼️ 无法获取Google头像，将使用应用默认头像");
+      pictureUrl = undefined; // 明确设置为undefined，让UI显示默认头像
     }
 
     // 验证必要的用户信息
@@ -363,6 +367,7 @@ export async function signInWithGoogle(): Promise<User> {
       hasSub: !!userInfo.sub,
       hasEmail: !!userInfo.email,
       hasName: !!userInfo.name,
+      hasPicture: !!pictureUrl,
     });
 
     console.log("🔍 pictureUrl:", pictureUrl);
@@ -383,7 +388,7 @@ export async function signInWithGoogle(): Promise<User> {
       idToken: tokens.idToken,
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
-      picture: pictureUrl || undefined, // ← 新增头像
+      picture: pictureUrl || undefined, // ✅ 如果没有有效头像，设为undefined，让UI显示默认头像
     };
 
     console.log("✅ Google登录成功，保存所有tokens");
@@ -1062,8 +1067,9 @@ export async function emailLoginOrSignUp(
   try {
     console.log("📧 开始邮箱登录或注册流程...");
 
-    // 调用后端新接口
-    const response = await fetch(`${API_BASE_URL}/auth/email/login_or_signup`, {
+    // ✅ 添加超时控制（15秒，登录流程可能稍慢）
+    const TIMEOUT = 15000; // 15秒超时
+    const fetchPromise = fetch(`${API_BASE_URL}/auth/email/login_or_signup`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1074,6 +1080,12 @@ export async function emailLoginOrSignUp(
         ...(name && { name: name.trim() }), // 如果提供了姓名，则包含在请求中
       }),
     });
+
+    const timeoutPromise = new Promise<Response>((_, reject) =>
+      setTimeout(() => reject(new Error("网络请求超时，请检查网络连接或后端服务是否运行")), TIMEOUT)
+    );
+
+    const response = await Promise.race([fetchPromise, timeoutPromise]);
 
     if (!response.ok) {
       let errorMessage = "操作失败";
@@ -1104,6 +1116,7 @@ export async function emailLoginOrSignUp(
       const userInfo = parseJWT(data.idToken);
       const preferredNameFromCognito = userInfo.preferred_username || "";
 
+      // ✅ 邮箱登录不提供头像，picture字段为undefined，UI会显示应用默认头像
       const user: User = {
         id: userInfo.sub,
         email: userInfo.email || email,
@@ -1117,6 +1130,7 @@ export async function emailLoginOrSignUp(
         idToken: data.idToken,
         accessToken: data.accessToken,
         refreshToken: data.refreshToken,
+        // picture字段不设置（undefined），UI会显示默认头像
       };
 
       console.log("✅ 登录成功，保存tokens");
@@ -1155,7 +1169,9 @@ export async function emailConfirmAndLogin(
   try {
     console.log("📧 开始邮箱验证码确认...");
 
-    const response = await fetch(`${API_BASE_URL}/auth/email/confirm`, {
+    // ✅ 添加超时控制（15秒）
+    const TIMEOUT = 15000; // 15秒超时
+    const fetchPromise = fetch(`${API_BASE_URL}/auth/email/confirm`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1166,6 +1182,12 @@ export async function emailConfirmAndLogin(
         password: password,
       }),
     });
+
+    const timeoutPromise = new Promise<Response>((_, reject) =>
+      setTimeout(() => reject(new Error("网络请求超时，请检查网络连接或后端服务是否运行")), TIMEOUT)
+    );
+
+    const response = await Promise.race([fetchPromise, timeoutPromise]);
 
     if (!response.ok) {
       let errorMessage = "确认失败";
@@ -1190,6 +1212,7 @@ export async function emailConfirmAndLogin(
     const userInfo = parseJWT(data.idToken);
     const preferredNameFromCognito = userInfo.preferred_username || "";
 
+    // ✅ 邮箱登录不提供头像，picture字段为undefined，UI会显示应用默认头像
     const user: User = {
       id: userInfo.sub,
       email: userInfo.email || email,
@@ -1203,6 +1226,7 @@ export async function emailConfirmAndLogin(
       idToken: data.idToken,
       accessToken: data.accessToken,
       refreshToken: data.refreshToken,
+      // picture字段不设置（undefined），UI会显示默认头像
     };
 
     console.log("✅ 邮箱确认并登录成功，保存tokens");

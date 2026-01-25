@@ -165,6 +165,7 @@ export default {
     reminderSettings: "提醒设置",
     namePreference: "称呼偏好",
     deleteAccount: "删除账号",
+    version: "版本 {version}",
   },
 
   // 幸福罐
@@ -367,6 +368,17 @@ export default {
     deleteAccountMessage:
       "删除后你的账号及所有数据将被永久移除，此操作无法撤销。",
     deleteAccountConfirm: "删除",
+  },
+
+  // 草稿相关
+  draft: {
+    restoreTitle: "发现未保存的内容",
+    restoreMessage: "是否恢复上次未保存的内容？",
+    restore: "恢复",
+    discard: "放弃",
+    unsavedTitle: "有未保存的内容",
+    unsavedMessage: "您输入的内容尚未保存，退出后内容将保存在草稿中，下次打开时可恢复。",
+    lastSaved: "已自动保存",
   },
 
   support: {

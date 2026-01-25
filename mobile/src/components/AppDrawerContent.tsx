@@ -212,7 +212,18 @@ export default function AppDrawerContent(props: DrawerContentComponentProps) {
     >
       <View style={styles.header}>
         {user?.picture ? (
-          <Image source={{ uri: user.picture }} style={styles.avatar} />
+          <Image 
+            source={{ uri: user.picture }} 
+            style={styles.avatar}
+            onError={(error) => {
+              // ✅ 如果头像加载失败，fallback到默认头像
+              console.log("⚠️ 头像加载失败，使用默认头像:", error.nativeEvent.error);
+              // 通过设置user.picture为undefined来触发重新渲染显示默认头像
+              if (user) {
+                setUser({ ...user, picture: undefined });
+              }
+            }}
+          />
         ) : (
           <View style={styles.avatar}>
             <AvatarDefault width={40} height={40} />
@@ -364,11 +375,11 @@ export default function AppDrawerContent(props: DrawerContentComponentProps) {
             styles.itemText,
             typography.body,
             {
-              fontFamily: getFontFamilyForText("Version", "regular"),
+              fontFamily: getFontFamilyForText(t("home.version"), "regular"),
             },
           ]}
         >
-          Version {VERSION}
+          {t("home.version").replace("{version}", VERSION)}
         </Text>
       </View>
 

@@ -158,7 +158,7 @@ const HappinessBanner: React.FC<HappinessBannerProps> = ({ count, onPress }) => 
 const styles = StyleSheet.create({
   container: {
     marginTop: 16,
-    marginBottom: 16,
+    marginBottom: 0, // ✅ 与分割线的 marginTop 统一，由分割线承担间距避免重复
     marginHorizontal: -4, // ✅ 负 margin 抵消 header 的 padding，实现 20px 间距 (24 - 4 = 20)
   },
   touchable: {

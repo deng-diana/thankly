@@ -108,8 +108,8 @@ const MainDrawer = () => (
 
 // 🛠️ 开发模式：始终显示Onboarding（方便测试和调试）
 // ⚠️ 生产环境需保持为 false，避免老用户反复进入欢迎页
-// 🛠️ 开发模式开关：保持为 false，生产环境下只在首次安装时展示欢迎页
-const DEV_MODE_FORCE_ONBOARDING = false;
+// 🛠️ 开发模式开关：设置为 true，让演示从 Onboarding (欢迎页) 开始
+const DEV_MODE_FORCE_ONBOARDING = true;
 
 export default function AppNavigator() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);

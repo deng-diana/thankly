@@ -171,6 +171,7 @@ export default {
     reminderSettings: "Daily Reminder",
     namePreference: "How should we call you?",
     deleteAccount: "Delete Account",
+    version: "Version {version}",
   },
 
   // Happiness Jar (幸福罐)
@@ -381,6 +382,17 @@ export default {
     deleteAccountMessage:
       "This will permanently delete your account and associated data. This action cannot be undone.",
     deleteAccountConfirm: "Delete",
+  },
+
+  // Draft related
+  draft: {
+    restoreTitle: "Unsaved Content Found",
+    restoreMessage: "Do you want to restore your last unsaved content?",
+    restore: "Restore",
+    discard: "Discard",
+    unsavedTitle: "Unsaved Content",
+    unsavedMessage: "Your content hasn't been saved yet. It will be saved as a draft when you exit, and you can restore it next time you open.",
+    lastSaved: "Auto-saved",
   },
 
   support: {

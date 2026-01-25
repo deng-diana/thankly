@@ -36,8 +36,14 @@ import { Typography, getFontFamilyForText } from "../styles/typography";
 import ProcessingModal from "./ProcessingModal";
 import DiaryResultView from "./DiaryResultView";
 import { EmotionData } from "../types/emotion";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const { width, height: SCREEN_HEIGHT } = Dimensions.get("window");
+
+// ✅ 自动保存配置
+const AUTO_SAVE_KEY = "draft_text_input_modal";
+const AUTO_SAVE_INTERVAL = 5000; // 5秒自动保存一次
+const MAX_DRAFT_AGE = 24 * 60 * 60 * 1000; // 24小时
 
 interface TextInputModalProps {
   visible: boolean;
@@ -75,6 +81,12 @@ export default function TextInputModal({
   // ✅ 新增:保存状态保护 - 防止重复调用
   const isSavingRef = useRef(false);
 
+  // ✅ 自动保存状态
+  const [isDraftRestored, setIsDraftRestored] = useState(false);
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const hasUnsavedContentRef = useRef(false); // 标记是否有未保存的内容
+
   // Toast 状态
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
@@ -108,6 +120,9 @@ export default function TextInputModal({
           useNativeDriver: true,
         }),
       ]).start();
+
+      // ✅ 恢复草稿
+      restoreDraft();
     } else {
       // Modal 关闭动画
       Animated.parallel([
@@ -123,6 +138,12 @@ export default function TextInputModal({
         }),
       ]).start();
 
+      // ✅ 清除自动保存定时器
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+        autoSaveTimerRef.current = null;
+      }
+
       // 重置状态
       setContent("");
       setPolishedContent("");
@@ -137,8 +158,112 @@ export default function TextInputModal({
       setCurrentDiaryId(null);
       setProcessingStep(0);
       setProcessingProgress(0);
+      setLastSaved(null);
+      setIsDraftRestored(false);
+      hasUnsavedContentRef.current = false;
     }
   }, [visible]);
+
+  // ✅ 恢复草稿函数
+  const restoreDraft = async () => {
+    try {
+      const draft = await AsyncStorage.getItem(AUTO_SAVE_KEY);
+      if (draft) {
+        const draftData = JSON.parse(draft);
+        
+        // 检查草稿是否过期 (24小时)
+        const now = Date.now();
+        const draftAge = now - draftData.timestamp;
+        
+        if (draftAge < MAX_DRAFT_AGE && draftData.content.trim()) {
+          // 提示用户恢复草稿
+          Alert.alert(
+            t("draft.restoreTitle") || "发现未保存的内容",
+            `${t("draft.restoreMessage") || "是否恢复上次未保存的内容?"}\n(${draftData.content.substring(0, 30)}...)`,
+            [
+              {
+                text: t("draft.discard") || "放弃",
+                style: "destructive",
+                onPress: async () => {
+                  await AsyncStorage.removeItem(AUTO_SAVE_KEY);
+                  setIsDraftRestored(true);
+                }
+              },
+              {
+                text: t("draft.restore") || "恢复",
+                onPress: () => {
+                  setContent(draftData.content);
+                  hasUnsavedContentRef.current = true;
+                  console.log("✅ 已恢复草稿:", draftData.content.substring(0, 50));
+                  setIsDraftRestored(true);
+                }
+              }
+            ]
+          );
+        } else {
+          // 草稿过期或为空,删除
+          await AsyncStorage.removeItem(AUTO_SAVE_KEY);
+          setIsDraftRestored(true);
+        }
+      } else {
+        setIsDraftRestored(true);
+      }
+    } catch (error) {
+      console.error("❌ 恢复草稿失败:", error);
+      setIsDraftRestored(true);
+    }
+  };
+
+  // ✅ 自动保存草稿
+  useEffect(() => {
+    // 等待草稿恢复完成后再开始自动保存
+    if (!isDraftRestored || !visible) return;
+    
+    // 如果内容为空,不保存
+    if (!content.trim()) {
+      // 如果之前有内容但现在为空，清除草稿
+      if (hasUnsavedContentRef.current) {
+        AsyncStorage.removeItem(AUTO_SAVE_KEY).catch(console.error);
+        hasUnsavedContentRef.current = false;
+        setLastSaved(null);
+      }
+      return;
+    }
+    
+    // 如果已经提交或正在处理,不保存
+    if (showResult || isProcessing) {
+      return;
+    }
+    
+    // 清除之前的定时器
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+    
+    // 设置新的定时器 (5秒后保存)
+    autoSaveTimerRef.current = setTimeout(async () => {
+      try {
+        const draftData = {
+          content: content,
+          timestamp: Date.now()
+        };
+        
+        await AsyncStorage.setItem(AUTO_SAVE_KEY, JSON.stringify(draftData));
+        setLastSaved(new Date());
+        hasUnsavedContentRef.current = true;
+        console.log("💾 自动保存草稿:", content.substring(0, 30) + "...");
+      } catch (error) {
+        console.error("❌ 自动保存失败:", error);
+      }
+    }, AUTO_SAVE_INTERVAL);
+    
+    // 清理函数
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+    };
+  }, [content, isDraftRestored, visible, showResult, isProcessing]);
 
   // 清理进度动画定时器
   useEffect(() => {
@@ -348,6 +473,11 @@ export default function TextInputModal({
         setEmotionData(diary.emotion_data); // ✅ 设置情绪数据
         setCurrentDiaryId(diary.diary_id);
 
+        // ✅ 成功后清除草稿
+        await AsyncStorage.removeItem(AUTO_SAVE_KEY);
+        hasUnsavedContentRef.current = false;
+        console.log("✅ 已清除草稿 (成功提交)");
+
         console.log("📊 设置的结果数据:");
         console.log("  - title:", diary.title);
         console.log(
@@ -445,6 +575,11 @@ export default function TextInputModal({
       // 显示 Toast
       showToast(t("success.diaryCreated"));
 
+      // ✅ 成功后清除草稿
+      await AsyncStorage.removeItem(AUTO_SAVE_KEY);
+      hasUnsavedContentRef.current = false;
+      console.log("✅ 已清除草稿 (成功保存)");
+
       // ✅ 短暂延迟让用户看到 Toast
       await new Promise((resolve) => setTimeout(resolve, 500));
 
@@ -506,6 +641,8 @@ export default function TextInputModal({
               } catch (deleteError) {
                 console.log("⚠️ 删除未保存日记失败（可忽略）:", deleteError);
               } finally {
+                // ✅ 清除草稿
+                await AsyncStorage.removeItem(AUTO_SAVE_KEY).catch(console.error);
                 // 重置状态并关闭
                 setCurrentDiaryId(null);
                 setShowResult(false);
@@ -518,6 +655,7 @@ export default function TextInputModal({
                 setIsEditing(false);
                 setHasChanges(false);
                 setEditedContent("");
+                hasUnsavedContentRef.current = false;
                 onCancel();
               }
             },
@@ -527,7 +665,42 @@ export default function TextInputModal({
       return; // 等待用户确认
     }
 
-    // ✅ 如果没有结果或已保存，直接取消
+    // ✅ 如果有未保存的输入内容，提示用户
+    if (hasUnsavedContentRef.current && content.trim() && !showResult) {
+      Alert.alert(
+        t("draft.unsavedTitle") || "有未保存的内容",
+        t("draft.unsavedMessage") || "您输入的内容尚未保存，退出后内容将保存在草稿中，下次打开时可恢复。",
+        [
+          {
+            text: t("common.cancel"),
+            style: "cancel",
+          },
+          {
+            text: t("common.confirm") || "确定",
+            onPress: () => {
+              // 草稿已自动保存，直接关闭
+              setCurrentDiaryId(null);
+              setShowResult(false);
+              setIsProcessing(false);
+              setContent("");
+              setPolishedContent("");
+              setTitle("");
+              setAiFeedback("");
+              setEmotionData(undefined);
+              setIsEditing(false);
+              setHasChanges(false);
+              setEditedContent("");
+              hasUnsavedContentRef.current = false;
+              onCancel();
+            },
+          },
+        ]
+      );
+      return;
+    }
+
+    // ✅ 如果没有结果或已保存，直接取消并清除草稿
+    AsyncStorage.removeItem(AUTO_SAVE_KEY).catch(console.error);
     setCurrentDiaryId(null);
     setShowResult(false);
     setIsProcessing(false);
@@ -539,6 +712,7 @@ export default function TextInputModal({
     setIsEditing(false);
     setHasChanges(false);
     setEditedContent("");
+    hasUnsavedContentRef.current = false;
     onCancel();
   };
 
@@ -706,6 +880,13 @@ export default function TextInputModal({
               >
                 {content.length}/2000
               </Text>
+
+              {/* ✅ 自动保存指示器 */}
+              {lastSaved && content.trim() && !showResult && (
+                <Text style={styles.savedIndicator}>
+                  💾 {t("draft.lastSaved") || "已自动保存"} {lastSaved.toLocaleTimeString()}
+                </Text>
+              )}
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -958,6 +1139,14 @@ const styles = StyleSheet.create({
   },
   charCountWarning: {
     color: "#E56C45",
+  },
+  savedIndicator: {
+    position: "absolute",
+    left: 16,
+    bottom: 12,
+    ...Typography.caption,
+    fontSize: 11,
+    color: "#999",
   },
   // ===== 结果页样式（与 RecordingModal 一致）=====
   resultHeader: {

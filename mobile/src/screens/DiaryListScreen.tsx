@@ -1999,7 +1999,7 @@ const styles = StyleSheet.create({
   divider: {
     height: 1,
     backgroundColor: "#F2E2C3",
-  
+    marginTop: 16, // ✅ 与上方文字/Banner 保持呼吸感，避免贴在一起
     marginBottom: 0, // ✅ 距离下方16px（设计稿要求）
   },
 

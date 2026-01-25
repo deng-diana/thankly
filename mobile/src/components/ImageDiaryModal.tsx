@@ -55,9 +55,14 @@ import AudioPlayer from "./AudioPlayer";
 import { EmotionCapsule } from "./EmotionCapsule";
 import { Typography, getFontFamilyForText } from "../styles/typography";
 import DiaryResultView from "./DiaryResultView"; // ✅ 导入共享组件
-
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
+
+// ✅ 自动保存配置
+const IMAGE_DIARY_AUTO_SAVE_KEY = "draft_image_diary_modal";
+const AUTO_SAVE_INTERVAL = 5000; // 5秒自动保存一次
+const MAX_DRAFT_AGE = 24 * 60 * 60 * 1000; // 24小时
 
 // ============================================================================
 // Image Grid Layout Configuration
@@ -100,6 +105,12 @@ export default function ImageDiaryModal({
   const [showConfirmModal, setShowConfirmModal] = useState(false); // 显示确认弹窗
   const [textContent, setTextContent] = useState(""); // 文字内容
   const [isPureImageSaving, setIsPureImageSaving] = useState(false); // ✅ 记录是否是纯图片保存模式
+  
+  // ✅ 自动保存状态
+  const [isDraftRestored, setIsDraftRestored] = useState(false);
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const hasUnsavedContentRef = useRef(false); // 标记是否有未保存的内容
   
   // ✅ 新增：组件挂载监听
   const isMounted = useRef(true);
@@ -259,8 +270,120 @@ export default function ImageDiaryModal({
     cancelRecordingRef.current = cancelRecording;
   }, [cancelRecording]);
 
+  // ✅ 恢复草稿函数
+  const restoreDraft = async () => {
+    try {
+      const draft = await AsyncStorage.getItem(IMAGE_DIARY_AUTO_SAVE_KEY);
+      if (draft) {
+        const draftData = JSON.parse(draft);
+        
+        // 检查草稿是否过期 (24小时)
+        const now = Date.now();
+        const draftAge = now - draftData.timestamp;
+        
+        if (draftAge < MAX_DRAFT_AGE && (draftData.textContent?.trim() || draftData.images?.length > 0)) {
+          // 提示用户恢复草稿
+          Alert.alert(
+            t("draft.restoreTitle") || "发现未保存的内容",
+            `${t("draft.restoreMessage") || "是否恢复上次未保存的内容?"}\n${draftData.textContent ? `(${draftData.textContent.substring(0, 30)}...)` : `(${draftData.images?.length || 0}张图片)`}`,
+            [
+              {
+                text: t("draft.discard") || "放弃",
+                style: "destructive",
+                onPress: async () => {
+                  await AsyncStorage.removeItem(IMAGE_DIARY_AUTO_SAVE_KEY);
+                  setIsDraftRestored(true);
+                }
+              },
+              {
+                text: t("draft.restore") || "恢复",
+                onPress: () => {
+                  if (draftData.textContent) {
+                    setTextContent(draftData.textContent);
+                  }
+                  if (draftData.images && draftData.images.length > 0) {
+                    setImages(draftData.images);
+                  }
+                  hasUnsavedContentRef.current = true;
+                  console.log("✅ 已恢复草稿");
+                  setIsDraftRestored(true);
+                }
+              }
+            ]
+          );
+        } else {
+          // 草稿过期或为空,删除
+          await AsyncStorage.removeItem(IMAGE_DIARY_AUTO_SAVE_KEY);
+          setIsDraftRestored(true);
+        }
+      } else {
+        setIsDraftRestored(true);
+      }
+    } catch (error) {
+      console.error("❌ 恢复草稿失败:", error);
+      setIsDraftRestored(true);
+    }
+  };
+
+  // ✅ 自动保存草稿
+  useEffect(() => {
+    // 等待草稿恢复完成后再开始自动保存
+    if (!isDraftRestored || !visible) return;
+    
+    // 如果内容为空且没有图片,不保存
+    if (!textContent.trim() && images.length === 0) {
+      // 如果之前有内容但现在为空，清除草稿
+      if (hasUnsavedContentRef.current) {
+        AsyncStorage.removeItem(IMAGE_DIARY_AUTO_SAVE_KEY).catch(console.error);
+        hasUnsavedContentRef.current = false;
+        setLastSaved(null);
+      }
+      return;
+    }
+    
+    // 如果已经提交或正在处理,不保存
+    if (showResult || isProcessing) {
+      return;
+    }
+    
+    // 清除之前的定时器
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+    
+    // 设置新的定时器 (5秒后保存)
+    autoSaveTimerRef.current = setTimeout(async () => {
+      try {
+        const draftData = {
+          textContent: textContent,
+          images: images,
+          timestamp: Date.now()
+        };
+        
+        await AsyncStorage.setItem(IMAGE_DIARY_AUTO_SAVE_KEY, JSON.stringify(draftData));
+        setLastSaved(new Date());
+        hasUnsavedContentRef.current = true;
+        console.log("💾 自动保存草稿");
+      } catch (error) {
+        console.error("❌ 自动保存失败:", error);
+      }
+    }, AUTO_SAVE_INTERVAL);
+    
+    // 清理函数
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+    };
+  }, [textContent, images, isDraftRestored, visible, showResult, isProcessing]);
+
   // Modal 打开时，显示底部选择器
   useEffect(() => {
+    // ✅ 恢复草稿
+    if (visible && !isDraftRestored) {
+      restoreDraft();
+    }
+
     // ✅ 关键修复：当 Modal 打开且没有图片时，显示选择器
     // 当有图片时，确保选择器关闭
     // ✅ 如果正在处理或显示结果页面，不显示选择器
@@ -278,6 +401,12 @@ export default function ImageDiaryModal({
     }
     // ✅ 重置录音模式状态并清理录音资源
     if (!visible) {
+      // ✅ 清除自动保存定时器
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+        autoSaveTimerRef.current = null;
+      }
+
       // ✅ Modal 关闭时，重置所有状态，防止下次打开时出现残留状态
       setIsRecordingMode(false);
       setIsProcessing(false);
@@ -294,6 +423,9 @@ export default function ImageDiaryModal({
       setProcessingStep(0);
       setProcessingProgress(0);
       setShowConfirmModal(false);
+      setLastSaved(null);
+      setIsDraftRestored(false);
+      hasUnsavedContentRef.current = false;
       // ✅ 关键修复：Modal 关闭时清理所有音频资源，防止下次打开时冲突
       // 1. 清理录音资源（使用 ref 避免依赖项变化）
       if (isRecording || recordingDuration > 0) {
@@ -319,6 +451,7 @@ export default function ImageDiaryModal({
     isProcessing,
     isRecording,
     recordingDuration,
+    isDraftRestored,
   ]);
 
   // ✅ 清理录音资源
@@ -521,6 +654,11 @@ export default function ImageDiaryModal({
 
       if (!isMounted.current) return;
 
+      // ✅ 成功后清除草稿
+      await AsyncStorage.removeItem(IMAGE_DIARY_AUTO_SAVE_KEY);
+      hasUnsavedContentRef.current = false;
+      console.log("✅ 已清除草稿 (纯图片保存成功)");
+
       setIsProcessing(false);
       setIsPureImageSaving(false);
       setImages([]);
@@ -607,6 +745,11 @@ export default function ImageDiaryModal({
 
       if (!isMounted.current) return;
 
+      // ✅ 成功后清除草稿
+      await AsyncStorage.removeItem(IMAGE_DIARY_AUTO_SAVE_KEY);
+      hasUnsavedContentRef.current = false;
+      console.log("✅ 已清除草稿 (成功提交)");
+
       // ✅ 显示结果
       setIsProcessing(false);
       setResultDiary(diary);
@@ -649,8 +792,33 @@ export default function ImageDiaryModal({
                 console.log("✅ 已删除未保存的日记:", pendingDiaryId);
               } catch (error) {
                 console.error("❌ 删除日记失败:", error);
+              } finally {
+                // ✅ 清除草稿
+                await AsyncStorage.removeItem(IMAGE_DIARY_AUTO_SAVE_KEY).catch(console.error);
+                // 清理状态并关闭
+                await cleanupAndClose();
               }
-              // 清理状态并关闭
+            },
+          },
+        ]
+      );
+      return;
+    }
+
+    // ✅ 如果有未保存的输入内容（文字或图片），提示用户
+    if (hasUnsavedContentRef.current && (textContent.trim() || images.length > 0) && !showResult && !isProcessing) {
+      Alert.alert(
+        t("draft.unsavedTitle") || "有未保存的内容",
+        t("draft.unsavedMessage") || "您输入的内容尚未保存，退出后内容将保存在草稿中，下次打开时可恢复。",
+        [
+          {
+            text: t("common.cancel"),
+            style: "cancel",
+          },
+          {
+            text: t("common.confirm") || "确定",
+            onPress: async () => {
+              // 草稿已自动保存，直接关闭
               await cleanupAndClose();
             },
           },
@@ -664,6 +832,9 @@ export default function ImageDiaryModal({
       await cancelRecording();
     }
 
+    // ✅ 如果没有未保存内容，清除草稿
+    await AsyncStorage.removeItem(IMAGE_DIARY_AUTO_SAVE_KEY).catch(console.error);
+    hasUnsavedContentRef.current = false;
     await cleanupAndClose();
   };
 
@@ -693,6 +864,9 @@ export default function ImageDiaryModal({
     setIsPlayingResult(false);
     setResultCurrentTime(0);
     setResultDuration(0);
+    setLastSaved(null);
+    setIsDraftRestored(false);
+    hasUnsavedContentRef.current = false;
     onClose();
   };
 
@@ -1024,6 +1198,7 @@ export default function ImageDiaryModal({
     }
   };
 
+
   // ✅ 保存并关闭（结果页面）
   const handleSaveAndClose = async () => {
     if (!resultDiary) return;
@@ -1047,6 +1222,11 @@ export default function ImageDiaryModal({
         );
         console.log("✅ 后端更新成功");
       }
+
+      // ✅ 成功后清除草稿
+      await AsyncStorage.removeItem(IMAGE_DIARY_AUTO_SAVE_KEY);
+      hasUnsavedContentRef.current = false;
+      console.log("✅ 已清除草稿 (成功保存)");
 
       setHasSavedPendingDiary(true);
       setPendingDiaryId(null);
@@ -1854,6 +2034,12 @@ export default function ImageDiaryModal({
                         >
                           {textContent.length}/2000
                         </Text>
+                        {/* ✅ 自动保存指示器 - 放在输入框左下角 */}
+                        {lastSaved && (textContent.trim() || images.length > 0) && !showResult && !isProcessing && (
+                          <Text style={styles.savedIndicator}>
+                            💾 {t("draft.lastSaved") || "已自动保存"} {lastSaved.toLocaleTimeString()}
+                          </Text>
+                        )}
                       </View>
 
                       {/* 完成按钮 - 放在输入框正下面 */}
@@ -2234,6 +2420,14 @@ const styles = StyleSheet.create({
   },
   charCountWarning: {
     color: "#E56C45",
+  },
+  savedIndicator: {
+    position: "absolute",
+    left: 16,
+    bottom: 12,
+    ...Typography.caption,
+    fontSize: 11,
+    color: "#999",
   },
   // 完成按钮样式 - 放在输入框正下面，与 TextInputModal 保持一致
   completeButton: {

@@ -6,11 +6,12 @@
 const PRODUCTION_URL = "https://api.thankly.app";
 
 // 🔄 环境切换：true = 本地开发，false = 生产环境
-const IS_LOCAL_DEV = false;  // ✅ 生产环境
+const IS_LOCAL_DEV = true;  // ✅ 生产环境
 
-// ✅ 将 127.0.0.1 改为你的电脑局域网 IP (192.168.0.94)
+// ✅ 将 127.0.0.1 改为你的电脑局域网 IP (192.168.0.28)
 // 这样无论是 iOS 模拟器、Android 模拟器还是真机，都能连上后端
-export const API_BASE_URL = IS_LOCAL_DEV ? "http://192.168.0.94:8000" : PRODUCTION_URL;
+// ⚠️ 如果IP地址变化，请更新此处，并使用 /check-local-config 命令检查
+export const API_BASE_URL = IS_LOCAL_DEV ? "http://192.168.0.28:8000" : PRODUCTION_URL;
 
 const awsConfig = {
   region: "us-east-1",
