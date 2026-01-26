@@ -582,13 +582,6 @@ export default function CreateTextDiaryScreen() {
                   >
                     {content.length}/2000
                   </Text>
-
-                  {/* ✅ 新增: 自动保存指示器 */}
-                  {lastSaved && !submitted && (
-                    <Text style={styles.savedIndicator}>
-                      💾 已自动保存于 {lastSaved.toLocaleTimeString()}
-                    </Text>
-                  )}
                 </View>
 
                 {/* 完成按钮 - 始终显示 */}
@@ -855,13 +848,4 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
 
-  // ✅ 新增: 自动保存指示器样式
-  savedIndicator: {
-    position: "absolute",
-    left: 16,
-    bottom: 12,
-    fontSize: 10,
-    color: "#999",
-    fontStyle: "italic",
-  },
 });

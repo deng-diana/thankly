@@ -16,9 +16,11 @@ import DeleteIcon from "../assets/icons/deleteIcon.svg";
 import PreciousMomentsIcon from "../assets/icons/preciousMomentsIcon.svg";
 import EmptyStateIcon from "../assets/icons/empty-state.svg";
 import AppIconHomepage from "../assets/icons/app-icon-homepage.svg";
-import HamburgarMenuIcon from "../assets/icons/hamburgarMenu.svg";
+import ProfileIcon from "../assets/icons/profileIcon.svg";
 import SearchIcon from "../assets/icons/searchIcon.svg";  // ✅ 自定义搜索图标
 import CalendarIcon from "../assets/icons/calendarIcon.svg";
+import CalendarIconOrange from "../assets/icons/calendarIconOrange.svg";
+import TimeIcon from "../assets/icons/time.svg";
 import {
   Typography,
   getTypography,
@@ -44,11 +46,13 @@ import {
   Dimensions,
   ToastAndroid,
   TextInput, // ✅ 搜索输入框
+  ScrollView,
 } from "react-native";
 import * as Clipboard from "expo-clipboard";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useDiaryAudio } from "../hooks/useDiaryAudio"; // ✅ 使用顶级统一标准 Hook
+import { useVoiceRecording } from "../hooks/useVoiceRecording"; // ✅ 新增
 import * as Localization from "expo-localization";
 import { getGreeting } from "../config/greetings";
 import * as SecureStore from "expo-secure-store";
@@ -75,6 +79,7 @@ import {
   getPreferredName, // ✅ 保留：用于获取用户偏好称呼显示问候语
 } from "../services/authService";
 import { handleAuthErrorOnly } from "../utils/errorHandler";
+import { getYearMonth, MONTH_NAMES_SHORT } from "../utils/dateFormat";
 import {
   getDiaries,
   deleteDiary as deleteDiaryApi,
@@ -113,10 +118,17 @@ export interface Diary {
   emotion_data?: { emotion: string; [key: string]: any }; // ✅ 新增：情感数据
 }
 
+/** 底部操作栏固定高度（主钮 56 + paddingVertical 8×2），避免拉伸成半屏遮挡 */
+const BOTTOM_BAR_HEIGHT = 72;
+
 /**
  * 日记列表页面组件
  */
 export default function DiaryListScreen() {
+  const insets = useSafeAreaInsets();
+  // ❌ 已删除：manual listHeight calculation (causes occlusion)
+  // const listHeight = Dimensions.get("window").height - insets.top;
+
   // ✅ 添加navigation
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -132,26 +144,65 @@ export default function DiaryListScreen() {
   // 用户信息
   const [user, setUser] = useState<User | null>(null);
 
-  // ✅ 新增:用户菜单状态
-
   // 日记列表
   const [diaries, setDiaries] = useState<Diary[]>([]);
+
+  // 加载状态
+  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   // ✅ 幸福日记列表（用于幸福罐 Banner）
   const happyDiaries = React.useMemo(() => {
     return diaries.filter((d) => isHappyEmotion(d.emotion_data?.emotion));
   }, [diaries]);
 
-  // 加载状态
-  const [loading, setLoading] = useState(false);
+  // ✅ 搜索相关状态
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<Diary[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // 下拉刷新状态
-  const [refreshing, setRefreshing] = useState(false);
+  // ✅ 吸顶年月 + 月份选择
+  const [stickyYear, setStickyYear] = useState<number | null>(null);
+  const [stickyMonth, setStickyMonth] = useState<number | null>(null);
+  const [stickyBarVisible, setStickyBarVisible] = useState(false);
+  const [monthPickerVisible, setMonthPickerVisible] = useState(false);
+  
+  const flatListRef = useRef<FlatList<Diary> | null>(null);
+  const monthPickerSlide = useRef(new Animated.Value(400)).current;
+  const stickyBarOpacity = useRef(new Animated.Value(0)).current;
+  const lastScrollY = useRef(0);
+  const headerHeightRef = useRef(300); // 默认高度
 
-  // 动画值(用于浮动按钮的弹性动画)
+  // ✅ 问候语状态
+  const [greetingWelcome, setGreetingWelcome] = useState("");
+  const [greetingSubtitle, setGreetingSubtitle] = useState("");
+  const [userDisplayName, setUserDisplayName] = useState<string | null>(null);
+
+  // ✅ Action Sheet 相关状态
+  const [actionSheetVisible, setActionSheetVisible] = useState(false);
+  const [selectedDiary, setSelectedDiary] = useState<Diary | null>(null);
+  const actionSheetSlide = useRef(new Animated.Value(300)).current;
+
+  // ✅ DiaryDetail Modal 相关状态
+  const [diaryDetailVisible, setDiaryDetailVisible] = useState(false);
+  const [selectedDiaryForDetail, setSelectedDiaryForDetail] = useState<Diary | null>(null);
+
+  // ✅ Modal 可见性
+  const [recordingModalVisible, setRecordingModalVisible] = useState(false);
+  const [textInputModalVisible, setTextInputModalVisible] = useState(false);
+  const [imageDiaryModalVisible, setImageDiaryModalVisible] = useState(false);
+
+  // ✅ 图片预览状态
+  const [imagePreviewVisible, setImagePreviewVisible] = useState(false);
+  const [imagePreviewUrls, setImagePreviewUrls] = useState<string[]>([]);
+  const [imagePreviewIndex, setImagePreviewIndex] = useState(0);
+
+  // ✅ 图片+语音模式的状态
+  const [imageUrlsForVoice, setImageUrlsForVoice] = useState<string[] | undefined>(undefined);
+
+  // 动画值
   const [buttonScale] = useState(new Animated.Value(1));
-
-  // 骨架屏脉冲动画
   const skeletonOpacity = useRef(new Animated.Value(0.3)).current;
 
   // ✅ 使用统一的顶级标准音频 Hook
@@ -165,295 +216,113 @@ export default function DiaryListScreen() {
     stopAllAudio,
   } = useDiaryAudio();
 
+  // ✅ 解决循环依赖：使用 ref 来引用 stopRecording，避免声明前使用的问题
+  const stopRecordingRef = useRef<(() => Promise<string | null>) | null>(null);
 
-  // ✅ 新增：Action Sheet 相关状态
-  const [actionSheetVisible, setActionSheetVisible] = useState(false);
-  const [selectedDiary, setSelectedDiary] = useState<Diary | null>(null);
-  const actionSheetSlide = useRef(new Animated.Value(300)).current; // 动画值
+  // ✅ 将录音 Hook 提到屏幕顶级，确保在 Modal 内部不会因为重绘/重刷而丢失状态
+  const voiceRecording = useVoiceRecording();
 
-  // ✅ 新增：DiaryDetail Modal 相关状态
-  const [diaryDetailVisible, setDiaryDetailVisible] = useState(false);
-  const [selectedDiaryForDetail, setSelectedDiaryForDetail] =
-    useState<Diary | null>(null);
-  // ✅ 新增:录音Modal状态
-  const [recordingModalVisible, setRecordingModalVisible] = useState(false);
-  // ✅ 新增:文字输入Modal状态
-  const [textInputModalVisible, setTextInputModalVisible] = useState(false);
-  // ✅ 新增:图片日记Modal状态
-  const [imageDiaryModalVisible, setImageDiaryModalVisible] = useState(false);
-  const [imagePreviewVisible, setImagePreviewVisible] = useState(false);
-  const [imagePreviewUrls, setImagePreviewUrls] = useState<string[]>([]);
-  const [imagePreviewIndex, setImagePreviewIndex] = useState(0);
-  const imagePreviewListRef = useRef<FlatList<string> | null>(null);
-  // ✅ 新增:图片+语音模式的状态
-  const [imageUrlsForVoice, setImageUrlsForVoice] = useState<
-    string[] | undefined
-  >(undefined);
+  /** 有日记记录的年月映射 { year: [month, ...] } */
+  const yearMonthMap = React.useMemo(() => {
+    const map: Record<number, number[]> = {};
+    for (const d of diaries) {
+      const { year, month } = getYearMonth(d.created_at);
+      if (year === 0 || month === 0) continue;
+      if (!map[year]) map[year] = [];
+      if (!map[year].includes(month)) map[year].push(month);
+    }
+    for (const y of Object.keys(map)) {
+      map[Number(y)].sort((a, b) => b - a); // 年份降序
+    }
+    return map;
+  }, [diaries]);
 
-  // ✅ 录音计时器相关状态
-  const [isRecording, setIsRecording] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
-  const [recordingDuration, setRecordingDuration] = useState(0);
-  const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const formatStickyYearMonth = React.useCallback(
+    (year: number, month: number) => {
+      const locale = getCurrentLocale();
+      const monthStr = locale === "zh" ? String(month) : (MONTH_NAMES_SHORT[month - 1] ?? String(month));
+      return t("home.stickyYearMonthFormat", { year: String(year), month: monthStr });
+    },
+    [t]
+  );
 
-  // ✅ 搜索相关状态
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<Diary[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const viewabilityConfig = useRef({ viewAreaCoveragePercentThreshold: 0 }).current;
 
-  // ✅ 已删除：showNamePromptForExistingUser 状态（不再需要老用户强制弹窗）
+  const onViewableItemsChanged = React.useCallback(
+    ({ viewableItems }: { viewableItems: Array<{ item: Diary; index: number | null }> }) => {
+      if (searchQuery.trim() !== "" || diaries.length === 0 || viewableItems.length === 0) return;
+      const sorted = [...viewableItems].sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
+      const top = sorted[0]?.item;
+      if (top) {
+        const { year, month } = getYearMonth(top.created_at);
+        setStickyYear(year);
+        setStickyMonth(month);
+      }
+    },
+    [diaries, searchQuery]
+  );
 
-  /**
-   * 录音成功回调
-   */
-  const handleRecordingSuccess = () => {
-    console.log("✅ 录音成功,刷新列表");
+  const handleListScroll = React.useCallback(
+    (e: { nativeEvent: { contentOffset: { y: number } } }) => {
+      const y = e.nativeEvent.contentOffset.y;
+      lastScrollY.current = y;
+      const threshold = headerHeightRef.current > 0 ? headerHeightRef.current - 40 : 200;
+      
+      // ✅ 强制安全检查：如果在顶部，且 stickyBarVisible 为 true，立即重置并关闭透明度
+      if (y < 10) {
+        setStickyBarVisible((prev) => {
+          if (!prev) return false;
+          Animated.timing(stickyBarOpacity, { toValue: 0, duration: 100, useNativeDriver: true }).start();
+          return false;
+        });
+        return;
+      }
+
+      if (y >= threshold) {
+        setStickyBarVisible((prev) => {
+          if (prev) return true;
+          Animated.timing(stickyBarOpacity, { toValue: 1, duration: 200, useNativeDriver: true }).start();
+          return true;
+        });
+      } else if (y <= threshold - 20) {
+        setStickyBarVisible((prev) => {
+          if (!prev) return false;
+          Animated.timing(stickyBarOpacity, { toValue: 0, duration: 150, useNativeDriver: true }).start();
+          return false;
+        });
+      }
+    },
+    [stickyBarOpacity]
+  );
+
+  const handleRecordingCancel = React.useCallback(() => {
     setRecordingModalVisible(false);
-    loadDiaries(); // ✅ 重新加载日记列表
-  };
+  }, []);
 
-  /**
-   * 取消录音回调
-   */
-  const handleRecordingCancel = () => {
-    console.log("❌ 取消录音");
-    setRecordingModalVisible(false);
-  };
-
-  // 分别存储 welcome 和 subtitle
-  const [greetingWelcome, setGreetingWelcome] = useState("");
-  const [greetingSubtitle, setGreetingSubtitle] = useState("");
-  const [userDisplayName, setUserDisplayName] = useState<string | null>(null); // 用于高亮显示的用户名
-
-  const resetToRoot = (routeName: keyof RootStackParamList) => {
+  const resetToRoot = React.useCallback((routeName: keyof RootStackParamList) => {
     const parent = navigation.getParent?.();
     const root = parent?.getParent?.();
     const target = root || parent || navigation;
-    target.reset({
-      index: 0,
-      routes: [{ name: routeName }],
-    });
-  };
+    target.reset({ index: 0, routes: [{ name: routeName }] });
+  }, [navigation]);
 
-  // ========== 生命周期 ==========
-  useEffect(() => {
-    loadGreeting();
-  }, [user]); // 当用户信息变化时重新加载问候语
-
-  // ✅ 监听页面焦点，当从汉堡菜单返回时重新加载 greeting
-  useFocusEffect(
-    React.useCallback(() => {
-      loadGreeting();
-    }, [])
-  );
-
-  // ✅ 监听导航参数变化（从汉堡菜单更新名字后触发）
-  useEffect(() => {
-    const params = route.params as any;
-    if (params?.refreshGreeting) {
-      console.log("🔄 收到刷新 greeting 指令，立即刷新");
-      loadGreeting();
-    }
-    // ✅ 如果有 Toast 消息，显示 Toast
-    if (params?.showSuccessToast) {
-      showToast(params.showSuccessToast);
-    }
-  }, [route.params]);
-
-  // ✅ 已删除：老用户强制弹窗逻辑（用户体验不好）
-  // 老用户可以通过汉堡菜单主动修改偏好称呼
-
-  async function loadGreeting() {
-    // 检测用户语言
+  const loadGreeting = React.useCallback(async () => {
     const locales = Localization.getLocales();
-    const userLocale =
-      locales.length > 0 && locales[0]?.languageCode
-        ? locales[0].languageCode
-        : "en";
-    const language = userLocale.startsWith("zh") ? "zh" : "en";
-
-    console.log("📍 用户语言:", userLocale, "→ 使用:", language);
-
-    // ✅ 获取用户偏好称呼（优先使用 preferredName）
+    const language = locales[0]?.languageCode?.startsWith("zh") ? "zh" : "en";
     let displayName = "";
     const preferredName = await getPreferredName();
-    if (preferredName && preferredName.length > 0) {
-      // 提取名字（去掉可能的空格和特殊字符，只取第一个词）
-      const firstName = preferredName.trim().split(/\s+/)[0];
-      // 如果名字不是从邮箱提取的默认值（长度大于1且不是纯数字），则使用
-      if (firstName.length > 1 && !/^[0-9]+$/.test(firstName)) {
-        displayName = firstName;
-      }
+    if (preferredName) {
+      displayName = preferredName.trim().split(/\s+/)[0];
     }
-
-    // 保存用于高亮显示的用户名
     setUserDisplayName(displayName || null);
-
-    // 如果没有有效的姓名，使用默认值
-    // 英文用"there"，中文用空字符串（因为中文"Hi"后面可以直接接逗号）
     if (!displayName) {
       displayName = language === "zh" ? "" : "there";
     }
-
-    // 构建welcome：替换welcome中的{name}占位符
-    let welcomeText = t("home.welcome").replace("{name}", displayName);
-
-    // 如果中文且没有姓名，去掉"Hi "后面的空格，直接接逗号
-    if (language === "zh" && !displayName) {
-      welcomeText = welcomeText.replace("Hi ", "Hi");
-    }
-
-    // 分别设置 welcome 和 subtitle
-    setGreetingWelcome(welcomeText);
+    let welcome = t("home.welcome").replace("{name}", displayName);
+    if (language === "zh" && !displayName) welcome = welcome.replace("Hi ", "Hi");
+    setGreetingWelcome(welcome);
     setGreetingSubtitle(t("home.subtitle"));
-
-    // 标记已登录过
-    const hasLoggedInBefore = await SecureStore.getItemAsync(
-      "hasLoggedInBefore"
-    );
-    if (!hasLoggedInBefore) {
-      await SecureStore.setItemAsync("hasLoggedInBefore", "true");
-    }
-  }
-
-  /**
-   * 组件挂载时执行
-   * useEffect是React的"副作用"钩子
-   * 第二个参数[]表示只在组件首次加载时执行一次
-   */
-  useEffect(() => {
-    loadData();
-
-    // 组件卸载时清理所有定时器和播放器
-    return () => {
-      stopAllAudio();
-    };
-  }, [stopAllAudio]);
-
-  /**
-   * 页面获得焦点时自动刷新数据
-   * 用于处理从创建日记页面返回时刷新列表
-   */
-  useFocusEffect(
-    React.useCallback(() => {
-      let isActive = true;
-
-      // 进入页面时不做额外处理
-      // 如果用户已经登录，则刷新日记列表
-      const refreshDiaries = async () => {
-        try {
-          const currentUser = await getCurrentUser();
-          if (!currentUser) {
-            return; // 没有用户信息，不刷新
-          }
-
-          console.log("🔄 页面获得焦点，刷新日记列表...");
-          const response = await getDiaries();
-          setDiaries(response);
-        } catch (error: any) {
-          // 静默处理错误，不显示底部提示
-          console.error("刷新日记列表失败:", error);
-
-          // 如果是 token 过期，静默跳转到登录页
-          if (
-            error.message?.includes("已过期") ||
-            error.message?.includes("401")
-          ) {
-            console.log("🔒 Token已过期，静默跳转到登录页");
-            await signOut();
-            resetToRoot("Login");
-            return;
-          }
-        }
-      };
-
-      refreshDiaries();
-
-      // 页面失焦或离开时，强制停止所有音频
-      return () => {
-        isActive = false;
-        stopAllAudio();
-
-        // ✅ 清理搜索定时器
-        if (searchTimeoutRef.current) {
-          clearTimeout(searchTimeoutRef.current);
-          searchTimeoutRef.current = null;
-        }
-      };
-    }, [stopAllAudio])
-  );
-
-  // 骨架屏脉冲动画
-  useEffect(() => {
-    if (loading) {
-      const pulseAnimation = Animated.sequence([
-        Animated.timing(skeletonOpacity, {
-          toValue: 0.6,
-          duration: 800,
-          useNativeDriver: true,
-        }),
-        Animated.timing(skeletonOpacity, {
-          toValue: 0.3,
-          duration: 800,
-          useNativeDriver: true,
-        }),
-      ]);
-      Animated.loop(pulseAnimation).start();
-    }
-  }, [loading]);
-
-
-  // ✅ 新增：Action Sheet 动画效果
-  useEffect(() => {
-    if (actionSheetVisible) {
-      // Action Sheet 打开时，从底部滑入
-      Animated.spring(actionSheetSlide, {
-        toValue: 0,
-        useNativeDriver: true,
-        tension: 65,
-        friction: 11,
-      }).start();
-    } else {
-      // Action Sheet 关闭时，重置位置
-      actionSheetSlide.setValue(300);
-    }
-  }, [actionSheetVisible]);
-
-  // ========== 数据加载 ==========
-
-  /**
-   * 加载页面数据
-   * 包括:用户信息、日记列表
-   */
-  const loadData = React.useCallback(async () => {
-    try {
-      setLoading(true);
-
-      // 1. 获取用户信息
-      const currentUser = await getCurrentUser();
-      setUser(currentUser);
-
-      // ✅ 添加这行检查
-      console.log("👤 用户数据:", {
-        name: currentUser?.name,
-        email: currentUser?.email,
-        provider: currentUser?.provider,
-        picture: currentUser?.picture, // ← 看这里有没有值
-      });
-
-      // ✅ 新增:启动自动刷新
-      startAutoRefresh();
-      console.log("⏰ 已启动自动Token刷新");
-
-      // 2. 加载日记列表
-      await loadDiaries();
-    } catch (error) {
-      console.error("加载数据失败:", error);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  }, [t]);
 
   /**
    * 加载日记列表
@@ -461,75 +330,56 @@ export default function DiaryListScreen() {
   const loadDiaries = React.useCallback(async () => {
     try {
       console.log("📖 开始加载日记列表...");
-
       const response = await getDiaries();
-
-      const sanitizedDiaries = response.filter((diary) => {
-        if (!diary) {
-          return false;
-        }
-
-        const id = String(diary.diary_id || "")
-          .trim()
-          .toLowerCase();
-        if (!id || id === "unknown") {
-          console.log("⚠️ 跳过无效日记: 缺少合法ID", diary);
-          return false;
-        }
-
-        // 检查是否有内容：文字内容 或 图片 或 音频
-        const hasTextContent =
-          (diary.polished_content &&
-            diary.polished_content.trim().length > 0) ||
-          (diary.original_content && diary.original_content.trim().length > 0);
-
-        const hasImages = diary.image_urls && diary.image_urls.length > 0;
-        const hasAudio = diary.audio_url && diary.audio_url.trim().length > 0;
-
-        // 只要有文字、图片或音频中的任意一种，就认为是有效日记
-        const hasContent = hasTextContent || hasImages || hasAudio;
-
-        if (!hasContent) {
-          console.log("⚠️ 跳过无效日记: 缺少内容", diary);
-          return false;
-        }
-
-        return true;
+      console.log("✅ [DiaryList] getDiaries response received");
+      
+      const sanitizedDiaries = (response || []).filter((diary) => {
+        if (!diary) return false;
+        const id = String(diary.diary_id || "").trim();
+        return id.length > 0 && id.toLowerCase() !== "unknown";
       });
-
-      // 统计音频数量
-      const audioCount = sanitizedDiaries.filter(
-        (diary) => diary.audio_url
-      ).length;
-      console.log("✅ 日记加载成功:", {
-        total: sanitizedDiaries.length,
-        rawTotal: response.length,
-        withAudio: audioCount,
-        withoutAudio: sanitizedDiaries.length - audioCount,
-      });
-
-      if (sanitizedDiaries.length !== response.length) {
-        console.log(
-          `⚠️ 过滤掉 ${
-            response.length - sanitizedDiaries.length
-          } 条无效日记（疑似PROFILE或旧脏数据）`
-        );
-      }
-
+      
       setDiaries(sanitizedDiaries);
-    } catch (error: any) {
+      console.log(`✅ [DiaryList] Diaries loaded & set: ${sanitizedDiaries.length}`);
+    } catch (error: unknown) {
       console.error("❌ 加载日记失败:", error);
-
-      // ✅ 使用统一的错误处理工具
       await handleAuthErrorOnly(error, async () => {
-        // 认证过期回调：静默跳转到登录页
         console.log("🔒 Token已过期，静默跳转到登录页");
         resetToRoot("Login");
       });
-
       setDiaries([]);
     }
   }, []);
+
+  /**
+   * 加载页面数据
+   */
+  const loadData = React.useCallback(async () => {
+    try {
+      setLoading(true);
+      const currentUser = await getCurrentUser();
+      setUser(currentUser);
+      startAutoRefresh();
+      await loadDiaries();
+    } catch (error) {
+      console.error("加载数据失败:", error);
+    } finally {
+      setLoading(false);
+    }
+  }, [loadDiaries]);
+
+  // ========== 生命周期 ==========
+  useEffect(() => {
+    loadGreeting();
+  }, [user]); 
+
+  useFocusEffect(
+    React.useCallback(() => {
+      loadGreeting();
+      loadData(); // ✅ Fix: Properly trigger data fetch on focus
+    }, [loadData, loadGreeting])
+  );
+
 
   /**
    * 下拉刷新
@@ -538,7 +388,7 @@ export default function DiaryListScreen() {
     setRefreshing(true);
     try {
       await loadData();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("❌ 下拉刷新失败:", error);
       // 静默处理错误，不显示额外的错误提示（loadDiaries 已经处理了）
     } finally {
@@ -546,94 +396,7 @@ export default function DiaryListScreen() {
     }
   }, [loadData]);
 
-  // ===== 录音相关函数 =====
-
-  /**
-   * 打开录音Modal
-   */
-  const openRecordingModal = () => {
-    console.log("📱 打开录音Modal");
-    stopAllAudio(); // ✅ 确保打开录音时停止其他音频播放
-    setRecordingModalVisible(true);
-    setIsRecording(true); 
-    setIsPaused(false); 
-    setRecordingDuration(0); 
-
-    // ✅ 启动计时器
-    if (recordingTimerRef.current) {
-      clearInterval(recordingTimerRef.current);
-    }
-
-    recordingTimerRef.current = setInterval(() => {
-      setRecordingDuration((prev) => {
-        const newDuration = prev + 1;
-        // 10分钟自动停止
-        if (newDuration >= 600) {
-          handleFinishRecording();
-        }
-        return newDuration;
-      });
-    }, 1000);
-  };
-
-  /**
-   * 暂停录音
-   */
-  const handlePauseRecording = () => {
-    // ✅ 停止计时
-    if (recordingTimerRef.current) {
-      clearInterval(recordingTimerRef.current);
-      recordingTimerRef.current = null;
-    }
-  };
-
-  /**
-   * 继续录音
-   */
-  const handleResumeRecording = () => {
-    // ✅ 恢复计时
-    recordingTimerRef.current = setInterval(() => {
-      setRecordingDuration((prev) => {
-        const newDuration = prev + 1;
-        if (newDuration >= 600) {
-          handleFinishRecording();
-        }
-        return newDuration;
-      });
-    }, 1000);
-  };
-
-  /**
-   * 完成录音
-   */
-  const handleFinishRecording = () => {
-    // ✅ 清理计时器
-    if (recordingTimerRef.current) {
-      clearInterval(recordingTimerRef.current);
-      recordingTimerRef.current = null;
-    }
-
-    setRecordingModalVisible(false);
-    setIsRecording(false);
-    setIsPaused(false);
-    setRecordingDuration(0);
-  };
-
-  /**
-   * 取消录音
-   */
-  const handleCancelRecording = () => {
-    // ✅ 清理计时器
-    if (recordingTimerRef.current) {
-      clearInterval(recordingTimerRef.current);
-      recordingTimerRef.current = null;
-    }
-
-    setRecordingModalVisible(false);
-    setIsRecording(false);
-    setIsPaused(false);
-    setRecordingDuration(0);
-  };
+  // ❌ 已删除：此处不再手动管理录音计时器或状态，全部交给 RecordingModal 内部 useVoiceRecording hook 管理。
 
   // ========== 交互处理 ==========
 
@@ -729,7 +492,7 @@ export default function DiaryListScreen() {
 
   // ✅ 使用 useCallback 锁定 handleOpenDrawer 引用，防止重绘导致 Header 子组件 Remount
   const handleOpenDrawer = React.useCallback(() => {
-    console.log("🍔 点击汉堡菜单");
+    console.log("👤 点击 Profile 入口");
     try {
       // ✅ 使用 DrawerActions 分发打开指令，它会自动向上查找最近的 Drawer 导航器
       navigation.dispatch(DrawerActions.openDrawer());
@@ -793,11 +556,11 @@ export default function DiaryListScreen() {
 
       // 使用无交互 toast 提示
       showToast(t("success.deleted"));
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("删除日记失败:", error);
 
+      const message = error instanceof Error ? error.message : String(error ?? "");
       // 如果是后台已经不存在的老数据，静默刷新列表并返回
-      const message = error?.message || "";
       if (
         message.includes("找不到日记ID") ||
         message.includes("Not Found") ||
@@ -809,7 +572,7 @@ export default function DiaryListScreen() {
 
       Alert.alert(
         t("error.genericError"),
-        error.message || t("error.deleteFailed")
+        message || t("error.deleteFailed")
       );
     }
   };
@@ -885,7 +648,7 @@ export default function DiaryListScreen() {
         } else {
           console.log("⚡ 本地结果充足，跳过后端搜索");
         }
-      } catch (backendError: any) {
+      } catch (backendError: unknown) {
         console.warn("⚠️ 后端搜索失败，仅使用本地结果:", backendError);
         // 降级：只使用本地结果（不显示错误给用户）
       }
@@ -954,6 +717,32 @@ export default function DiaryListScreen() {
 
     return merged;
   };
+
+  /**
+   * 跳转到指定月份的第一条日记并关闭月份选择器
+   */
+  const scrollToMonth = React.useCallback(
+    (year: number, month: number) => {
+      const idx = diaries.findIndex((d) => {
+        const { year: y, month: m } = getYearMonth(d.created_at);
+        return y === year && m === month;
+      });
+      if (idx === -1) return;
+      setMonthPickerVisible(false);
+      setTimeout(() => {
+        try {
+          flatListRef.current?.scrollToIndex({
+            index: idx,
+            viewPosition: 0,
+            animated: true,
+          });
+        } catch (_) {
+          // 列表未布局或动态高度时 scrollToIndex 可能失败，忽略
+        }
+      }, 200);
+    },
+    [diaries]
+  );
 
   // ✅ 渲染自定义 Action Sheet
   const renderActionSheet = () => {
@@ -1070,14 +859,177 @@ export default function DiaryListScreen() {
       </Modal>
     );
   };
+
+  /** 月份选择器 Modal：自底向上，按年份分组，1–12 月，仅可跳有记录的月份 */
+  const renderMonthPickerModal = () => {
+    if (!monthPickerVisible) return null;
+    const years = Object.keys(yearMonthMap)
+      .map(Number)
+      .sort((a, b) => b - a);
+
+    return (
+      <Modal
+        visible={monthPickerVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMonthPickerVisible(false)}
+      >
+        <View style={styles.modalContainer}>
+          <TouchableOpacity
+            style={styles.modalOverlay}
+            activeOpacity={1}
+            onPress={() => setMonthPickerVisible(false)}
+          />
+          <Animated.View
+            style={[
+              styles.monthPickerContainer,
+              { transform: [{ translateY: monthPickerSlide }] },
+            ]}
+          >
+            <View style={styles.monthPickerHeader}>
+              <Text
+                style={[
+                  styles.monthPickerTitle,
+                  {
+                    fontFamily: getFontFamilyForText(
+                      t("home.monthPickerTitle"),
+                      "medium"
+                    ),
+                  },
+                ]}
+              >
+                {t("home.monthPickerTitle")}
+              </Text>
+              <TouchableOpacity
+                style={styles.actionSheetCloseButton}
+                onPress={() => setMonthPickerVisible(false)}
+                accessibilityLabel={t("common.close")}
+                accessibilityRole="button"
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="close-outline" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+            {years.length === 0 ? (
+              <View style={styles.monthPickerEmpty}>
+                <Text
+                  style={[
+                    styles.monthPickerEmptyText,
+                    { fontFamily: getFontFamilyForText(t("home.monthPickerEmpty"), "regular") },
+                  ]}
+                >
+                  {t("home.monthPickerEmpty")}
+                </Text>
+              </View>
+            ) : (
+            <ScrollView
+              style={styles.monthPickerScroll}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.monthPickerContent}
+            >
+              {years.map((year) => {
+                const months = yearMonthMap[year] ?? [];
+                const hasMonth = (m: number) => months.includes(m);
+                return (
+                  <View key={year} style={styles.monthPickerSection}>
+                    <Text
+                      style={[
+                        styles.monthPickerYearLabel,
+                        {
+                          fontFamily: getFontFamilyForText(
+                            String(year),
+                            "semibold"
+                          ),
+                        },
+                      ]}
+                    >
+                      {year}
+                    </Text>
+                    <View style={styles.monthPickerGrid}>
+                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => {
+                        const enabled = hasMonth(m);
+                        const label =
+                          getCurrentLocale() === "zh"
+                            ? `${m}月`
+                            : MONTH_NAMES_SHORT[m - 1];
+                        if (enabled) {
+                          return (
+                            <TouchableOpacity
+                              key={m}
+                              style={styles.monthPickerChip}
+                              onPress={() => scrollToMonth(year, m)}
+                              activeOpacity={0.7}
+                              accessibilityLabel={`${year} ${label}`}
+                              accessibilityRole="button"
+                            >
+                              <Text
+                                style={[
+                                  styles.monthPickerChipText,
+                                  {
+                                    fontFamily: getFontFamilyForText(
+                                      label,
+                                      "regular"
+                                    ),
+                                  },
+                                ]}
+                              >
+                                {label}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        }
+                        return (
+                          <View
+                            key={m}
+                            style={[styles.monthPickerChip, styles.monthPickerChipDisabled]}
+                          >
+                            <Text
+                              style={[
+                                styles.monthPickerChipTextDisabled,
+                                {
+                                  fontFamily: getFontFamilyForText(
+                                    label,
+                                    "regular"
+                                  ),
+                                },
+                              ]}
+                            >
+                              {label}
+                            </Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  </View>
+                );
+              })}
+            </ScrollView>
+            )}
+          </Animated.View>
+        </View>
+      </Modal>
+    );
+  };
+
   // ========== 渲染函数 ==========
 
   /**
    * 渲染顶部用户信息区域
    */
   const renderHeader = () => (
-    <View style={styles.header}>
-      {/* ✅ 搜索框 + 汉堡菜单 - 同一行，右对齐 */}
+    <View 
+      style={styles.header}
+      onLayout={(e) => {
+        // ✅ 动态测量 Header 高度
+        const { height } = e.nativeEvent.layout;
+        // 只有高度发生显著变化时才更新（避免微小抖动）
+        if (Math.abs(headerHeightRef.current - height) > 1) {
+          console.log(`📏 Header Height measured: ${height}`);
+          headerHeightRef.current = height;
+        }
+      }}
+    >
+      {/* ✅ 搜索框 + Profile 头像入口 - 同一行，右对齐 */}
       <View style={styles.headerTopRow}>
         {/* 搜索框 - 只在日记数 ≥ 10 时显示，点击进入搜索页面 */}
         {diaries.length >= 10 && (
@@ -1106,15 +1058,15 @@ export default function DiaryListScreen() {
           </TouchableOpacity>
         )}
 
-        {/* 汉堡菜单 - 始终显示 */}
+        {/* ✅ Profile 头像入口 - 可爱笑脸，比汉堡菜单更有温度 */}
         <TouchableOpacity
           style={styles.compactMenuButton}
           onPress={handleOpenDrawer}
           accessibilityLabel={t("home.profileMenuButton")}
           accessibilityRole="button"
-          hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <HamburgarMenuIcon width={28} height={28} color="#80645A" />
+          <ProfileIcon width={28} height={28} />
         </TouchableOpacity>
       </View>
 
@@ -1142,7 +1094,7 @@ export default function DiaryListScreen() {
                   const parts = greetingWelcome.split(userDisplayName);
                   return (
                     <>
-                      {parts.map((part, index) => (
+                      {parts.map((part: string, index: number) => (
                         <React.Fragment key={index}>
                           {part && (
                             <Text
@@ -1221,38 +1173,50 @@ export default function DiaryListScreen() {
       {/* 分割线 - 始终显示，作为顶部区域的结尾 */}
       <View style={styles.divider} />
 
-      {/* 我的日记标题 - 只在有至少一条日记时显示 */}
+      {/* 我的日记标题 - 只在有至少一条日记时显示；右侧为情绪日历入口 */}
       {diaries.length > 0 && (
         <View style={styles.sectionTitleContainer}>
-          <PreciousMomentsIcon width={20} height={20} />
-          <Text
-            style={[
-              styles.sectionTitle,
-              {
-                color: "#80645A", // 使用和时间一样的颜色
-                fontFamily: getFontFamilyForText(t("home.myDiary"), "regular"),
-              },
-            ]}
-          >
-            {t("home.myDiaryPrefix")}{" "}
+          <View style={styles.sectionTitleLeft}>
+            <PreciousMomentsIcon width={20} height={20} />
             <Text
               style={[
                 styles.sectionTitle,
                 {
-                  color: "#FF6B35",
-                  fontWeight: "bold",
-                  fontSize: 15,
-                  fontFamily: getFontFamilyForText(
-                    diaries.length.toString(),
-                    "bold"
-                  ),
+                  color: "#80645A",
+                  fontFamily: getFontFamilyForText(t("home.myDiary"), "regular"),
                 },
               ]}
             >
-              {diaries.length}
-            </Text>{" "}
-            {t("home.myDiarySuffix")}
-          </Text>
+              {t("home.myDiaryPrefix")}{" "}
+              <Text
+                style={[
+                  styles.sectionTitle,
+                  {
+                    color: "#FF6B35",
+                    fontWeight: "bold",
+                    fontSize: 15,
+                    fontFamily: getFontFamilyForText(
+                      diaries.length.toString(),
+                      "bold"
+                    ),
+                  },
+                ]}
+              >
+                {diaries.length}
+              </Text>{" "}
+              {t("home.myDiarySuffix")}
+            </Text>
+          </View>
+          <TouchableOpacity
+            onPress={() => navigation.navigate("MoodCalendar")}
+            style={styles.calendarEntryButton}
+            hitSlop={{ top: 0, bottom: 0, left: 0, right: 0 }}
+            accessibilityLabel={t("moodCalendar.navTitle")}
+            accessibilityHint={t("moodCalendar.emptyPickDate")}
+            accessibilityRole="button"
+          >
+            <CalendarIconOrange width={22} height={22} />
+          </TouchableOpacity>
         </View>
       )}
     </View>
@@ -1412,13 +1376,14 @@ export default function DiaryListScreen() {
         accessibilityHint={t("accessibility.button.viewDetailHint")}
         accessibilityRole="button"
       >
+        {/* ✅ Diagnostic Logging */}
+        {index < 5 && console.log(`🖼️ Rendering Card ${index}: ${item.diary_id}`) || null}
         {/* ✅ 情绪光晕效果 - 放在最外层，不受 Padding 影响 */}
         <EmotionGlow emotion={item.emotion_data?.emotion} />
 
         {/* ✅ 内容容器 - 提供 Padding */}
         <View style={styles.cardContentContainer} pointerEvents="box-none">
           {/* 纯图片日记：只显示图片 */}
-          {/* DEBUG: {item.emotion_data?.emotion} */}
           {isImageOnly ? (
             <>
               {/* 图片缩略图 */}
@@ -1527,7 +1492,7 @@ export default function DiaryListScreen() {
           {/* 日期 + 三点菜单图标 - 移到底部 */}
           <View style={styles.cardFooter}>
             <View style={styles.dateContainer}>
-              <CalendarIcon width={20} height={20} />
+              <TimeIcon width={20} height={20} color="#80645A" />
               <Text
                 style={[
                   styles.cardDate,
@@ -1675,37 +1640,99 @@ export default function DiaryListScreen() {
         renderSkeleton()
       ) : (
         <>
-          {/* 日记列表 */}
-          {/* ✅ 性能核心优化：通过 useMemo 锁定 Header 和 EmptyState 渲染 */}
-          {/* 它们不依赖 currentTime，因此音频进度更新时（100ms/次）不会触发它们的重绘 */}
-          {/* 这能从根本上解决“播放音频时，搜索框和汉堡菜单点击不灵敏”的问题 */}
-          <FlatList
-            data={searchQuery.trim() !== '' ? searchResults : diaries}
-            renderItem={renderDiaryCardMemo}
-            keyExtractor={(item) => item.diary_id}
-            ListHeaderComponent={listHeader}
-            ListEmptyComponent={listEmpty}
-            contentContainerStyle={styles.listContent}
-            extraData={{ currentPlayingId, currentTime, duration }}
-            refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={onRefresh}
-                tintColor="#E56C45"
-                accessibilityLabel={t("home.refreshing")}
+          {/* 列表区：使用 flex:1 自动填满可用空间，不再手动计算高度 */}
+          <View style={styles.mainContentWrap}>
+            <View style={styles.listWrapper}>
+              {diaries.length > 0 &&
+                searchQuery.trim() === "" &&
+                stickyYear != null &&
+                stickyMonth != null &&
+                stickyBarVisible && (
+                  <Animated.View
+                    style={[
+                      styles.stickyYearMonthBarOverlay,
+                      { opacity: stickyBarOpacity },
+                    ]}
+                    pointerEvents={stickyBarVisible ? "auto" : "none"}
+                  >
+                    <TouchableOpacity
+                      style={styles.stickyYearMonthBar}
+                      onPress={() => setMonthPickerVisible(true)}
+                      activeOpacity={0.7}
+                      accessibilityLabel={formatStickyYearMonth(stickyYear, stickyMonth)}
+                      accessibilityHint={t("home.monthPickerTitle")}
+                      accessibilityRole="button"
+                    >
+                      <Text
+                        style={[
+                          styles.stickyYearMonthText,
+                          {
+                            fontFamily: getFontFamilyForText(
+                              formatStickyYearMonth(stickyYear, stickyMonth),
+                              "regular"
+                            ),
+                          },
+                        ]}
+                      >
+                        {formatStickyYearMonth(stickyYear, stickyMonth)}
+                      </Text>
+                      <Ionicons
+                        name="chevron-down-outline"
+                        size={14}
+                        color="#82665B"
+                        style={styles.stickyYearMonthChevron}
+                      />
+                    </TouchableOpacity>
+                  </Animated.View>
+                )}
+              <FlatList
+                ref={flatListRef}
+                style={styles.flatListFill}
+                data={searchQuery.trim() !== '' ? searchResults : diaries}
+                renderItem={renderDiaryCardMemo}
+                keyExtractor={(item) => item.diary_id}
+                ListHeaderComponent={listHeader}
+                ListEmptyComponent={listEmpty}
+                contentContainerStyle={[
+                  styles.listContent,
+                  {
+                    paddingBottom: BOTTOM_BAR_HEIGHT + insets.bottom + 24,
+                    // Removing flexGrow: 1 to prevent layout occlusion issues
+                  },
+                ]}
+                extraData={{ currentPlayingId, currentTime, duration }}
+                onScroll={handleListScroll}
+                scrollEventThrottle={16}
+                onViewableItemsChanged={onViewableItemsChanged}
+                viewabilityConfig={viewabilityConfig}
+                refreshControl={
+                  <RefreshControl
+                    refreshing={refreshing}
+                    onRefresh={onRefresh}
+                    tintColor="#E56C45"
+                    accessibilityLabel={t("home.refreshing")}
+                  />
+                }
+                showsVerticalScrollIndicator={false}
+                accessibilityLabel={
+                  diaries.length > 0
+                    ? `${diaries.length} ${t("accessibility.list.diaryCard")}`
+                    : t("accessibility.list.emptyList")
+                }
               />
-            }
-            showsVerticalScrollIndicator={false}
-            accessibilityLabel={
-              diaries.length > 0
-                ? `${diaries.length} ${t("accessibility.list.diaryCard")}`
-                : t("accessibility.list.emptyList")
-            }
-          />
+            </View>
+          </View>
 
-          {/* 底部操作栏 */}
-          <View style={styles.bottomActionBar}>
-            {/* 图片上传按钮 */}
+          {/* 底部操作栏：与 mainContentWrap 平级，绝对定位悬浮，固定高度绝不拉伸 */}
+          <View
+            style={[
+              styles.bottomActionBar,
+              {
+                bottom: insets.bottom + 12,
+                height: BOTTOM_BAR_HEIGHT,
+              },
+            ]}
+          >
             <TouchableOpacity
               style={styles.actionButton}
               onPress={handleImageUpload}
@@ -1716,8 +1743,6 @@ export default function DiaryListScreen() {
             >
               <ImageInputIcon width={32} height={32} fill={"#332824"} />
             </TouchableOpacity>
-
-            {/* 录音按钮 - 主按钮 */}
             <TouchableOpacity
               style={styles.recordButton}
               onPress={handleVoiceRecord}
@@ -1728,8 +1753,6 @@ export default function DiaryListScreen() {
             >
               <MicIcon width={26} height={26} />
             </TouchableOpacity>
-
-            {/* 文字输入按钮 */}
             <TouchableOpacity
               style={styles.actionButton}
               onPress={handleTextInput}
@@ -1747,12 +1770,16 @@ export default function DiaryListScreen() {
       {/* Action Sheet */}
       {renderActionSheet()}
 
-      {/* ✅ 新增:录音Modal */}
+      {/* 月份选择器 Modal */}
+      {renderMonthPickerModal()}
+
+      {/* ✅ 录音Modal (放在最外层，不影响列表布局) */}
       <RecordingModal
         visible={recordingModalVisible}
         onSuccess={() => {
           setImageUrlsForVoice(undefined); // 清除图片URL
-          handleRecordingSuccess();
+          setRecordingModalVisible(false);
+          loadDiaries(); // ✅ 录音成功后刷新列表
         }}
         onCancel={() => {
           setImageUrlsForVoice(undefined); // 清除图片URL
@@ -1760,6 +1787,8 @@ export default function DiaryListScreen() {
         }}
         onDiscard={loadDiaries}
         imageUrls={imageUrlsForVoice} // ✅ 传递图片URL列表
+        // ✅ 传递顶级 Hook 状态，确保计时器不中断
+        voiceRecording={voiceRecording}
       />
 
       {/* ✅ 新增:文字输入Modal */}
@@ -1920,8 +1949,45 @@ const styles = StyleSheet.create({
     backgroundColor: "#FAF6ED",
   },
 
+  /** 主内容区包裹层：确保 flex 上下文，列表填满可用高度，消除底部色块遮挡 */
+  mainContentWrap: {
+    flex: 1,
+  },
+
   listContent: {
-    paddingBottom: 100, // 给底部胶囊操作栏留出足够空间
+    paddingBottom: 100, // 占位；实际由 JS 覆盖为 BOTTOM_BAR_HEIGHT + insets.bottom + 24
+  },
+
+  listWrapper: {
+    flex: 1,
+    position: "relative",
+  },
+  flatListFill: {
+    flex: 1,
+  },
+
+  stickyYearMonthBarOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 36,
+    zIndex: 10,
+    backgroundColor: "#FAF6ED",
+  },
+  stickyYearMonthBar: {
+    height: 36,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "transparent",
+  },
+  stickyYearMonthText: {
+    fontSize: 14,
+    color: "#82665B",
+  },
+  stickyYearMonthChevron: {
+    marginLeft: 8,
   },
 
   // ===== 头部区域 =====
@@ -1953,7 +2019,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',  // 白色背景
     borderRadius: 18,  // 全圆角 (36/2)
     paddingHorizontal: 12,
-    // 不要边框
+    // ✅ 更弱的投影（降低透明度和半径）
+    shadowColor: "#FFD1B0",
+    shadowOffset: {
+      width: 0,
+      height: 1, // 更小的偏移
+    },
+    shadowOpacity: 0.15, // ✅ 降低透明度（从0.3改为0.15）
+    shadowRadius: 4, // ✅ 减小半径（从8改为4），让阴影更弱
+    elevation: 1, // ✅ Android 阴影也降低（从2改为1）
   },
   compactSearchIcon: {
     marginRight: 6,
@@ -1965,13 +2039,13 @@ const styles = StyleSheet.create({
     paddingLeft: 4,
   },
   compactMenuButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,  // 圆形
-    backgroundColor: '#FFFFFF',  // 白色背景
+    width: 28,
+    height: 28,
+    borderRadius: 14,  // 圆形 (28/2)
+    backgroundColor: 'transparent',  // ✅ 去掉白色背景
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: 8,  // 距离搜索框8px
+    marginLeft: 12,  // ✅ 距离搜索框12px（从8px改为12px）
   },
   searchingIndicator: {
     flexDirection: 'row',
@@ -2048,8 +2122,22 @@ const styles = StyleSheet.create({
   sectionTitleContainer: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
     marginTop: 16,
     marginBottom: 0,
+  },
+  sectionTitleLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+  calendarEntryButton: {
+    width: 44,
+    height: 44,
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: "center",
+    justifyContent: "center",
   },
   sectionTitle: {
     ...Typography.sectionTitle,
@@ -2314,6 +2402,69 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
 
+  monthPickerContainer: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: 34,
+    paddingTop: 20,
+    paddingHorizontal: 20,
+    maxHeight: "70%",
+  },
+  monthPickerHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 16,
+  },
+  monthPickerTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#333",
+    flex: 1,
+  },
+  monthPickerScroll: { flex: 1, minHeight: 200, maxHeight: 360 },
+  monthPickerContent: { paddingBottom: 24, flexGrow: 1 },
+  monthPickerSection: { marginBottom: 20 },
+  monthPickerYearLabel: {
+    fontSize: 16,
+    color: "#82665B",
+    marginBottom: 12,
+  },
+  monthPickerGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  monthPickerChip: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: "#FAF6ED",
+    minWidth: 56,
+    alignItems: "center",
+  },
+  monthPickerChipText: {
+    fontSize: 14,
+    color: "#82665B",
+  },
+  monthPickerChipDisabled: {
+    backgroundColor: "#F0F0F0",
+    opacity: 0.6,
+  },
+  monthPickerChipTextDisabled: {
+    fontSize: 14,
+    color: "#999",
+  },
+  monthPickerEmpty: {
+    paddingVertical: 40,
+    alignItems: "center",
+  },
+  monthPickerEmptyText: {
+    fontSize: 14,
+    color: "#999",
+  },
+
   actionSheetHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -2451,25 +2602,20 @@ const styles = StyleSheet.create({
   },
 
   // ===== 底部操作栏（胶囊效果）=====
+  // height、bottom 由 JS 动态设置；绝不使用 flex，避免被拉伸成半屏遮挡
   bottomActionBar: {
     position: "absolute",
-    bottom: 32, // 距离底部的间距
-    left: 56, // 增加左右间距，减少宽度
+    left: 56,
     right: 56,
-    //borderWidth:1,
-    borderColor: "#F2F2F2",
     backgroundColor: "#fff",
-    borderRadius: 200, // 全圆角
+    borderRadius: 200,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-evenly", // 均匀分布，居中显示
-    paddingVertical: 8, // 降低高度
-    paddingHorizontal: 0, // 增加内边距
+    justifyContent: "space-evenly",
+    paddingVertical: 8,
+    paddingHorizontal: 0,
     shadowColor: "#E56C45",
-    shadowOffset: {
-      width: 0,
-      height: 8,
-    },
+    shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.3,
     shadowRadius: 16,
     elevation: 12,

@@ -21,6 +21,7 @@ import {
   Modal,
   Animated,
   Dimensions,
+  AppState,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import PreciousMomentsIcon from "../assets/icons/preciousMomentsIcon.svg";
@@ -89,6 +90,9 @@ export default function TextInputModal({
 
   // Toast 状态
   const [toastVisible, setToastVisible] = useState(false);
+
+  // ✅ 自定义确认弹窗状态
+  const [showUnsavedConfirm, setShowUnsavedConfirm] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
 
   // 文字输入的处理步骤（跳过语音上传和转录）
@@ -144,7 +148,13 @@ export default function TextInputModal({
         autoSaveTimerRef.current = null;
       }
 
-      // 重置状态
+      // ✅ Modal 关闭前，如果有未保存内容，立即保存（防止意外关闭导致内容丢失）
+      // 这是最后一道防线，确保即使通过系统手势关闭，内容也不会丢失
+      if (content.trim() && !showResult && !isProcessing) {
+        saveDraftImmediately();
+      }
+      
+      // 重置状态（可以清除 content，因为草稿已保存在 AsyncStorage 中，下次打开时会自动恢复）
       setContent("");
       setPolishedContent("");
       setTitle("");
@@ -176,30 +186,11 @@ export default function TextInputModal({
         const draftAge = now - draftData.timestamp;
         
         if (draftAge < MAX_DRAFT_AGE && draftData.content.trim()) {
-          // 提示用户恢复草稿
-          Alert.alert(
-            t("draft.restoreTitle") || "发现未保存的内容",
-            `${t("draft.restoreMessage") || "是否恢复上次未保存的内容?"}\n(${draftData.content.substring(0, 30)}...)`,
-            [
-              {
-                text: t("draft.discard") || "放弃",
-                style: "destructive",
-                onPress: async () => {
-                  await AsyncStorage.removeItem(AUTO_SAVE_KEY);
-                  setIsDraftRestored(true);
-                }
-              },
-              {
-                text: t("draft.restore") || "恢复",
-                onPress: () => {
-                  setContent(draftData.content);
-                  hasUnsavedContentRef.current = true;
-                  console.log("✅ 已恢复草稿:", draftData.content.substring(0, 50));
-                  setIsDraftRestored(true);
-                }
-              }
-            ]
-          );
+          // ✅ 直接恢复到输入框，不弹窗询问
+          setContent(draftData.content);
+          hasUnsavedContentRef.current = true;
+          console.log("✅ 已自动恢复草稿到输入框:", draftData.content.substring(0, 50));
+          setIsDraftRestored(true);
         } else {
           // 草稿过期或为空,删除
           await AsyncStorage.removeItem(AUTO_SAVE_KEY);
@@ -214,7 +205,28 @@ export default function TextInputModal({
     }
   };
 
-  // ✅ 自动保存草稿
+  // ✅ 立即保存草稿函数（用于紧急情况：应用切换到后台、组件卸载等）
+  const saveDraftImmediately = useCallback(async () => {
+    // 如果内容为空或已提交/正在处理，不保存
+    if (!content.trim() || showResult || isProcessing) {
+      return;
+    }
+
+    try {
+      const draftData = {
+        content: content,
+        timestamp: Date.now()
+      };
+      
+      await AsyncStorage.setItem(AUTO_SAVE_KEY, JSON.stringify(draftData));
+      hasUnsavedContentRef.current = true;
+      console.log("💾 [紧急保存] 草稿已保存:", content.substring(0, 30) + "...");
+    } catch (error) {
+      console.error("❌ [紧急保存] 保存失败:", error);
+    }
+  }, [content, showResult, isProcessing]);
+
+  // ✅ 自动保存草稿（5秒定时保存 + 输入变化时 debounce 保存）
   useEffect(() => {
     // 等待草稿恢复完成后再开始自动保存
     if (!isDraftRestored || !visible) return;
@@ -264,6 +276,36 @@ export default function TextInputModal({
       }
     };
   }, [content, isDraftRestored, visible, showResult, isProcessing]);
+
+  // ✅ 应用状态监听：应用切换到后台时立即保存（防止内容丢失）
+  useEffect(() => {
+    if (!visible) return;
+
+    const subscription = AppState.addEventListener("change", (nextAppState) => {
+      if (nextAppState === "background" || nextAppState === "inactive") {
+        // 应用切换到后台，立即保存
+        saveDraftImmediately();
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [visible, saveDraftImmediately]);
+
+  // ✅ 组件卸载前立即保存（防止应用闪退导致内容丢失）
+  useEffect(() => {
+    return () => {
+      // 组件卸载时，立即保存当前内容
+      if (content.trim() && !showResult && !isProcessing) {
+        saveDraftImmediately();
+      }
+      // 清理定时器
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+    };
+  }, [content, showResult, isProcessing, saveDraftImmediately]);
 
   // 清理进度动画定时器
   useEffect(() => {
@@ -665,37 +707,10 @@ export default function TextInputModal({
       return; // 等待用户确认
     }
 
-    // ✅ 如果有未保存的输入内容，提示用户
-    if (hasUnsavedContentRef.current && content.trim() && !showResult) {
-      Alert.alert(
-        t("draft.unsavedTitle") || "有未保存的内容",
-        t("draft.unsavedMessage") || "您输入的内容尚未保存，退出后内容将保存在草稿中，下次打开时可恢复。",
-        [
-          {
-            text: t("common.cancel"),
-            style: "cancel",
-          },
-          {
-            text: t("common.confirm") || "确定",
-            onPress: () => {
-              // 草稿已自动保存，直接关闭
-              setCurrentDiaryId(null);
-              setShowResult(false);
-              setIsProcessing(false);
-              setContent("");
-              setPolishedContent("");
-              setTitle("");
-              setAiFeedback("");
-              setEmotionData(undefined);
-              setIsEditing(false);
-              setHasChanges(false);
-              setEditedContent("");
-              hasUnsavedContentRef.current = false;
-              onCancel();
-            },
-          },
-        ]
-      );
+    // ✅ 如果有未保存的输入内容，显示自定义确认弹窗（优化：简洁文案 + 主次按钮 + 主题字体）
+    // 修复：只要有内容就弹窗，不依赖 hasUnsavedContentRef（防止误触丢失内容）
+    if (content.trim() && !showResult) {
+      setShowUnsavedConfirm(true);
       return;
     }
 
@@ -793,7 +808,7 @@ export default function TextInputModal({
         <View style={styles.header}>
           <TouchableOpacity
             style={styles.closeButton}
-            onPress={onCancel}
+            onPress={handleCancel}
             accessibilityLabel={t("common.close")}
             accessibilityHint={t("accessibility.button.closeHint")}
             accessibilityRole="button"
@@ -880,13 +895,6 @@ export default function TextInputModal({
               >
                 {content.length}/2000
               </Text>
-
-              {/* ✅ 自动保存指示器 */}
-              {lastSaved && content.trim() && !showResult && (
-                <Text style={styles.savedIndicator}>
-                  💾 {t("draft.lastSaved") || "已自动保存"} {lastSaved.toLocaleTimeString()}
-                </Text>
-              )}
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -1037,6 +1045,157 @@ export default function TextInputModal({
             }))}
           />
         )}
+
+        {/* ✅ 自定义未保存确认弹窗（支持主题字体和 primary 按钮样式） */}
+        <Modal
+          visible={showUnsavedConfirm}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowUnsavedConfirm(false)}
+        >
+          <View style={styles.confirmOverlay}>
+            <View style={styles.confirmContainer}>
+              {/* ✅ 右上角关闭按钮 */}
+              <TouchableOpacity
+                style={styles.confirmCloseButton}
+                onPress={() => {
+                  // 点击关闭按钮：弹窗消失，用户继续编辑（不保存也不清除）
+                  setShowUnsavedConfirm(false);
+                }}
+                accessibilityLabel={t("common.close")}
+                accessibilityRole="button"
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="close-outline" size={24} color="#666" />
+              </TouchableOpacity>
+
+              {/* ✅ 标题（左对齐） */}
+              <Text
+                style={[
+                  styles.confirmTitle,
+                  {
+                    fontFamily: getFontFamilyForText(
+                      t("draft.unsavedTitle"),
+                      "semibold"
+                    ),
+                  },
+                ]}
+              >
+                {t("draft.unsavedTitle")}
+              </Text>
+
+              {/* ✅ 正文（左对齐） */}
+              <Text
+                style={[
+                  styles.confirmMessage,
+                  {
+                    fontFamily: getFontFamilyForText(
+                      t("draft.unsavedMessage"),
+                      "regular"
+                    ),
+                  },
+                ]}
+              >
+                {t("draft.unsavedMessage")}
+              </Text>
+
+              {/* 按钮容器 */}
+              <View style={styles.confirmButtons}>
+                {/* Secondary 按钮：不保存 */}
+                <TouchableOpacity
+                  style={styles.confirmButtonSecondary}
+                  onPress={async () => {
+                    // 用户选择不保存，清除草稿并关闭
+                    await AsyncStorage.removeItem(AUTO_SAVE_KEY).catch(
+                      console.error
+                    );
+                    setCurrentDiaryId(null);
+                    setShowResult(false);
+                    setIsProcessing(false);
+                    setContent("");
+                    setPolishedContent("");
+                    setTitle("");
+                    setAiFeedback("");
+                    setEmotionData(undefined);
+                    setIsEditing(false);
+                    setHasChanges(false);
+                    setEditedContent("");
+                    hasUnsavedContentRef.current = false;
+                    setShowUnsavedConfirm(false);
+                    onCancel();
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.confirmButtonTextSecondary,
+                      {
+                        fontFamily: getFontFamilyForText(
+                          t("draft.dontSave"),
+                          "medium"
+                        ),
+                      },
+                    ]}
+                  >
+                    {t("draft.dontSave")}
+                  </Text>
+                </TouchableOpacity>
+
+                {/* Primary 按钮：保存草稿（橙色背景，白色文字） */}
+                <TouchableOpacity
+                  style={styles.confirmButtonPrimary}
+                  onPress={async () => {
+                    // ✅ 立即保存草稿（确保即使距离上次自动保存不到5秒也能保存）
+                    try {
+                      const draftData = {
+                        content: content,
+                        timestamp: Date.now(),
+                      };
+                      await AsyncStorage.setItem(
+                        AUTO_SAVE_KEY,
+                        JSON.stringify(draftData)
+                      );
+                      hasUnsavedContentRef.current = true;
+                      console.log(
+                        "💾 用户确认保存草稿:",
+                        content.substring(0, 30) + "..."
+                      );
+                    } catch (error) {
+                      console.error("❌ 保存草稿失败:", error);
+                    }
+                    // 关闭弹窗
+                    setCurrentDiaryId(null);
+                    setShowResult(false);
+                    setIsProcessing(false);
+                    setContent("");
+                    setPolishedContent("");
+                    setTitle("");
+                    setAiFeedback("");
+                    setEmotionData(undefined);
+                    setIsEditing(false);
+                    setHasChanges(false);
+                    setEditedContent("");
+                    setShowUnsavedConfirm(false);
+                    onCancel();
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.confirmButtonTextPrimary,
+                      {
+                        fontFamily: getFontFamilyForText(
+                          t("draft.saveDraft"),
+                          "semibold"
+                        ),
+                      },
+                    ]}
+                  >
+                    {t("draft.saveDraft")}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </Modal>
     </GestureHandlerRootView>
   );
@@ -1140,14 +1299,6 @@ const styles = StyleSheet.create({
   charCountWarning: {
     color: "#E56C45",
   },
-  savedIndicator: {
-    position: "absolute",
-    left: 16,
-    bottom: 12,
-    ...Typography.caption,
-    fontSize: 11,
-    color: "#999",
-  },
   // ===== 结果页样式（与 RecordingModal 一致）=====
   resultHeader: {
     flexDirection: "row",
@@ -1237,5 +1388,81 @@ const styles = StyleSheet.create({
   toastText: {
     ...Typography.caption,
     color: "#fff",
+  },
+  // ===== 自定义确认弹窗样式 =====
+  confirmOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 24,
+  },
+  confirmContainer: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 24,
+    width: "100%",
+    maxWidth: 340,
+    position: "relative", // ✅ 为关闭按钮提供定位参照
+  },
+  confirmCloseButton: {
+    position: "absolute",
+    top: 16,
+    right: 16,
+    padding: 4,
+    zIndex: 10,
+  },
+  confirmTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#1A1A1A",
+    textAlign: "left", // ✅ 改为左对齐
+    marginTop: 8, // ✅ 为关闭按钮留出空间
+    marginBottom: 12,
+  },
+  confirmMessage: {
+    fontSize: 16,
+    color: "#666",
+    textAlign: "left", // ✅ 改为左对齐
+    lineHeight: 24,
+    marginBottom: 16, // ✅ 缩小间距（从24改为16）
+  },
+  confirmButtons: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  confirmButtonSecondary: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#F5F5F5", // ✅ 很浅很浅的灰色背景，让按钮更清晰
+  },
+  confirmButtonTextSecondary: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#666",
+  },
+  confirmButtonPrimary: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#E56C45", // ✅ Primary 按钮：橙色背景
+    shadowColor: "#E56C45",
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  confirmButtonTextPrimary: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#fff", // ✅ Primary 按钮：白色文字
   },
 });

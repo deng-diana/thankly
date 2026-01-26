@@ -172,6 +172,10 @@ export default {
     namePreference: "How should we call you?",
     deleteAccount: "Delete Account",
     version: "Version {version}",
+    // Sticky year-month + month picker
+    stickyYearMonthFormat: "{{month}} {{year}}",
+    monthPickerTitle: "Select month",
+    monthPickerEmpty: "No diaries yet",
   },
 
   // Happiness Jar (幸福罐)
@@ -184,6 +188,25 @@ export default {
     emptyMessage: "No happiness moments yet",
     headerTitle: "Moments that made you smile",
     headerDescription: "Come back whenever you need a little warmth.",
+  },
+
+  // Mood Calendar (情绪日历)
+  moodCalendar: {
+    navTitle: "Mood Calendar",
+    title: "Days You've Lived",
+    subtitle: "Your moments, in color",
+    summaryFormat: "{{days}} days | {{entries}} entries",
+    emptyPickDate: "Tap a date with entries to view diaries",
+    prevMonth: "Previous month",
+    nextMonth: "Next month",
+    entriesLabel: "entries",
+    weekdayMon: "Mon",
+    weekdayTue: "Tue",
+    weekdayWed: "Wed",
+    weekdayThu: "Thu",
+    weekdayFri: "Fri",
+    weekdaySat: "Sat",
+    weekdaySun: "Sun",
   },
 
   // Search功能

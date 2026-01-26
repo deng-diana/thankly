@@ -22,6 +22,7 @@ import {
   Animated,
   Easing,
   Keyboard,
+  AppState,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
@@ -325,7 +326,29 @@ export default function ImageDiaryModal({
     }
   };
 
-  // ✅ 自动保存草稿
+  // ✅ 立即保存草稿函数（用于紧急情况：应用切换到后台、组件卸载等）
+  const saveDraftImmediately = useCallback(async () => {
+    // 如果内容为空且没有图片，或已提交/正在处理，不保存
+    if ((!textContent.trim() && images.length === 0) || showResult || isProcessing) {
+      return;
+    }
+
+    try {
+      const draftData = {
+        textContent: textContent,
+        images: images,
+        timestamp: Date.now()
+      };
+      
+      await AsyncStorage.setItem(IMAGE_DIARY_AUTO_SAVE_KEY, JSON.stringify(draftData));
+      hasUnsavedContentRef.current = true;
+      console.log("💾 [紧急保存] 图片日记草稿已保存");
+    } catch (error) {
+      console.error("❌ [紧急保存] 保存失败:", error);
+    }
+  }, [textContent, images, showResult, isProcessing]);
+
+  // ✅ 自动保存草稿（5秒定时保存）
   useEffect(() => {
     // 等待草稿恢复完成后再开始自动保存
     if (!isDraftRestored || !visible) return;
@@ -377,6 +400,36 @@ export default function ImageDiaryModal({
     };
   }, [textContent, images, isDraftRestored, visible, showResult, isProcessing]);
 
+  // ✅ 应用状态监听：应用切换到后台时立即保存（防止内容丢失）
+  useEffect(() => {
+    if (!visible) return;
+
+    const subscription = AppState.addEventListener("change", (nextAppState) => {
+      if (nextAppState === "background" || nextAppState === "inactive") {
+        // 应用切换到后台，立即保存
+        saveDraftImmediately();
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [visible, saveDraftImmediately]);
+
+  // ✅ 组件卸载前立即保存（防止应用闪退导致内容丢失）
+  useEffect(() => {
+    return () => {
+      // 组件卸载时，立即保存当前内容
+      if ((textContent.trim() || images.length > 0) && !showResult && !isProcessing) {
+        saveDraftImmediately();
+      }
+      // 清理定时器
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+    };
+  }, [textContent, images, showResult, isProcessing, saveDraftImmediately]);
+
   // Modal 打开时，显示底部选择器
   useEffect(() => {
     // ✅ 恢复草稿
@@ -407,7 +460,14 @@ export default function ImageDiaryModal({
         autoSaveTimerRef.current = null;
       }
 
+      // ✅ Modal 关闭前，如果有未保存内容，立即保存（防止意外关闭导致内容丢失）
+      // 这是最后一道防线，确保即使通过系统手势关闭，内容也不会丢失
+      if ((textContent.trim() || images.length > 0) && !showResult && !isProcessing) {
+        saveDraftImmediately();
+      }
+
       // ✅ Modal 关闭时，重置所有状态，防止下次打开时出现残留状态
+      // 注意：可以清除 textContent 和 images，因为草稿已保存在 AsyncStorage 中，下次打开时会自动恢复
       setIsRecordingMode(false);
       setIsProcessing(false);
       setShowResult(false);
@@ -805,24 +865,32 @@ export default function ImageDiaryModal({
       return;
     }
 
-    // ✅ 如果有未保存的输入内容（文字或图片），提示用户
+    // ✅ 如果有未保存的输入内容（文字或图片），提示用户（优化：简洁文案 + 主次按钮）
     if (hasUnsavedContentRef.current && (textContent.trim() || images.length > 0) && !showResult && !isProcessing) {
       Alert.alert(
-        t("draft.unsavedTitle") || "有未保存的内容",
-        t("draft.unsavedMessage") || "您输入的内容尚未保存，退出后内容将保存在草稿中，下次打开时可恢复。",
+        t("draft.unsavedTitle"),
+        t("draft.unsavedMessage"),
         [
           {
-            text: t("common.cancel"),
-            style: "cancel",
+            text: t("draft.dontSave"),
+            style: "cancel", // Secondary: 文本按钮，取消样式
+            onPress: async () => {
+              // 用户选择不保存，清除草稿并关闭
+              await AsyncStorage.removeItem(IMAGE_DIARY_AUTO_SAVE_KEY).catch(console.error);
+              hasUnsavedContentRef.current = false;
+              await cleanupAndClose();
+            },
           },
           {
-            text: t("common.confirm") || "确定",
+            text: t("draft.saveDraft"),
+            style: "default", // Primary: 默认样式（iOS会高亮显示）
             onPress: async () => {
               // 草稿已自动保存，直接关闭
               await cleanupAndClose();
             },
           },
-        ]
+        ],
+        { cancelable: false } // 不允许点击外部关闭
       );
       return;
     }
@@ -2034,12 +2102,6 @@ export default function ImageDiaryModal({
                         >
                           {textContent.length}/2000
                         </Text>
-                        {/* ✅ 自动保存指示器 - 放在输入框左下角 */}
-                        {lastSaved && (textContent.trim() || images.length > 0) && !showResult && !isProcessing && (
-                          <Text style={styles.savedIndicator}>
-                            💾 {t("draft.lastSaved") || "已自动保存"} {lastSaved.toLocaleTimeString()}
-                          </Text>
-                        )}
                       </View>
 
                       {/* 完成按钮 - 放在输入框正下面 */}
@@ -2420,14 +2482,6 @@ const styles = StyleSheet.create({
   },
   charCountWarning: {
     color: "#E56C45",
-  },
-  savedIndicator: {
-    position: "absolute",
-    left: 16,
-    bottom: 12,
-    ...Typography.caption,
-    fontSize: 11,
-    color: "#999",
   },
   // 完成按钮样式 - 放在输入框正下面，与 TextInputModal 保持一致
   completeButton: {

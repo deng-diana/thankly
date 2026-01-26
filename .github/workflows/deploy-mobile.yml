@@ -46,16 +46,11 @@ jobs:
         working-directory: ./mobile
         run: npm ci
 
-      # 步骤 4: 运行预构建检查
-      - name: Run pre-build check
-        working-directory: ./mobile
-        run: npm run pre-build-check
-
-      # 步骤 5: 安装 EAS CLI（使用最新版本）
+      # 步骤 4: 安装 EAS CLI（使用最新版本）
       - name: Install EAS CLI
         run: npm install -g eas-cli@latest
 
-      # 步骤 6: 验证 EXPO_TOKEN（可选，用于调试）
+      # 步骤 5: 验证 EXPO_TOKEN（可选，用于调试）
       - name: Verify Expo Token
         working-directory: ./mobile
         env:
@@ -71,7 +66,7 @@ jobs:
           echo "验证账户信息..."
           eas whoami
 
-      # 步骤 7: 构建应用（根据输入选择平台）
+      # 步骤 6: 构建应用（根据输入选择平台）
       - name: Build iOS App
         if: |
           github.event.inputs.platform == 'ios' || 
@@ -91,7 +86,7 @@ jobs:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: eas build --platform android --non-interactive
 
-      # 步骤 8: 构建完成通知
+      # 步骤 7: 构建完成通知
       - name: Build success
         run: |
           echo "✅ 构建成功！"

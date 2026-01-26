@@ -166,6 +166,10 @@ export default {
     namePreference: "称呼偏好",
     deleteAccount: "删除账号",
     version: "版本 {version}",
+    // 吸顶年月 + 月份选择
+    stickyYearMonthFormat: "{{year}} 年 · {{month}} 月",
+    monthPickerTitle: "选择月份",
+    monthPickerEmpty: "暂无日记",
   },
 
   // 幸福罐
@@ -178,6 +182,25 @@ export default {
     emptyMessage: "还没有幸福时刻",
     headerTitle: "那些让你微笑的瞬间",
     headerDescription: "当你需要一点温暖时，随时回来看看。",
+  },
+
+  // 情绪日历
+  moodCalendar: {
+    navTitle: "情绪日历",
+    title: "走过的每一天",
+    subtitle: "情绪，记录着你的时间",
+    summaryFormat: "累计 {{days}} 天 | {{entries}} 条笔记",
+    emptyPickDate: "点击有记录的日期查看日记",
+    prevMonth: "上一月",
+    nextMonth: "下一月",
+    entriesLabel: "条",
+    weekdayMon: "一",
+    weekdayTue: "二",
+    weekdayWed: "三",
+    weekdayThu: "四",
+    weekdayFri: "五",
+    weekdaySat: "六",
+    weekdaySun: "日",
   },
 
   // 搜索功能

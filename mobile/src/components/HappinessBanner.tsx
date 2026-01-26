@@ -76,6 +76,8 @@ const HappinessBanner: React.FC<HappinessBannerProps> = ({ count, onPress }) => 
             fontFamily: getFontFamilyForText(titleText, 'bold'),
           },
         ]}
+        numberOfLines={1} // ✅ 确保一行显示，不折行
+        adjustsFontSizeToFit={false} // 不自动缩小字体
       >
         {parts[0]}
         <Text style={styles.highlightText}>{highlightText}</Text>
@@ -179,11 +181,11 @@ const styles = StyleSheet.create({
     paddingRight: 64, // ✅ 减少右侧padding，让文字区域更宽，两行显示
   },
   title: {
-    fontSize: 15, // ✅ 标题字号15px
+    fontSize: 17, // ✅ 标题字号17px（从15px增大2px）
     fontWeight: '700', // 最粗
     color: '#333',
     marginBottom: 4, // ✅ 标题与副标题间距4px
-    lineHeight: 18, // ✅ 调整行高
+    lineHeight: 20, // ✅ 调整行高（与字号匹配）
   },
   highlightText: {
     color: '#FF6B35', // 主题色高亮

@@ -244,7 +244,7 @@ export default function AppDrawerContent(props: DrawerContentComponentProps) {
 
       <View style={styles.divider} />
 
-      {/* ✅ 新增：称呼偏好菜单项（位于 Daily Reminder 上方） */}
+      {/* ✅ 称呼偏好 */}
       <TouchableOpacity
         style={styles.item}
         onPress={() => {
@@ -269,6 +269,31 @@ export default function AppDrawerContent(props: DrawerContentComponentProps) {
           ]}
         >
           {t("home.namePreference")}
+        </Text>
+      </TouchableOpacity>
+
+      {/* 情绪日历 */}
+      <TouchableOpacity
+        style={styles.item}
+        onPress={() => navigateTo("MoodCalendar")}
+        accessibilityLabel={t("moodCalendar.navTitle")}
+        accessibilityHint={t("moodCalendar.emptyPickDate")}
+        accessibilityRole="button"
+      >
+        <Ionicons name="calendar-outline" size={20} color="#332824" />
+        <Text
+          style={[
+            styles.itemText,
+            typography.body,
+            {
+              fontFamily: getFontFamilyForText(
+                t("moodCalendar.navTitle"),
+                "regular"
+              ),
+            },
+          ]}
+        >
+          {t("moodCalendar.navTitle")}
         </Text>
       </TouchableOpacity>
 

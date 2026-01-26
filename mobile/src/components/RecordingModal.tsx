@@ -11,7 +11,7 @@ import { Audio } from "expo-av";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { Alert } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useVoiceRecording } from "../hooks/useVoiceRecording";
+import { useVoiceRecording, UseVoiceRecordingReturn } from "../hooks/useVoiceRecording";
 import {
   createVoiceDiary,
   createVoiceDiaryStream,
@@ -65,6 +65,7 @@ interface RecordingModalProps {
   onCancel: () => void; // ✅ 取消录音回调
   onDiscard?: () => void; // ✅ 删除未保存日记后回调
   imageUrls?: string[]; // ✅ 新增：图片URL列表
+  voiceRecording: UseVoiceRecordingReturn; // ✅ 新增：外部传入录音Hook
 }
 
 export default function RecordingModal({
@@ -73,6 +74,7 @@ export default function RecordingModal({
   onCancel,
   onDiscard,
   imageUrls,
+  voiceRecording,
 }: RecordingModalProps) {
   const KEEP_AWAKE_TAG = "recording-modal-session";
 
@@ -82,7 +84,7 @@ export default function RecordingModal({
   const waveAnim2 = useRef(new Animated.Value(0)).current;
   const waveAnim3 = useRef(new Animated.Value(0)).current;
 
-  // ✅ 使用自定义 Hook 管理录音逻辑
+  // ✅ 使用外部传入的 Hook 状态
   const {
     isRecording,
     isPaused,
@@ -94,8 +96,8 @@ export default function RecordingModal({
     resumeRecording,
     stopRecording,
     cancelRecording,
-    saveRecordingDraft, // ✅ 获取保存草稿函数
-  } = useVoiceRecording();
+    saveRecordingDraft,
+  } = voiceRecording;
 
   const [isProcessing, setIsProcessing] = useState(false);
 
@@ -305,14 +307,9 @@ export default function RecordingModal({
     startTime: number;
   } | null>(null);
 
-  // ✅ 录音相关 Refs
-  const recordingRef = useRef<Audio.Recording | null>(null);
-  const durationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
-    null
-  );
+  // ❌ 已删除冗余 Refs：这些由 useVoiceRecording Hook 内部管理
   const isStartingRef = useRef<boolean>(false);
   const hasShown9MinWarning = useRef<boolean>(false); // ✅ 防止重复弹窗
-  const startedAtRef = useRef<number | null>(null); // 录音开始时间戳
 
   // ✅ 新增:Modal 进入/退出动画
   const overlayOpacity = useRef(new Animated.Value(0)).current;
@@ -614,9 +611,10 @@ export default function RecordingModal({
     }
   }, []);
 
-  // ✅ Modal 打开时检查草稿并自动开始录音（仅尝试一次）
+  // ✅ Modal 打开时直接开始新录音（仅尝试一次）
+  // 从首页点击语音输入 = 新会话、从零开始，不检查草稿、不弹「Previous recording found」。
+  // 草稿保存逻辑保留：后台/暂停时仍写入 AsyncStorage，仅不再在打开时提示恢复。
   useEffect(() => {
-    // Reset on modal close
     if (!visible) {
       autoStartAttemptedRef.current = false;
       startFailedRef.current = false;
@@ -625,45 +623,23 @@ export default function RecordingModal({
       return;
     }
 
-    // Only auto-start once per modal open
-    if (autoStartAttemptedRef.current) {
-      return;
-    }
+    if (autoStartAttemptedRef.current) return;
+    if (isRecording || isProcessing || showResult || isStarting) return;
+    if (startFailedRef.current) return;
 
-    // Don't auto-start if we're already in a valid state
-    if (isRecording || isProcessing || showResult || isStarting) {
-      return;
-    }
-
-    // Don't auto-start if previous attempt failed
-    if (startFailedRef.current) {
-      return;
-    }
-
-    // Mark as attempted
     autoStartAttemptedRef.current = true;
 
-    // Delay to avoid animation conflicts
     const timer = setTimeout(async () => {
       try {
-        // ✅ 先检查是否有录音草稿
-        const hasDraft = await restoreRecordingDraft();
-        
-        // 如果没有草稿，则自动开始录音
-        if (!hasDraft) {
-          await startRecording();
-        }
-        // 如果有草稿，restoreRecordingDraft 已经设置了 showRestoreConfirm = true
-        // 用户会在弹窗中选择"继续录音"或"重新开始"
+        await startRecording();
       } catch (error) {
         console.error("Auto-start failed:", error);
         startFailedRef.current = true;
-        // Don't retry automatically - user must manually retry
       }
     }, 150);
 
     return () => clearTimeout(timer);
-  }, [visible, isRecording, isProcessing, showResult, isStarting, restoreRecordingDraft]);
+  }, [visible, isRecording, isProcessing, showResult, isStarting, startRecording]);
 
   // ✅ 录音时保持屏幕常亮，防止自动锁屏导致录音中断
   useEffect(() => {
@@ -805,13 +781,17 @@ export default function RecordingModal({
    * 完成录音并开始处理
    */
   const handleFinishRecording = async () => {
+    // ✅ 提前声明变量，确保 catch 块可以访问
+    let savedUri: string | null = null;
+    let savedDuration = 0;
+
     try {
       // ✅ 1. 先暂停录音，用于检查时长
       await pauseRecording();
-      const recordedDuration = duration;
+      savedDuration = duration;
 
       // ✅ 2. 统一逻辑：检查录音时长(最短5秒)
-      if (recordedDuration < 5) {
+      if (savedDuration < 5) {
         Alert.alert(
           t("diary.shortRecordingTitle"), 
           t("diary.shortRecordingMessage"), 
@@ -832,7 +812,7 @@ export default function RecordingModal({
       }
 
       // ✅ 3. 符合时长要求，正式停止录音并获取 URI
-      const uri = await stopRecording();
+      savedUri = await stopRecording();
 
       // 显示处理中
       setIsProcessing(true);
@@ -963,24 +943,31 @@ export default function RecordingModal({
         setPendingDiaryId(diary.diary_id);
         setHasSavedPendingDiary(false);
         console.log("✅ 日记创建成功:", diary.diary_id);
-      } catch (error: any) {
+      } catch (error: unknown) {
         setIsProcessing(false);
         console.log("❌ 处理失败:", error);
         setPendingDiaryId(null);
         setHasSavedPendingDiary(false);
 
-        // ✅ 弱网保护：上传失败时保存草稿
-        // 检查是否是网络错误或上传失败
-        const isNetworkError = 
-          error.message?.includes("网络") ||
-          error.message?.includes("network") ||
-          error.message?.includes("timeout") ||
-          error.message?.includes("超时") ||
-          error.message?.includes("上传失败") ||
-          error.message?.includes("upload failed") ||
-          error.code === "NETWORK_ERROR" ||
-          error.code === "TIMEOUT";
-        
+        const msg = error instanceof Error ? error.message : String(error);
+        const errObj = error as any;
+        const code = errObj?.code;
+
+        // ✅ 弱网保护：更精准的网络错误检测
+        const isNetworkError =
+          (error instanceof TypeError && msg.includes("Network request failed")) ||
+          code === "NETWORK_ERROR" ||
+          code === "TIMEOUT" ||
+          code === "ECONNABORTED" ||
+          (typeof msg === "string" && (
+            msg.includes("网络") ||
+            msg.includes("network") ||
+            msg.includes("timeout") ||
+            msg.includes("超时") ||
+            msg.includes("上传失败") ||
+            msg.includes("upload failed")
+          ));
+
         if (isNetworkError && savedUri) {
           console.log("⚠️ 检测到网络错误，保存录音草稿以便稍后重试");
           // 保存录音草稿（包含 URI 和时长）
@@ -1002,8 +989,8 @@ export default function RecordingModal({
         }
 
         if (
-          error.code === "EMPTY_TRANSCRIPT" ||
-          (error.message && error.message.includes("No valid speech detected"))
+          code === "EMPTY_TRANSCRIPT" ||
+          (msg && msg.includes("No valid speech detected"))
         ) {
           Alert.alert(
             t("error.emptyRecording.title"),
@@ -1017,33 +1004,30 @@ export default function RecordingModal({
         if (isNetworkError) {
           Alert.alert(
             t("error.genericError") || "网络错误",
-            (t("error.networkError") || "网络连接失败，录音已保存为草稿，稍后可以重试") + (error.message ? `\n\n${error.message}` : ""),
+            (t("error.networkError") || "网络连接失败，录音已保存为草稿，稍后可以重试") + (msg ? `\n\n${msg}` : ""),
             [
               { text: t("common.retry") || "重试", onPress: () => handleRerecord() },
               { text: t("common.cancel") || "取消", style: "cancel", onPress: () => handleCancelRecording() },
             ]
           );
         } else {
-          Alert.alert(t("error.genericError"), error.message || t("error.retryMessage"), [
+          Alert.alert(t("error.genericError"), msg || t("error.retryMessage"), [
             { text: t("common.retry"), onPress: () => handleRerecord() },
             { text: t("common.cancel"), style: "cancel", onPress: () => handleCancelRecording() },
           ]);
         }
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.log("完成录音主流程失败:", error);
       setIsProcessing(false);
-      
+
       // ✅ 弱网保护：主流程失败时也尝试保存草稿
-      // 注意：这里 uri 可能未定义，需要从作用域获取
-      const finalUri = savedUri;
-      const finalDuration = savedDuration;
-      if (finalUri) {
+      if (savedUri) {
         try {
           const draftData = {
-            audioUri: finalUri,
+            audioUri: savedUri,
             startTime: Date.now(),
-            duration: finalDuration,
+            duration: savedDuration,
             isPaused: false,
             timestamp: Date.now(),
             uploadFailed: true,
@@ -1216,12 +1200,13 @@ export default function RecordingModal({
       }, 100);
 
       console.log("🎵 播放结果音频");
-    } catch (error: any) {
-      isLoadingSoundRef.current = false; // 出错也释放锁
+    } catch (error: unknown) {
+      isLoadingSoundRef.current = false;
       console.error("❌ 播放失败:", error);
+      const msg = error instanceof Error ? error.message : String(error);
       Alert.alert(
         t("error.playbackFailed"),
-        error.message || t("error.retryMessage")
+        msg || t("error.retryMessage")
       );
     }
   };
@@ -1307,11 +1292,12 @@ export default function RecordingModal({
       setTimeout(() => {
         onSuccess();
       }, 0);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("❌ 保存失败:", error);
+      const msg = error instanceof Error ? error.message : String(error);
       Alert.alert(
         t("error.saveFailed"),
-        error.message || t("error.retryMessage")
+        msg || t("error.retryMessage")
       );
     } finally {
       isSavingRef.current = false;
@@ -1822,31 +1808,142 @@ export default function RecordingModal({
                       
                       // 直接使用已保存的录音文件开始处理
                       // 调用处理流程，使用已保存的录音文件
+                      // 调用处理流程，使用已保存的录音文件
                       try {
                         setIsProcessing(true);
                         setProcessingStep(0);
                         setProcessingProgress(0);
                         currentProgressRef.current = 0;
+                        progressAnimValue.setValue(0);
                         
-                        // 使用已保存的录音文件创建日记
-                        const diary = await createVoiceDiaryStream(
-                          savedAudioUri,
-                          savedDuration,
-                          (step, progress, message) => {
-                            updateProcessingProgress(step, progress);
-                          },
-                          imageUrls
-                        );
-                        
+                        // 启动“伪进度”
+                        setProcessingProgress(5);
+                        currentProgressRef.current = 5;
+                        const uploadInterval = setInterval(() => {
+                          const next = Math.min(currentProgressRef.current + 2, 15);
+                          currentProgressRef.current = next;
+                          setProcessingProgress(next);
+                        }, 800);
+
+                        let taskId: string;
+                        let headers: Record<string, string>;
+
+                        try {
+                          // 把进度映射逻辑提取出来
+                          const updateCombinedProgress = (audioP: number, imageP: number) => {
+                            const audioWeight = 0.7;
+                            const imageWeight = 0.3;
+                            let totalUploadProgress = audioP * audioWeight;
+                            if (imageUrls && imageUrls.length > 0) {
+                              totalUploadProgress += imageP * imageWeight;
+                            } else {
+                              totalUploadProgress = audioP;
+                            }
+                            const mappedProgress = Math.round(totalUploadProgress * 0.2);
+                            smoothUpdateProgress(Math.max(mappedProgress, currentProgressRef.current));
+                          };
+
+                          let lastAudioP = 0;
+                          let lastImageP = 0;
+
+                          let imageUploadPromise = Promise.resolve([] as string[]);
+                          if (imageUrls && imageUrls.length > 0) {
+                            imageUploadPromise = uploadDiaryImages(imageUrls, (p) => {
+                              lastImageP = p;
+                              updateCombinedProgress(lastAudioP, lastImageP);
+                            });
+                          }
+
+                          const result = await uploadAudioAndCreateTask(
+                            savedAudioUri,
+                            savedDuration,
+                            (uploadProgress) => {
+                              lastAudioP = uploadProgress;
+                              updateCombinedProgress(lastAudioP, lastImageP);
+                            },
+                            undefined,
+                            undefined,
+                            imageUrls && imageUrls.length > 0
+                          );
+                          
+                          taskId = result.taskId;
+                          headers = result.headers;
+                          
+                          // 后台处理图片补充
+                          if (imageUrls && imageUrls.length > 0) {
+                            (async () => {
+                              try {
+                                const finalUrls = await imageUploadPromise;
+                                await addImagesToTask(taskId, finalUrls);
+                              } catch (err) {
+                                console.error(`❌ [RecRestore] 补充图片失败:`, err);
+                              }
+                            })();
+                          }
+                        } finally {
+                          clearInterval(uploadInterval);
+                        }
+
+                        // 连接到 30%
+                        smoothUpdateProgress(20); 
+                        const transitionInterval = setInterval(() => {
+                          const next = Math.min(currentProgressRef.current + 1.2, 32); 
+                          currentProgressRef.current = next;
+                          setProcessingProgress(next);
+                        }, 800);
+
+                        const progressCallback: ProgressCallback = (progressData) => {
+                          const progress = progressData.progress;
+                          if (progress > currentProgressRef.current + 2) {
+                            if (transitionInterval) clearInterval(transitionInterval);
+                          }
+                          let frontendStep = progressData.step ?? 0;
+                          frontendStep = Math.max(0, Math.min(frontendStep, processingSteps.length - 1));
+                          setProcessingStep(frontendStep);
+                          smoothUpdateProgress(progress);
+                        };
+
+                        const diary = await pollTaskProgress(taskId, headers, progressCallback);
+                        if (transitionInterval) clearInterval(transitionInterval);
+
                         // 处理成功
                         setResultDiary(diary);
                         setShowResult(true);
+                        setPendingDiaryId(diary.diary_id);
+                        setHasSavedPendingDiary(false);
                         setIsProcessing(false);
-                        showToast(t("diary.saveToJournal") || "已保存");
-                      } catch (error: any) {
+                        showToast(t("success.diaryCreated") || "日记创建成功");
+                      } catch (error: unknown) {
                         console.error("❌ 处理已保存录音失败:", error);
                         setIsProcessing(false);
-                        showToast(error.message || "处理失败");
+                        setResultDiary(null);
+                        const msg = error instanceof Error ? error.message : String(error);
+                        
+                        // 错误处理逻辑 (包含弱网保护)
+                        const isNetworkError = msg.includes("Network request failed") || msg.includes("network");
+                        if (isNetworkError) {
+                          Alert.alert(t("error.networkError"), msg);
+                          // 此时不需要再保存草稿，因为已经在 restoreDraft 中了，草稿还在（除非我们是否删除了？）
+                          // 注意：我们在上面 line 1803 删除了草稿...
+                          // 如果失败了，应该重新保存回去！
+                          try {
+                             const draftData = {
+                              audioUri: savedAudioUri,
+                              startTime: Date.now(),
+                              duration: savedDuration,
+                              isPaused: false,
+                              timestamp: Date.now(),
+                              uploadFailed: true,
+                              imageUrls: imageUrls || [],
+                            };
+                            await AsyncStorage.setItem("recording_draft", JSON.stringify(draftData));
+                            console.log("💾 处理失败，已恢复草稿");
+                          } catch (e) {
+                            console.error("❌ 恢复草稿失败:", e);
+                          }
+                        } else {
+                          showToast(msg || "处理失败");
+                        }
                       }
                     }
                   }}

@@ -32,6 +32,7 @@ import { EmotionCapsule } from "./EmotionCapsule";
 import { EmotionGlow } from "./EmotionGlow";
 import AudioPlayer from "./AudioPlayer";
 import CalendarIcon from "../assets/icons/calendarIcon.svg";
+import TimeIcon from "../assets/icons/time.svg";
 import MoreIcon from "../assets/icons/moreIcon.svg";
 
 interface Diary {
@@ -331,7 +332,7 @@ export function DiaryCard({
         {/* 底部：日期 + 选项菜单 */}
         <View style={styles.cardFooter}>
           <View style={styles.dateContainer}>
-            <CalendarIcon width={20} height={20} />
+            <TimeIcon width={20} height={20} color="#80645A" />
             <Text
               style={[
                 styles.cardDate,

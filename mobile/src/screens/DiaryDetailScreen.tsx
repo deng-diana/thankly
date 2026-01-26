@@ -38,6 +38,7 @@ import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
 import PreciousMomentsIcon from "../assets/icons/preciousMomentsIcon.svg";
 import CalendarIcon from "../assets/icons/calendarIcon.svg";
+import TimeIcon from "../assets/icons/time.svg";
 import { useDiaryAudio } from "../hooks/useDiaryAudio"; // ✅ 使用顶级统一标准 Hook
 import { getDiaryDetail } from "../services/diaryService";
 import { updateDiary } from "../services/diaryService"; // ✅ 添加
@@ -380,7 +381,7 @@ const formatDateTime = (dateTimeString: string): string => {
       return (
         <View style={styles.imageOnlyHeader}>
           <View style={styles.dateContainer}>
-            <CalendarIcon width={20} height={20} />
+            <TimeIcon width={20} height={20} color="#80645A" />
             <Text
               style={[
                 styles.dateText,
@@ -470,7 +471,7 @@ const formatDateTime = (dateTimeString: string): string => {
           // 预览模式
           <>
             <View style={styles.dateContainer}>
-              <CalendarIcon width={20} height={20} />
+              <TimeIcon width={20} height={20} color="#80645A" />
               <Text style={styles.dateText}>
                 {diary ? formatDateTime(diary.created_at) : ""}
               </Text>

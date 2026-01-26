@@ -23,6 +23,7 @@ import AppDrawerContent from "../components/AppDrawerContent";
 import DiaryListScreen from "../screens/DiaryListScreen";
 import SearchScreen from "../screens/SearchScreen";
 import HappinessJarScreen from "../screens/HappinessJarScreen";
+import MoodCalendarScreen from "../screens/MoodCalendarScreen";
 
 export type RootStackParamList = {
   Welcome: undefined;
@@ -35,8 +36,9 @@ export type RootStackParamList = {
   ReminderSettings: undefined;
   Login: undefined;
   DiaryList: undefined;
-  Search: { diaries: any[] };  // 搜索页面
-  HappinessJar: { diaries: any[] };  // ✅ 幸福罐页面
+  Search: { diaries: unknown[] };
+  HappinessJar: { diaries: unknown[] };
+  MoodCalendar: undefined;
   CreateDiary: { inputMode?: "voice" | "text" };
   Test: undefined;
   MainDrawer: undefined;
@@ -58,11 +60,18 @@ const MainStackNavigator = () => (
       name="HappinessJar" 
       component={HappinessJarScreen}
       options={{ 
-        headerShown: false, // ✅ 隐藏默认 header，使用自定义 header
-        animation: "slide_from_right", // ✅ 从右侧滑入（标准 push 动画）
-        contentStyle: {
-          backgroundColor: '#FFE699',
-        },
+        headerShown: false,
+        animation: "slide_from_right",
+        contentStyle: { backgroundColor: "#FFE699" },
+      }}
+    />
+    <MainStack.Screen
+      name="MoodCalendar"
+      component={MoodCalendarScreen}
+      options={{
+        headerShown: false,
+        animation: "slide_from_right",
+        contentStyle: { backgroundColor: "#FAF6ED" },
       }}
     />
     <MainStack.Screen name="CreateDiary" component={CreateTextDiaryScreen} />
@@ -109,7 +118,8 @@ const MainDrawer = () => (
 // 🛠️ 开发模式：始终显示Onboarding（方便测试和调试）
 // ⚠️ 生产环境需保持为 false，避免老用户反复进入欢迎页
 // 🛠️ 开发模式开关：设置为 true，让演示从 Onboarding (欢迎页) 开始
-const DEV_MODE_FORCE_ONBOARDING = true;
+// ✅ Demo 完成后，关闭强制 onboarding，直接进入主界面
+const DEV_MODE_FORCE_ONBOARDING = false;
 
 export default function AppNavigator() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
@@ -175,7 +185,7 @@ export default function AppNavigator() {
 
   /**
    * 根据认证状态和Onboarding状态决定初始路由
-   * 优先级：Onboarding > 认证状态
+   * 优先级：认证状态 > Onboarding（测试时跳过 onboarding）
    */
   const getInitialRouteName = (): keyof RootStackParamList => {
     // 🛠️ 开发模式：始终显示Onboarding
@@ -184,14 +194,18 @@ export default function AppNavigator() {
     }
 
     // 如果还没检查完成，返回默认值（不会显示，因为会显示loading）
-    if (hasCompletedOnboarding === null || isAuthenticated === null) {
+    if (isAuthenticated === null) {
       return "Welcome";
     }
 
-    // 如果未完成Onboarding，但已经认证（说明是在注册过程中的中断）
-    // 此时应该去 Login 页完成姓名填写，而不是显示 Welcome
-    if (!hasCompletedOnboarding && isAuthenticated) {
-      return "Login";
+    // ✅ 测试模式：已登录用户直接进入主界面，跳过 onboarding
+    if (isAuthenticated) {
+      return "MainDrawer";
+    }
+
+    // 如果未登录，检查 onboarding 状态
+    if (hasCompletedOnboarding === null) {
+      return "Welcome";
     }
 
     // 如果未完成Onboarding且未登录，显示欢迎页
@@ -199,8 +213,8 @@ export default function AppNavigator() {
       return "Welcome";
     }
 
-    // 如果已完成Onboarding，根据认证状态决定
-    return isAuthenticated ? "MainDrawer" : "Login";
+    // 如果已完成Onboarding但未登录，显示登录页
+    return "Login";
   };
 
   // 显示加载状态，直到确定所有状态

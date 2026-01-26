@@ -22,6 +22,7 @@ import {
   StatusBar,
   Platform,
   ToastAndroid,
+  Easing,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -52,6 +53,25 @@ const HappinessJarScreen: React.FC = () => {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scrollY = useRef(new Animated.Value(0)).current; // ✅ 滚动位置
   const actionSheetSlide = useRef(new Animated.Value(300)).current;
+
+  // ✅ 入场动画值（图标、标题、副标题）
+  const iconFadeAnim = useRef(new Animated.Value(0)).current;
+  const iconScaleAnim = useRef(new Animated.Value(0.8)).current;
+  const iconSwayAnim = useRef(new Animated.Value(0)).current;
+  const titleTranslateY = useRef(new Animated.Value(30)).current;
+  const titleOpacity = useRef(new Animated.Value(0)).current;
+  const subtitleTranslateY = useRef(new Animated.Value(30)).current;
+  const subtitleOpacity = useRef(new Animated.Value(0)).current;
+
+  // ✅ 卡片动画值存储（Map: diary_id -> animation values）
+  const cardAnimationsRef = useRef<Map<string, {
+    translateY: Animated.Value;
+    opacity: Animated.Value;
+    scale: Animated.Value;
+  }>>(new Map()).current;
+  
+  // ✅ 跟踪哪些卡片已经启动了动画（避免重复执行）
+  const animatedCardsRef = useRef<Set<string>>(new Set()).current;
 
   // ✅ 本地数据（用于删除后即时更新）
   const [localDiaries, setLocalDiaries] = useState<Diary[]>(diaries);
@@ -128,17 +148,105 @@ const HappinessJarScreen: React.FC = () => {
   }, [localDiaries]);
 
 
-  // 2. 入场动画
+  // ✅ 2. 入场动画序列（有仪式感的动画）
   useEffect(() => {
+    // ✅ 立即显示列表容器（不等待动画）
     Animated.timing(fadeAnim, {
       toValue: 1,
-      duration: 600,
+      duration: 0, // 立即显示，不延迟
       useNativeDriver: true,
     }).start();
+
+    // 阶段1: 图标淡入 + 缩放 (0-400ms)
+    Animated.parallel([
+      Animated.timing(iconFadeAnim, {
+        toValue: 1,
+        duration: 400,
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: true,
+      }),
+      Animated.spring(iconScaleAnim, {
+        toValue: 1,
+        tension: 50,
+        friction: 7,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      // 图标淡入完成后，开始摇晃 (400-800ms)
+      const swayAnimation = Animated.sequence([
+        Animated.timing(iconSwayAnim, {
+          toValue: -8,
+          duration: 200,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(iconSwayAnim, {
+          toValue: 8,
+          duration: 200,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(iconSwayAnim, {
+          toValue: -8,
+          duration: 200,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(iconSwayAnim, {
+          toValue: 8,
+          duration: 200,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(iconSwayAnim, {
+          toValue: 0,
+          duration: 200,
+          easing: Easing.out(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ]);
+      swayAnimation.start();
+    });
+
+    // 阶段2: 标题和副标题渐入 (600-1400ms)
+    Animated.parallel([
+      Animated.parallel([
+        Animated.timing(titleTranslateY, {
+          toValue: 0,
+          duration: 600,
+          delay: 600,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(titleOpacity, {
+          toValue: 1,
+          duration: 600,
+          delay: 600,
+          easing: Easing.out(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ]),
+      Animated.parallel([
+        Animated.timing(subtitleTranslateY, {
+          toValue: 0,
+          duration: 600,
+          delay: 800,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(subtitleOpacity, {
+          toValue: 1,
+          duration: 600,
+          delay: 800,
+          easing: Easing.out(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ]),
+    ]).start();
   }, []);
 
-  // 3. ✅ 标题透明度：滚动 50px 后完全显示
-  const titleOpacity = scrollY.interpolate({
+  // 3. ✅ 导航栏标题透明度：滚动 50px 后完全显示
+  const navTitleOpacity = scrollY.interpolate({
     inputRange: [0, 50],
     outputRange: [0, 1],
     extrapolate: 'clamp',
@@ -279,34 +387,85 @@ const HappinessJarScreen: React.FC = () => {
     setActionSheetVisible(true);
   }, []);
 
-  // ✅ 渲染日记卡片（使用统一的 DiaryCard 组件）
+  // ✅ 渲染日记卡片（使用统一的 DiaryCard 组件 + 视差动画）
   const renderItem = ({ item, index }: { item: Diary; index: number }) => {
     const totalDuration = duration.get(item.diary_id) || item.audio_duration || 0;
 
+    // ✅ 为每张卡片创建动画值（如果还没有）
+    if (!cardAnimationsRef.has(item.diary_id)) {
+      cardAnimationsRef.set(item.diary_id, {
+        translateY: new Animated.Value(50),
+        opacity: new Animated.Value(0),
+        scale: new Animated.Value(0.95),
+      });
+    }
+
+    const cardAnim = cardAnimationsRef.get(item.diary_id)!;
+    const delay = 1000 + index * 100; // ✅ 视差效果：第一张1000ms，后续每张延迟100ms
+
+    // ✅ 启动卡片动画（只执行一次，使用 useRef 跟踪）
+    if (!animatedCardsRef.has(item.diary_id)) {
+      animatedCardsRef.add(item.diary_id);
+      Animated.parallel([
+        Animated.timing(cardAnim.translateY, {
+          toValue: 0,
+          duration: 600,
+          delay,
+          easing: Easing.out(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(cardAnim.opacity, {
+          toValue: 1,
+          duration: 600,
+          delay,
+          easing: Easing.out(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.spring(cardAnim.scale, {
+          toValue: 1,
+          tension: 50,
+          friction: 8,
+          delay,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+
+    // ✅ 应用动画样式
+    const cardAnimatedStyle = {
+      transform: [
+        { translateY: cardAnim.translateY },
+        { scale: cardAnim.scale },
+      ],
+      opacity: cardAnim.opacity,
+    };
+
     return (
-      <DiaryCard
-        diary={item}
-        index={index}
-        totalCount={happyDiaries.length}
-        disableShadow
-        isPlaying={currentPlayingId === item.diary_id}
-        currentTime={currentTime.get(item.diary_id) || 0}
-        totalDuration={totalDuration}
-        hasPlayedOnce={hasPlayedOnce.has(item.diary_id)}
-        onPlayPress={() => handlePlayAudio(item)}
-        onSeek={(seekTime) => handleSeek(item.diary_id, seekTime)}
-        onImagePress={(imageUrls, imgIndex) => {
-          setImagePreviewUrls(imageUrls);
-          setImagePreviewIndex(imgIndex);
-          setImagePreviewVisible(true);
-        }}
-        onPress={() => {
-          setSelectedDiary(item);
-          setDetailVisible(true);
-        }}
-        showOptions // ✅ 与首页一致，显示三点菜单（复制/删除）
-        onOptionsPress={() => handleDiaryOptions(item)}
-      />
+      <Animated.View style={cardAnimatedStyle}>
+        <DiaryCard
+          diary={item}
+          index={index}
+          totalCount={happyDiaries.length}
+          disableShadow
+          isPlaying={currentPlayingId === item.diary_id}
+          currentTime={currentTime.get(item.diary_id) || 0}
+          totalDuration={totalDuration}
+          hasPlayedOnce={hasPlayedOnce.has(item.diary_id)}
+          onPlayPress={() => handlePlayAudio(item)}
+          onSeek={(seekTime) => handleSeek(item.diary_id, seekTime)}
+          onImagePress={(imageUrls, imgIndex) => {
+            setImagePreviewUrls(imageUrls);
+            setImagePreviewIndex(imgIndex);
+            setImagePreviewVisible(true);
+          }}
+          onPress={() => {
+            setSelectedDiary(item);
+            setDetailVisible(true);
+          }}
+          showOptions // ✅ 与首页一致，显示三点菜单（复制/删除）
+          onOptionsPress={() => handleDiaryOptions(item)}
+        />
+      </Animated.View>
     );
   };
 
@@ -423,11 +582,11 @@ const HappinessJarScreen: React.FC = () => {
       {/* ✅ 状态栏配置 */}
       <StatusBar
         barStyle="dark-content"
-        backgroundColor="#FFE699"
+        backgroundColor="#FFD2A6"
         translucent={false}
       />
       
-      <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+      <SafeAreaView style={styles.safeArea} edges={['top']}>
         {/* ✅ 标准顶部导航栏（详情页打开时隐藏） */}
         {!detailVisible && (
           <View style={styles.navbar}>
@@ -445,7 +604,7 @@ const HappinessJarScreen: React.FC = () => {
               style={[
                 styles.navTitle,
                 {
-                  opacity: titleOpacity,
+                  opacity: navTitleOpacity,
                   fontFamily: titleFontFamily, // ✅ 使用主题字体
                 },
               ]}
@@ -474,33 +633,57 @@ const HappinessJarScreen: React.FC = () => {
             ListHeaderComponent={
               !detailVisible ? (
                 <View style={styles.headerContainer}>
-                  {/* 插图 */}
-                  <View style={styles.illustrationContainer}>
+                  {/* ✅ 插图（带摇晃动画） */}
+                  <Animated.View
+                    style={[
+                      styles.illustrationContainer,
+                      {
+                        opacity: iconFadeAnim,
+                        transform: [
+                          { scale: iconScaleAnim },
+                          {
+                            rotate: iconSwayAnim.interpolate({
+                              inputRange: [-8, 8],
+                              outputRange: ['-8deg', '8deg'],
+                            }),
+                          },
+                        ],
+                      },
+                    ]}
+                  >
                     <HappinessIllustration
                       width={ILLUSTRATION_WIDTH}
                       height={ILLUSTRATION_HEIGHT}
                     />
-                  </View>
+                  </Animated.View>
                   
-                  {/* 标题 */}
-                  <Text
+                  {/* ✅ 标题（带滑入动画） */}
+                  <Animated.Text
                     style={[
                       styles.headerTitle,
-                      { fontFamily: headerTitleFont },
+                      {
+                        fontFamily: headerTitleFont,
+                        opacity: titleOpacity,
+                        transform: [{ translateY: titleTranslateY }],
+                      },
                     ]}
                   >
                     {headerTitle}
-                  </Text>
+                  </Animated.Text>
                   
-                  {/* 描述文案 */}
-                  <Text
+                  {/* ✅ 描述文案（带滑入动画） */}
+                  <Animated.Text
                     style={[
                       styles.headerDescription,
-                      { fontFamily: headerDescFont },
+                      {
+                        fontFamily: headerDescFont,
+                        opacity: subtitleOpacity,
+                        transform: [{ translateY: subtitleTranslateY }],
+                      },
                     ]}
                   >
                     {headerDescription}
-                  </Text>
+                  </Animated.Text>
                 </View>
               ) : null
             }
@@ -553,7 +736,7 @@ const HappinessJarScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFE699',
+    backgroundColor: '#FFCF9E', // ✅ 暖橙色背景
   },
   safeArea: {
     flex: 1,
@@ -565,7 +748,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 4,
-    backgroundColor: '#FFE699',
+    backgroundColor: '#FFCF9E', // ✅ 与页面背景一致的暖橙色
     borderBottomWidth: 0, // ✅ 无分隔线，保持沉浸感
   },
   navBackButton: {
@@ -612,7 +795,7 @@ const styles = StyleSheet.create({
   list: {
     paddingTop: 0, // ✅ Header 已经有 padding
     paddingHorizontal: 24,
-    paddingBottom: 0,
+    paddingBottom: 20, // ✅ 底部留出一些空间，避免内容贴底（沉浸式显示）
   },
   // ===== 自定义 Action Sheet =====
   modalContainer: {
