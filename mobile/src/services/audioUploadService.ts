@@ -60,7 +60,8 @@ export async function getAudioPresignedUrl(
     });
   } catch (error: any) {
     console.error("❌ 获取预签名URL失败:", error);
-    throw new Error(`获取请求链接失败: ${error.message}`);
+    // ✅ 直接抛出原始错误，让上层统一处理（支持 i18n）
+    throw error;
   }
 }
 
@@ -95,7 +96,7 @@ export async function uploadAudioDirectToS3(
       console.log("📖 读取音频文件内容...");
       const fileResponse = await fetch(audioUri);
       if (!fileResponse.ok) {
-        throw new Error("无法读取音频文件");
+        throw new Error("AUDIO_READ_FAILED");
       }
       const blob = await fileResponse.blob();
       console.log(`  - 文件大小: ${(blob.size / 1024 / 1024).toFixed(2)} MB`);

@@ -139,6 +139,8 @@ export function useVoiceRecording(
   const hasShownWarningRef = useRef(false);
   const isCleaningUpRef = useRef(false); // Prevent concurrent cleanup
   const stopPromiseRef = useRef<Promise<string | null> | null>(null); // Concurrency guard for stopping
+  const isRecordingRef = useRef(false);
+  const saveRecordingDraftRef = useRef<(() => Promise<void>) | null>(null);
   
   // ✅ 解决循环依赖：使用 ref 来引用 stopRecording，避免声明前使用的问题
   const stopRecordingRef = useRef<(() => Promise<string | null>) | null>(null);
@@ -212,6 +214,12 @@ export function useVoiceRecording(
     }
   }, [isRecording, duration, isPaused, instanceId, copyRecordingToPermanentStorage]);
 
+  // Keep latest values for unmount cleanup without re-running the effect
+  useEffect(() => {
+    isRecordingRef.current = isRecording;
+    saveRecordingDraftRef.current = saveRecordingDraft;
+  }, [isRecording, saveRecordingDraft]);
+
   // ============================================================================
   // Duration Timer
   // ============================================================================
@@ -229,6 +237,12 @@ export function useVoiceRecording(
       const totalElapsed = now - startedAtRef.current - pausedDurationRef.current;
       const seconds = Math.floor(totalElapsed / 1000);
       const finalDuration = Math.max(0, seconds);
+
+      // ✅ 添加调试日志（仅在开发环境或前几秒）
+      if (finalDuration < 5) {
+        console.log(`⏱️ [${instanceId}] Duration update: ${finalDuration}s (elapsed: ${totalElapsed}ms, paused: ${pausedDurationRef.current}ms)`);
+      }
+
       setDuration(finalDuration);
 
       if (finalDuration >= maxDurationSeconds - 60 && !hasShownWarningRef.current) {
@@ -241,16 +255,38 @@ export function useVoiceRecording(
           stopRecordingRef.current();
         }
       }
+    } else {
+      // ✅ 如果 startedAtRef 为 null，说明录音还没开始或已停止
+      // 这不应该发生，但为了安全起见，我们记录一下
+      console.warn(`⚠️ [${instanceId}] updateDuration called but startedAtRef is null!`);
     }
-  }, [maxDurationSeconds]);
+  }, [maxDurationSeconds, instanceId]);
 
   const startDurationTimer = useCallback(() => {
+    // ✅ 先停止现有的计时器（如果有）
     if (durationIntervalRef.current) {
+      console.log(`🛑 [${instanceId}] Stopping existing duration timer`);
       clearInterval(durationIntervalRef.current);
+      durationIntervalRef.current = null;
     }
+    
+    // ✅ 验证 startedAtRef 是否已设置
+    if (!startedAtRef.current) {
+      console.error(`❌ [${instanceId}] startDurationTimer called but startedAtRef is null!`);
+      return;
+    }
+    
+    // ✅ 立即更新一次 duration，确保 UI 立即显示
+    console.log(`⏰ [${instanceId}] Starting duration timer...`);
     updateDuration();
-    durationIntervalRef.current = setInterval(updateDuration, 1000); 
-  }, [updateDuration]); 
+    
+    // ✅ 启动定时器，每秒更新一次
+    durationIntervalRef.current = setInterval(() => {
+      updateDuration();
+    }, 1000);
+    
+    console.log(`✅ [${instanceId}] Duration timer started (interval ID: ${durationIntervalRef.current})`);
+  }, [updateDuration, instanceId]); 
 
   const stopDurationTimer = useCallback(() => {
     if (durationIntervalRef.current) {
@@ -334,18 +370,18 @@ export function useVoiceRecording(
       // Component unmounting - clean up everything
       (async () => {
         console.log(`🗑️ [${instanceId}] useVoiceRecording unmounting...`);
-        
+
         // ✅ 组件卸载前，如果有正在进行的录音，立即保存草稿
-        if (recordingRef.current && isRecording) {
-          await saveRecordingDraft();
+        if (recordingRef.current && isRecordingRef.current) {
+          await saveRecordingDraftRef.current?.();
         }
-        
+
         // 停止定时保存
         if (draftSaveIntervalRef.current) {
           clearInterval(draftSaveIntervalRef.current);
           draftSaveIntervalRef.current = null;
         }
-        
+
         // If this instance owns the global recording, release it
         if (globalActiveInstanceId === instanceId) {
           console.log(`👋 [${instanceId}] Releasing global ownership on unmount`);
@@ -359,14 +395,14 @@ export function useVoiceRecording(
           }
           recordingRef.current = null;
         }
-        
+
         stopDurationTimer();
         try {
           await deactivateKeepAwake(KEEP_AWAKE_TAG);
         } catch (e) {}
       })();
     };
-  }, [isRecording, saveRecordingDraft, stopDurationTimer, instanceId]);
+  }, [instanceId, stopDurationTimer]);
 
   // ============================================================================
   // Audio Interruption (电话来电等)
@@ -381,6 +417,7 @@ export function useVoiceRecording(
 
   const configureAudioMode = useCallback(async (): Promise<void> => {
     try {
+      console.log(`🔧 [${instanceId}] Configuring audio mode for recording...`);
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
@@ -390,12 +427,14 @@ export function useVoiceRecording(
         shouldDuckAndroid: true,
         playThroughEarpieceAndroid: false,
       });
+      console.log(`✅ [${instanceId}] Audio mode configured successfully`);
       await new Promise(resolve => setTimeout(resolve, 100));
     } catch (error) {
-      console.error("Failed to configure audio mode:", error);
+      const msg = error instanceof Error ? error.message : String(error);
+      console.error(`❌ [${instanceId}] Failed to configure audio mode:`, msg);
       throw error;
     }
-  }, []);
+  }, [instanceId]);
 
   // ============================================================================
   // Permission Request
@@ -403,17 +442,24 @@ export function useVoiceRecording(
 
   const requestPermission = useCallback(async (): Promise<boolean> => {
     try {
-      const { granted } = await Audio.requestPermissionsAsync();
+      console.log(`🔐 [${instanceId}] Requesting microphone permission...`);
+      const { granted, status } = await Audio.requestPermissionsAsync();
+      console.log(`🔐 [${instanceId}] Permission result:`, { granted, status });
+      
       if (!granted) {
+        console.error(`❌ [${instanceId}] Microphone permission denied (status: ${status})`);
         Alert.alert("需要麦克风权限", "请在设置中允许访问麦克风");
         return false;
       }
+      
+      console.log(`✅ [${instanceId}] Microphone permission granted`);
       return true;
     } catch (error) {
-      console.error("Permission request failed:", error);
+      const msg = error instanceof Error ? error.message : String(error);
+      console.error(`❌ [${instanceId}] Permission request failed:`, msg);
       return false;
     }
-  }, []);
+  }, [instanceId]);
 
   // ============================================================================
   // START RECORDING
@@ -448,17 +494,22 @@ export function useVoiceRecording(
       if (isRecording || recordingRef.current || globalRecordingInstance) {
         console.log(`🧹 [${instanceId}] Forcing cleanup of existing recording state before start...`);
         stopDurationTimer();
-        
+
+        // ✅ 重置所有计时相关的 refs
+        startedAtRef.current = null;
+        pausedDurationRef.current = 0;
+        lastPauseTimeRef.current = null;
+
         if (recordingRef.current) {
           await safeCleanupRecording(recordingRef.current, `start-local-${instanceId}`);
           recordingRef.current = null;
         }
-        
+
         if (globalRecordingInstance) {
           await safeCleanupRecording(globalRecordingInstance, `start-global-${instanceId}`);
           globalRecordingInstance = null;
         }
-        
+
         await new Promise(resolve => setTimeout(resolve, 200));
       }
 
@@ -526,32 +577,70 @@ export function useVoiceRecording(
       let lastError: unknown = null;
 
       for (let attempt = 1; attempt <= 2; attempt++) {
-        console.log(`📡 Recording attempt ${attempt}/2...`);
+        console.log(`📡 [${instanceId}] Recording attempt ${attempt}/2...`);
         
         const tempRecording = new Audio.Recording();
         
         try {
+          console.log(`🔧 [${instanceId}] Preparing recording...`);
           await tempRecording.prepareToRecordAsync(recordingOptions);
-          await tempRecording.startAsync();
+          console.log(`✅ [${instanceId}] Recording prepared successfully`);
           
-          // Verify it's actually recording
-          const status = await tempRecording.getStatusAsync();
+          console.log(`🎤 [${instanceId}] Starting recording...`);
+          await tempRecording.startAsync();
+          console.log(`✅ [${instanceId}] startAsync() called`);
+          
+          // ✅ 关键修复：等待一小段时间让 Native 层真正启动录音
+          // iOS/Android 的录音启动是异步的，需要给系统一些时间
+          await new Promise(resolve => setTimeout(resolve, 100));
+          
+          // ✅ 验证录音状态 - 多次检查确保真正启动
+          let status = await tempRecording.getStatusAsync();
+          console.log(`📊 [${instanceId}] Initial status check:`, {
+            isRecording: status.isRecording,
+            canRecord: status.canRecord,
+            durationMillis: status.durationMillis,
+          });
+          
+          // ✅ 如果第一次检查失败，再等待并重试一次
           if (!status.isRecording) {
-            throw new Error("Recording created but not in recording state");
+            console.log(`⏳ [${instanceId}] First check failed, waiting 200ms and retrying...`);
+            await new Promise(resolve => setTimeout(resolve, 200));
+            status = await tempRecording.getStatusAsync();
+            console.log(`📊 [${instanceId}] Retry status check:`, {
+              isRecording: status.isRecording,
+              canRecord: status.canRecord,
+              durationMillis: status.durationMillis,
+            });
+          }
+          
+          // ✅ 最终验证：确保录音真正启动
+          if (!status.isRecording) {
+            const errorMsg = `Recording created but not in recording state. Status: ${JSON.stringify(status)}`;
+            console.error(`❌ [${instanceId}] ${errorMsg}`);
+            throw new Error(errorMsg);
+          }
+          
+          // ✅ 额外验证：检查是否有录音时长（表示真正在录音）
+          if (status.durationMillis === undefined || status.durationMillis === null) {
+            console.warn(`⚠️ [${instanceId}] Warning: durationMillis is undefined, but isRecording is true`);
           }
           
           recording = tempRecording;
-          console.log("✅ Recording started successfully");
+          console.log(`✅ [${instanceId}] Recording started successfully! Status:`, {
+            isRecording: status.isRecording,
+            durationMillis: status.durationMillis,
+          });
           break;
         } catch (error: unknown) {
           lastError = error;
           const msg = error instanceof Error ? error.message : String(error);
-          console.warn(`⚠️ Attempt ${attempt} failed:`, msg);
+          console.error(`❌ [${instanceId}] Attempt ${attempt} failed:`, msg);
           
           await safeCleanupRecording(tempRecording);
           
           if (typeof msg === "string" && msg.includes("Only one Recording") && attempt < 2) {
-            console.log("🔄 Attempting aggressive reset...");
+            console.log(`🔄 [${instanceId}] Attempting aggressive reset...`);
             await forceResetGlobalState();
             await new Promise(resolve => setTimeout(resolve, 500));
             await configureAudioMode();
@@ -567,18 +656,84 @@ export function useVoiceRecording(
       recordingRef.current = recording;
       globalRecordingInstance = recording;
 
+      // ✅ 关键修复：先重置所有状态，确保干净的开始
       setIsRecording(true);
       setIsPaused(false);
       setDuration(0);
       setNearLimit(false);
       hasShownWarningRef.current = false;
       
-      startedAtRef.current = Date.now();
+      // ✅ 关键修复：先设置开始时间戳，再启动计时器
+      // 确保 startedAtRef 在计时器启动前就已经设置好
+      const startTime = Date.now();
+      startedAtRef.current = startTime;
       pausedDurationRef.current = 0;
       lastPauseTimeRef.current = null;
+      
+      console.log(`⏰ [${instanceId}] Started at timestamp: ${startTime}`);
 
+      // ✅ 关键修复：确保计时器正确启动
+      // 先立即更新一次 duration，确保 UI 立即显示 0 秒
+      updateDuration();
+
+      // 然后启动定时器
       startDurationTimer();
-      console.log("✅ Recording flow completed successfully");
+
+      // ✅ 关键修复：双重验证计时器是否启动，如果失败则强制重试
+      if (durationIntervalRef.current) {
+        console.log(`✅ [${instanceId}] Duration timer started successfully`);
+      } else {
+        console.error(`❌ [${instanceId}] Duration timer failed to start! Retrying...`);
+        // ⚠️ 强制重试：如果计时器没有启动，可能是因为某些边缘情况
+        // 在 100ms 后再次尝试启动计时器
+        setTimeout(() => {
+          if (!durationIntervalRef.current && startedAtRef.current) {
+            console.log(`🔄 [${instanceId}] Force retrying duration timer...`);
+            updateDuration();
+            durationIntervalRef.current = setInterval(() => {
+              updateDuration();
+            }, 1000);
+            console.log(`✅ [${instanceId}] Duration timer force-started (interval ID: ${durationIntervalRef.current})`);
+          }
+        }, 100);
+      }
+      
+      // ✅ 验证状态
+      console.log(`📊 [${instanceId}] Final recording state:`, {
+        isRecording: true,
+        startedAt: startedAtRef.current,
+        durationInterval: durationIntervalRef.current !== null,
+      });
+      
+      // ✅ 关键修复：在启动后 1 秒再次验证录音状态，确保真正在录音
+      setTimeout(async () => {
+        try {
+          if (recordingRef.current) {
+            const verifyStatus = await recordingRef.current.getStatusAsync();
+            console.log(`🔍 [${instanceId}] Post-start verification (1s later):`, {
+              isRecording: verifyStatus.isRecording,
+              durationMillis: verifyStatus.durationMillis,
+            });
+            
+            if (!verifyStatus.isRecording) {
+              console.error(`❌ [${instanceId}] CRITICAL: Recording stopped unexpectedly after 1 second!`);
+              // 尝试恢复
+              try {
+                await recordingRef.current.startAsync();
+                console.log(`🔄 [${instanceId}] Attempted to restart recording`);
+              } catch (restartError) {
+                console.error(`❌ [${instanceId}] Failed to restart recording:`, restartError);
+              }
+            } else if (verifyStatus.durationMillis && verifyStatus.durationMillis > 0) {
+              console.log(`✅ [${instanceId}] Recording confirmed active (duration: ${verifyStatus.durationMillis}ms)`);
+            }
+          }
+        } catch (verifyError) {
+          console.error(`❌ [${instanceId}] Post-start verification failed:`, verifyError);
+        }
+      }, 1000);
+      
+      console.log(`✅ [${instanceId}] Recording flow completed successfully`);
     } catch (error: unknown) {
       console.error(`❌ [${instanceId}] Recording start failed:`, error);
       if (globalRecordingInstance) {
@@ -698,6 +853,11 @@ export function useVoiceRecording(
           draftSaveIntervalRef.current = null;
         }
 
+        // ✅ 关键修复：重置所有计时器相关的 refs
+        startedAtRef.current = null;
+        pausedDurationRef.current = 0;
+        lastPauseTimeRef.current = null;
+
         setIsRecording(false);
         setIsPaused(false);
         
@@ -716,9 +876,15 @@ export function useVoiceRecording(
       } catch (error: unknown) {
         const msg = error instanceof Error ? error.message : String(error);
         console.error(`❌ [${instanceId}] Failed to stop recording:`, msg);
+        stopDurationTimer();
+        
+        // ✅ 关键修复：重置所有计时器相关的 refs
+        startedAtRef.current = null;
+        pausedDurationRef.current = 0;
+        lastPauseTimeRef.current = null;
+        
         setIsRecording(false);
         setIsPaused(false);
-        stopDurationTimer();
         recordingRef.current = null;
         return null;
       } finally {
@@ -759,6 +925,12 @@ export function useVoiceRecording(
       }
       globalIsPreparingRecording = false;
       stopDurationTimer();
+      
+      // ✅ 关键修复：重置所有计时器相关的 refs
+      startedAtRef.current = null;
+      pausedDurationRef.current = 0;
+      lastPauseTimeRef.current = null;
+      
       setIsRecording(false);
       setIsPaused(false);
       setDuration(0);
@@ -770,7 +942,7 @@ export function useVoiceRecording(
       try {
         await deactivateKeepAwake(KEEP_AWAKE_TAG);
       } catch (e) {}
-      console.log("✅ Recording canceled successfully");
+      console.log(`✅ [${instanceId}] Recording canceled successfully`);
     } catch (error) {
       console.error("Error during cancel:", error);
     } finally {

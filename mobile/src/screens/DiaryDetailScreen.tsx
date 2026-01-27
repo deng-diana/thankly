@@ -33,7 +33,7 @@ import {
   GestureDetector,
   Gesture,
 } from "react-native-gesture-handler";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
 import PreciousMomentsIcon from "../assets/icons/preciousMomentsIcon.svg";
@@ -96,6 +96,9 @@ export default function DiaryDetailScreen({
   onClose,
   onUpdate, // ✅ 新增
 }: DiaryDetailScreenProps) {
+  // ========== 获取安全区域 ==========
+  const insets = useSafeAreaInsets();
+  
   // ========== 状态管理 ==========
   const [diary, setDiary] = useState<Diary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -376,12 +379,12 @@ const formatDateTime = (dateTimeString: string): string => {
     const isEditing = isEditingTitle || isEditingContent;
     const isImageOnly = isImageOnlyDiary();
 
-    // 纯图片日记：显示完整 header（绝对定位在顶部）
+    // 纯图片日记：显示时间条和关闭按钮
     if (isImageOnly) {
       return (
         <View style={styles.imageOnlyHeader}>
           <View style={styles.dateContainer}>
-            <TimeIcon width={20} height={20} color="#80645A" />
+            <TimeIcon width={16} height={16} color="#80645A" />
             <Text
               style={[
                 styles.dateText,
@@ -468,11 +471,21 @@ const formatDateTime = (dateTimeString: string): string => {
             </TouchableOpacity>
           </>
         ) : (
-          // 预览模式
+          // 预览模式：显示时间条和关闭按钮
           <>
             <View style={styles.dateContainer}>
-              <TimeIcon width={20} height={20} color="#80645A" />
-              <Text style={styles.dateText}>
+              <TimeIcon width={16} height={16} color="#80645A" />
+              <Text 
+                style={[
+                  styles.dateText,
+                  {
+                    fontFamily: getFontFamilyForText(
+                      diary ? formatDateTime(diary.created_at) : "",
+                      "regular"
+                    ),
+                  },
+                ]}
+              >
                 {diary ? formatDateTime(diary.created_at) : ""}
               </Text>
             </View>
@@ -748,7 +761,14 @@ const formatDateTime = (dateTimeString: string): string => {
           {/* 主体滚动区域 */}
           <ScrollView
             style={styles.scrollView}
-            contentContainerStyle={styles.scrollContent}
+            contentContainerStyle={[
+              styles.scrollContent,
+              {
+                // ✅ 关键修复：增加 paddingBottom，确保内容不被底部遮挡
+                // 计算：底部安全区域(insets.bottom) + 额外呼吸空间(40)
+                paddingBottom: insets.bottom + 40,
+              },
+            ]}
             showsVerticalScrollIndicator={true}
             keyboardShouldPersistTaps="handled"
             bounces={true}
@@ -789,6 +809,10 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     backgroundColor: "transparent",
+    // ✅ 关键修复：提高 zIndex，确保覆盖 DiaryListScreen 的所有元素（包括顶部日期选择器和底部工具栏）
+    // DiaryListScreen 的 stickyYearMonthBarOverlay 和 bottomActionBar 的 zIndex 都是 100
+    zIndex: 200,
+    elevation: 200, // Android 也需要设置
   },
 
   overlay: {
@@ -805,8 +829,10 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    // ✅ 极简稳健设计：详情页统一使用固定比例高度，确保滚动锚点不再失效
-    height: windowHeight * 0.9, 
+    // ✅ 关键修复：使用计算高度，确保占据全部可用空间（除了顶部状态栏）
+    // 计算：屏幕高度 - 顶部安全区域（约44-50px）- 顶部留白（约20px）
+    // 这样可以确保内容不被底部遮挡，同时占据最大可用空间
+    height: windowHeight * 0.92, // 92% 的屏幕高度，确保有足够空间
     shadowColor: "#000",
     shadowOffset: {
       width: 0,
@@ -828,7 +854,8 @@ const styles = StyleSheet.create({
 
   scrollContent: {
     paddingTop: 16,
-    paddingBottom: 40, 
+    // ✅ paddingBottom 由 contentContainerStyle 动态设置：insets.bottom + 40
+    // 这样可以确保内容不被底部安全区域遮挡
   },
 
   // ===== 加载状态 =====

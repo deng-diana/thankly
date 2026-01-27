@@ -611,11 +611,28 @@ export default function RecordingModal({
     }
   }, []);
 
+  // ✅ 使用 ref 保存 startRecording 的引用，避免依赖变化导致 useEffect 重新运行
+  const startRecordingRef = useRef(startRecording);
+  useEffect(() => {
+    startRecordingRef.current = startRecording;
+  }, [startRecording]);
+
   // ✅ Modal 打开时直接开始新录音（仅尝试一次）
   // 从首页点击语音输入 = 新会话、从零开始，不检查草稿、不弹「Previous recording found」。
   // 草稿保存逻辑保留：后台/暂停时仍写入 AsyncStorage，仅不再在打开时提示恢复。
   useEffect(() => {
+    console.log("🔍 [RecordingModal] Auto-start useEffect triggered", {
+      visible,
+      isRecording,
+      isProcessing,
+      showResult,
+      isStarting,
+      autoStartAttempted: autoStartAttemptedRef.current,
+      startFailed: startFailedRef.current,
+    });
+
     if (!visible) {
+      console.log("🚪 [RecordingModal] Modal not visible, resetting flags");
       autoStartAttemptedRef.current = false;
       startFailedRef.current = false;
       setShowRestoreConfirm(false);
@@ -623,23 +640,48 @@ export default function RecordingModal({
       return;
     }
 
-    if (autoStartAttemptedRef.current) return;
-    if (isRecording || isProcessing || showResult || isStarting) return;
-    if (startFailedRef.current) return;
+    if (autoStartAttemptedRef.current) {
+      console.log("⏭️ [RecordingModal] Auto-start already attempted, skipping");
+      return;
+    }
 
+    if (isRecording || isProcessing || showResult || isStarting) {
+      console.log("⚠️ [RecordingModal] Blocked by state check:", {
+        isRecording,
+        isProcessing,
+        showResult,
+        isStarting,
+      });
+      return;
+    }
+
+    if (startFailedRef.current) {
+      console.log("❌ [RecordingModal] Previous start failed, skipping");
+      return;
+    }
+
+    console.log("✅ [RecordingModal] All checks passed, scheduling auto-start in 150ms");
     autoStartAttemptedRef.current = true;
 
     const timer = setTimeout(async () => {
+      console.log("🎤 [RecordingModal] Auto-start timer fired, calling startRecording()");
       try {
-        await startRecording();
+        // ✅ 使用 ref 中的最新引用，避免闭包问题
+        await startRecordingRef.current();
+        console.log("✅ [RecordingModal] startRecording() completed successfully");
       } catch (error) {
-        console.error("Auto-start failed:", error);
+        console.error("❌ [RecordingModal] Auto-start failed:", error);
         startFailedRef.current = true;
       }
     }, 150);
 
-    return () => clearTimeout(timer);
-  }, [visible, isRecording, isProcessing, showResult, isStarting, startRecording]);
+    return () => {
+      console.log("🧹 [RecordingModal] Cleaning up auto-start timer");
+      clearTimeout(timer);
+    };
+    // ✅ 关键修复：移除 startRecording 依赖，避免因为引用变化导致 useEffect 重新运行
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, isRecording, isProcessing, showResult, isStarting]);
 
   // ✅ 录音时保持屏幕常亮，防止自动锁屏导致录音中断
   useEffect(() => {

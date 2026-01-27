@@ -2,6 +2,8 @@
 
 A modern, AI-powered voice-first multimodal journaling application built with React Native and FastAPI. Available on iOS App Store.
 
+AI Collaboration Guide: Please read CLAUDE.md
+
 ## 🌟 Features
 
 ### Core Journaling Capabilities

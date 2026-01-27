@@ -510,6 +510,7 @@ console.log('📡 API Request:', url, options);
 
 ---
 
+- 🔒 **隐私优先**: Apple/Google 登录 + 端到端加密
 ## 9. 总结
 
 Thankly 是一个**架构清晰、功能完整的生产级 React Native 应用**，具有以下特点：

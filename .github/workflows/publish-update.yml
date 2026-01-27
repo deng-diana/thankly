@@ -1,0 +1,107 @@
+name: Publish OTA Update
+
+# 🎯 This workflow publishes OTA updates (hot updates) to production
+# 
+# Trigger: Push to main/master branch (for code changes that don't need native rebuild)
+# 
+# Important: This is SEPARATE from building native apps.
+# - eas build = Creates native binary (for App Store/Play Store)
+# - eas update = Publishes OTA update (for existing installed apps)
+
+on:
+  # Trigger on push to main/master (for OTA updates)
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      # Only trigger if mobile code changes (not native config)
+      - 'mobile/**'
+      - '.github/workflows/publish-update.yml'
+    paths-ignore:
+      # Don't trigger on native build config changes (those need new builds)
+      - 'mobile/app.json'
+      - 'mobile/eas.json'
+      - 'mobile/package.json'
+
+  # Manual trigger for emergency updates
+  workflow_dispatch:
+    inputs:
+      message:
+        description: "Update message"
+        required: true
+        default: "OTA update via CI/CD"
+
+jobs:
+  publish-update:
+    name: Publish OTA Update to Production
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Checkout code
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Step 2: Setup Node.js
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: mobile/package-lock.json
+
+      # Step 3: Install dependencies
+      - name: Install dependencies
+        working-directory: ./mobile
+        run: npm ci
+
+      # Step 4: Install EAS CLI
+      - name: Install EAS CLI
+        run: npm install -g eas-cli@latest
+
+      # Step 5: Verify Expo Token
+      - name: Verify Expo Token
+        working-directory: ./mobile
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "❌ EXPO_TOKEN not configured"
+            exit 1
+          fi
+          eas whoami
+
+      # Step 6: Read app.json to get version info
+      - name: Get version info
+        working-directory: ./mobile
+        id: version
+        run: |
+          APP_VERSION=$(node -e "const app = require('./app.json'); console.log(app.expo.version);")
+          echo "version=$APP_VERSION" >> $GITHUB_OUTPUT
+          echo "📋 App Version: $APP_VERSION"
+          echo "📋 Runtime Version: $APP_VERSION (from app.json policy)"
+
+      # Step 7: Publish update
+      - name: Publish OTA Update
+        working-directory: ./mobile
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          UPDATE_MESSAGE="${{ github.event.head_commit.message || github.event.inputs.message || 'OTA update via CI/CD' }}"
+          echo "📤 Publishing update to production channel..."
+          eas update --branch production --message "$UPDATE_MESSAGE" --non-interactive
+
+      # Step 8: Verify update was published
+      - name: Verify Update
+        working-directory: ./mobile
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          echo "📊 Recent updates:"
+          eas update:list --branch production --limit 3
+
+      # Step 9: Success notification
+      - name: Success
+        run: |
+          echo "✅ OTA update published successfully!"
+          echo "📱 Users with runtime version ${{ steps.version.outputs.version }} will receive this update"

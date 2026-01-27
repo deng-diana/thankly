@@ -8,7 +8,7 @@ from botocore.exceptions import ClientError
 from ..utils.cognito_auth import get_current_user
 from ..services.dynamodb_service import DynamoDBService
 from ..services.s3_service import S3Service
-from ..config import get_settings
+from ..config import get_settings, get_boto3_kwargs
 
 
 router = APIRouter()
@@ -19,7 +19,10 @@ s3_service = S3Service()
 
 def _get_cognito_client():
     settings = get_settings()
-    client = boto3.client("cognito-idp", region_name=settings.cognito_region)
+    client = boto3.client(
+        "cognito-idp",
+        **get_boto3_kwargs(settings, settings.cognito_region)
+    )
     return client, settings
 
 
@@ -71,8 +74,6 @@ async def delete_account(user: Dict = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail="删除用户账号失败")
 
     return {"success": True}
-
-
 
 
 

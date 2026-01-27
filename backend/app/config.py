@@ -1,6 +1,7 @@
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 from typing import Optional
+from pathlib import Path
 import os
 
 class Settings(BaseSettings):
@@ -11,8 +12,9 @@ class Settings(BaseSettings):
     
     # AWS配置
     aws_region: str = "us-east-1"
-    #aws_access_key_id: str = ""
-    #aws_secret_access_key: str = ""
+    aws_access_key_id: Optional[str] = ""
+    aws_secret_access_key: Optional[str] = ""
+    aws_session_token: Optional[str] = ""
     dynamodb_table_name: str = "GratitudeDiaries"
     s3_bucket_name: str = ""  # S3存储桶名称
     
@@ -28,7 +30,8 @@ class Settings(BaseSettings):
     debug: bool = False
     
     class Config:
-        env_file = ".env"  # 从.env文件读取配置（Lambda环境中通常不存在，从环境变量读取）
+        # 固定读取 backend/.env，避免在项目根目录启动时找不到
+        env_file = str(Path(__file__).resolve().parents[1] / ".env")
         env_file_encoding = 'utf-8'  # 指定编码
         case_sensitive = False  # 允许环境变量名称不区分大小写
         extra = "ignore"  # 忽略额外的字段，避免验证错误
@@ -41,7 +44,7 @@ def get_settings():
     
     # 🔍 调试：检查当前工作目录和 .env 文件
     current_dir = os.getcwd()
-    env_file_path = os.path.join(current_dir, ".env")
+    env_file_path = Settings.Config.env_file
     env_file_exists = os.path.exists(env_file_path)
     
     print(f"🔍 配置加载检查:")
@@ -50,12 +53,7 @@ def get_settings():
     print(f"   - .env 文件存在: {env_file_exists}")
     
     if env_file_exists:
-        try:
-            with open(env_file_path, 'r', encoding='utf-8') as f:
-                first_line = f.readline()
-                print(f"   - .env 文件可读: 是 (第一行: {first_line[:50]}...)")
-        except Exception as e:
-            print(f"   - .env 文件读取错误: {e}")
+        print(f"   - .env 文件可读: 是")
     
     try:
         # 先尝试从环境变量读取（优先级更高）
@@ -90,7 +88,20 @@ def get_settings():
             openai_api_key=os.getenv("OPENAI_API_KEY", ""),
             dynamodb_table_name=os.getenv("DYNAMODB_TABLE_NAME", "GratitudeDiaries"),
             aws_region=os.getenv("AWS_REGION", "us-east-1"),
+            aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID", ""),
+            aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY", ""),
+            aws_session_token=os.getenv("AWS_SESSION_TOKEN", ""),
             cognito_user_pool_id=os.getenv("COGNITO_USER_POOL_ID", ""),
             cognito_client_id=os.getenv("COGNITO_CLIENT_ID", ""),
             s3_bucket_name=os.getenv("S3_BUCKET_NAME", "")
         )
+
+def get_boto3_kwargs(settings: Settings, region_name: Optional[str] = None) -> dict:
+    """Build boto3 client/resource kwargs with optional static credentials."""
+    kwargs = {"region_name": region_name or settings.aws_region}
+    if settings.aws_access_key_id and settings.aws_secret_access_key:
+        kwargs["aws_access_key_id"] = settings.aws_access_key_id
+        kwargs["aws_secret_access_key"] = settings.aws_secret_access_key
+        if settings.aws_session_token:
+            kwargs["aws_session_token"] = settings.aws_session_token
+    return kwargs

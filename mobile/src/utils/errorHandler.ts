@@ -106,31 +106,39 @@ function getFriendlyMessage(
   errorType: ErrorType,
   originalMessage: string
 ): string {
+  // ✅ 导入 i18n（延迟导入避免循环依赖）
+  const i18n = require("../i18n").default;
+  
   switch (errorType) {
     case ErrorType.AUTH_EXPIRED:
-      return "登录已过期，请重新登录";
+      return i18n.t("error.authExpired");
 
     case ErrorType.NETWORK_ERROR:
-      return "网络连接失败，请检查网络设置";
+      return i18n.t("error.networkError");
 
     case ErrorType.SERVER_ERROR:
-      return "服务器暂时不可用，请稍后重试";
+      return i18n.t("error.serverError");
 
     case ErrorType.VALIDATION_ERROR:
-      return "请求参数有误，请重试";
+      return i18n.t("error.validationError");
 
     case ErrorType.UNKNOWN_ERROR:
     default:
+      // 如果原始消息是错误代码，尝试翻译
+      if (originalMessage && !originalMessage.includes(" ") && originalMessage.includes("_")) {
+        const translated = i18n.t(`error.${originalMessage}`, { defaultValue: null });
+        if (translated) return translated;
+      }
+      
       // 如果原始消息已经是用户友好的，直接返回
       if (
+        originalMessage.includes("please") ||
         originalMessage.includes("请") ||
-        originalMessage.includes("登录") ||
-        originalMessage.includes("网络") ||
-        originalMessage.includes("重试")
+        originalMessage.length > 50
       ) {
         return originalMessage;
       }
-      return "操作失败，请重试";
+      return i18n.t("error.unknownError");
   }
 }
 
@@ -176,7 +184,12 @@ export async function handleError(
   const errorType = analyzeError(error);
   const friendlyMessage = getFriendlyMessage(errorType, error.message || "");
 
-  console.error(`❌ 错误处理 [${errorType}]:`, error);
+  // AUTH_EXPIRED 是预期状态（比如 token 过期），避免触发 LogBox 红屏
+  if (errorType === ErrorType.AUTH_EXPIRED) {
+    console.log(`🔐 认证过期 [${errorType}]:`, error);
+  } else {
+    console.error(`❌ 错误处理 [${errorType}]:`, error);
+  }
 
   // 特殊处理认证过期
   if (errorType === ErrorType.AUTH_EXPIRED) {
@@ -190,7 +203,12 @@ export async function handleError(
 
   // 显示错误提示（如果需要）
   if (finalConfig.showAlert && !finalConfig.silent) {
-    Alert.alert("提示", friendlyMessage, [{ text: "好的" }]);
+    const i18n = require("../i18n").default;
+    Alert.alert(
+      i18n.t("common.notice"), 
+      friendlyMessage, 
+      [{ text: i18n.t("common.ok") }]
+    );
   }
 }
 

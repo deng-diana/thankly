@@ -6,7 +6,7 @@
 const PRODUCTION_URL = "https://api.thankly.app";
 
 // 🔄 环境切换：true = 本地开发，false = 生产环境
-const IS_LOCAL_DEV = false; // ✅ 生产环境版本 (由 Antigravity 自动切换以通过提交检查)
+const IS_LOCAL_DEV = false; // ✅ 生产环境版本 
 
 // ✅ 将 127.0.0.1 改为你的电脑局域网 IP (192.168.0.28)
 // 这样无论是 iOS 模拟器、Android 模拟器还是真机，都能连上后端

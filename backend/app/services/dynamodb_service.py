@@ -1,7 +1,7 @@
 import boto3
 from boto3.dynamodb.conditions import Key, Attr
 from typing import List, Optional, Any
-from ..config import get_settings
+from ..config import get_settings, get_boto3_kwargs
 import uuid
 from decimal import Decimal
 from datetime import datetime, timezone
@@ -17,10 +17,7 @@ class DynamoDBService:
             # 创建DynamoDB客户端
             # 在Lambda环境中，boto3会自动使用IAM角色凭证
             # 使用默认凭证链（IAM角色、环境变量等）
-            self.dynamodb=boto3.resource(
-                "dynamodb",
-                region_name=settings.aws_region
-            )
+            self.dynamodb = boto3.resource("dynamodb", **get_boto3_kwargs(settings))
             # 获取表
             self.table=self.dynamodb.Table(settings.dynamodb_table_name)
             
