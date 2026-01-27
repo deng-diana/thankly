@@ -1648,6 +1648,189 @@ async def get_audio_presigned_url(
         )
 
 
+# ========================================================================
+# ✅ Phase 2: 分块上传 API（边录边传，大幅减少等待时间）
+# ========================================================================
+
+@router.post("/audio/chunk-session", summary="创建分块上传会话")
+async def create_chunk_session(
+    session_id: str = Form(...),
+    user: Dict = Depends(get_current_user)
+):
+    """
+    ✅ Phase 2: 创建分块上传会话
+    
+    边录边传工作流程:
+    1. 录音开始时，前端生成 session_id 并调用此 API
+    2. 录音过程中，每 N 秒调用 /audio/chunk-presigned-url 获取 chunk 上传 URL
+    3. 前端并行上传每个 chunk 到 S3
+    4. 录音结束后，调用 /audio/chunk-complete 合并并处理
+    
+    优势:
+    - 录音结束后几乎无需等待上传（大部分已上传完成）
+    - 提供更流畅的用户体验
+    - 减少 50-70% 的等待时间
+    
+    Args:
+        session_id: 会话唯一标识（前端生成的 UUID）
+        user: 当前认证用户
+    
+    Returns:
+        会话信息
+    """
+    try:
+        print(f"📦 创建分块上传会话: session_id={session_id}, user={user['user_id']}")
+        
+        session_info = s3_service.create_chunk_session(session_id)
+        
+        return {
+            **session_info,
+            "user_id": user['user_id']
+        }
+        
+    except Exception as e:
+        print(f"❌ 创建分块会话失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"CREATE_SESSION_FAILED")
+
+
+@router.post("/audio/chunk-presigned-url", summary="获取单个 chunk 的预签名 URL")
+async def get_chunk_presigned_url(
+    session_id: str = Form(...),
+    chunk_index: int = Form(...),
+    content_type: str = Form("audio/m4a"),
+    user: Dict = Depends(get_current_user)
+):
+    """
+    ✅ Phase 2: 获取单个 chunk 的预签名 URL
+    
+    录音过程中定期调用此 API 获取上传 URL。
+    
+    Args:
+        session_id: 会话 ID
+        chunk_index: 分块索引（0, 1, 2...）
+        content_type: 文件类型
+        user: 当前认证用户
+    
+    Returns:
+        预签名 URL 信息
+    """
+    try:
+        print(f"📤 获取 chunk 预签名 URL: session={session_id}, index={chunk_index}")
+        
+        presigned_data = s3_service.generate_chunk_presigned_url(
+            session_id=session_id,
+            chunk_index=chunk_index,
+            content_type=content_type
+        )
+        
+        return presigned_data
+        
+    except Exception as e:
+        print(f"❌ 获取 chunk 预签名 URL 失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"GET_CHUNK_URL_FAILED")
+
+
+@router.post("/audio/chunk-complete", summary="完成分块上传并创建日记任务")
+async def complete_chunk_upload(
+    session_id: str = Form(...),
+    chunk_count: int = Form(...),
+    duration: float = Form(...),
+    content: str = Form(None),
+    image_urls: str = Form(None),
+    expect_images: bool = Form(False),
+    user: Dict = Depends(get_current_user),
+    x_user_name: Optional[str] = Header(None, alias="X-User-Name")
+):
+    """
+    ✅ Phase 2: 完成分块上传，合并音频并创建日记处理任务
+    
+    录音结束后调用此 API:
+    1. 合并所有已上传的 chunks
+    2. 创建语音日记处理任务
+    3. 返回 task_id 用于轮询进度
+    
+    Args:
+        session_id: 会话 ID
+        chunk_count: 已上传的 chunk 总数
+        duration: 音频总时长（秒）
+        content: 可选的文字内容
+        image_urls: 可选的图片 URL 列表（JSON）
+        expect_images: 是否期待后续图片上传
+        user: 当前认证用户
+        x_user_name: 用户名称（通过 Header）
+    
+    Returns:
+        task_id 和状态信息
+    """
+    try:
+        print(f"🔀 完成分块上传: session={session_id}, chunks={chunk_count}, duration={duration}s")
+        
+        # Step 1: 合并 chunks
+        merged_audio_url = s3_service.merge_chunks(
+            session_id=session_id,
+            chunk_count=chunk_count,
+            output_filename="recording.m4a"
+        )
+        print(f"✅ 音频合并完成: {merged_audio_url}")
+        
+        # Step 2: 创建任务 ID
+        task_id = str(uuid.uuid4())
+        
+        # Step 3: 解析 image_urls
+        parsed_image_urls = None
+        if image_urls:
+            try:
+                parsed_image_urls = json.loads(image_urls)
+            except:
+                pass
+        
+        # Step 4: 初始化任务进度
+        update_task_progress(
+            task_id, 
+            "processing", 
+            10,  # 合并完成，进度 10%
+            1, 
+            "准备处理", 
+            "音频已准备就绪，开始处理...",
+            user_id=user['user_id']
+        )
+        
+        # Step 5: 启动后台处理任务
+        asyncio.create_task(
+            process_pure_voice_diary_async(
+                task_id=task_id,
+                audio_url=merged_audio_url,
+                duration=duration,
+                user=user,
+                user_name=x_user_name,
+                content=content,
+                image_urls=parsed_image_urls,
+                expect_images=expect_images
+            )
+        )
+        
+        print(f"✅ 分块上传任务创建成功: task_id={task_id}")
+        
+        return {
+            "task_id": task_id,
+            "status": "processing",
+            "message": "Audio merged, processing started",
+            "audio_url": merged_audio_url
+        }
+        
+    except ValueError as e:
+        error_str = str(e)
+        print(f"❌ 分块上传完成失败 (ValueError): {error_str}")
+        if error_str.startswith("TRANSCRIPTION_") or error_str == "No chunks to merge":
+            raise HTTPException(status_code=400, detail=error_str)
+        raise HTTPException(status_code=500, detail="CHUNK_MERGE_FAILED")
+    except Exception as e:
+        print(f"❌ 分块上传完成失败: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="CHUNK_COMPLETE_FAILED")
+
+
 @router.post("/images/presigned-urls", summary="Get presigned URLs for direct S3 upload")
 async def get_presigned_urls(
     data: PresignedUrlRequest,

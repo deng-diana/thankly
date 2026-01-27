@@ -29,6 +29,7 @@
 import { API_BASE_URL } from "../config/aws-config";
 import { getAccessToken } from "./authService";
 import apiService from "./apiService";
+import { uploadAudioWithChunks, shouldUseChunkUpload } from "./chunkUploadService";
 
 /**
  * 获取音频文件的预签名URL
@@ -147,12 +148,17 @@ export async function uploadAudioDirectToS3(
 }
 
 /**
- * ✅ 优化版: 上传音频并创建语音日记任务 (使用直传)
+ * ✅ 智能音频上传: 自动选择最优上传策略
+ * 
+ * Phase 2 优化: 根据文件大小自动选择上传方式
+ * - 小文件 (< 1MB): 使用单次直传（简单快速）
+ * - 大文件 (>= 1MB): 使用分块并行上传（充分利用带宽）
  * 
  * 工作流程:
- * 1. 获取预签名URL (快速,只需几十ms)
- * 2. 直接上传音频到S3 (显示精确进度 0-100%)
- * 3. 创建语音日记任务 (使用final_url,不再上传音频)
+ * 1. 检测文件大小，选择上传策略
+ * 2. 小文件: 获取预签名URL → 直接上传
+ * 3. 大文件: 分块 → 并行上传 → 合并
+ * 4. 创建语音日记任务
  * 
  * @param audioUri - 本地音频文件URI
  * @param duration - 音频时长(秒)
@@ -167,7 +173,24 @@ export async function uploadAudioAndCreateTask(
   imageUrls?: string[],
   expectImages?: boolean
 ): Promise<{ taskId: string; headers: Record<string, string> }> {
-  console.log("🎤 优化版音频上传流程启动");
+  console.log("🎤 智能音频上传流程启动");
+  
+  // ✅ Phase 2: 检测是否应该使用分块上传
+  const useChunkUpload = await shouldUseChunkUpload(audioUri);
+  
+  if (useChunkUpload) {
+    console.log("📦 使用分块并行上传（文件 > 1MB）");
+    return uploadAudioWithChunks(
+      audioUri,
+      duration,
+      onUploadProgress,
+      content,
+      imageUrls,
+      expectImages
+    );
+  }
+  
+  console.log("📤 使用单次直传（文件 <= 1MB）");
   
   try {
     // 第1步: 获取预签名URL
