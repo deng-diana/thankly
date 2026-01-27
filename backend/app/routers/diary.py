@@ -7,7 +7,7 @@
 4. ✅ 保持所有原有逻辑不变
 """
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Form, Request, Query, Body
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Form, Request, Query, Body, Header
 from fastapi.responses import StreamingResponse
 from typing import List, Dict, Optional, AsyncGenerator
 import asyncio
