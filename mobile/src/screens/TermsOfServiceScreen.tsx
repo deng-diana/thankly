@@ -73,12 +73,11 @@ export default function TermsOfServiceScreen() {
           style={styles.backButton}
           onPress={() => navigation.goBack()}
         >
-          <Ionicons name="arrow-back" size={24} color="#1A1A1A" />
+          <Ionicons name="arrow-back-outline" size={24} color="#73483A" />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, typography.diaryTitle]}>
           {t("onboarding.welcome.termsOfService")}
         </Text>
-        <View style={styles.placeholder} />
       </View>
 
       <ScrollView
@@ -156,22 +155,23 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent: "flex-start",
     paddingHorizontal: 20,
     paddingVertical: 16,
     borderBottomWidth: 1,
     borderBottomColor: "#F2E3C2",
   },
   backButton: {
-    padding: 4,
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
   },
   headerTitle: {
     fontSize: 18,
-    color: "#1A1A1A",
+    color: "#73483A",
     fontWeight: "600",
-  },
-  placeholder: {
-    width: 32,
+    marginLeft: 8,
   },
   content: {
     flex: 1,
@@ -228,4 +228,3 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
 });
-

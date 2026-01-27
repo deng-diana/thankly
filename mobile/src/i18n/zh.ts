@@ -176,9 +176,9 @@ export default {
 
   // 幸福罐
   happinessJar: {
-    bannerTitle: "回顾你的幸福时光",
+    bannerTitle: "打开你的幸福罐",
     bannerTitleHighlight: "幸福",
-    bannerSubtitle: "{{count}} 个温暖的瞬间，点亮你的心",
+    bannerSubtitle: "{{count}} 个瞬间，点亮今天",
     pageTitle: "幸福时刻",
     pageSubtitle: "收集了 {{count}} 个快乐时刻",
     emptyMessage: "还没有幸福时刻",
@@ -367,6 +367,20 @@ export default {
     TRANSCRIPTION_REPETITIVE_CONTENT: "未识别到有效内容，请说清楚一些",
     TRANSCRIPTION_INVALID_FORMAT: "音频格式不支持",
     TRANSCRIPTION_FILE_TOO_LARGE: "音频文件太大，请控制在2分钟内",
+    TRANSCRIPTION_FAILED: "语音识别失败，请重试",
+    // 分块上传 error codes
+    AUTH_REQUIRED: "请先登录",
+    CHUNK_SESSION_FAILED: "创建上传会话失败，请重试",
+    CHUNK_PRESIGNED_URL_FAILED: "获取上传地址失败，请重试",
+    CHUNK_NETWORK_ERROR: "上传过程中网络错误，请检查网络后重试",
+    CHUNK_UPLOAD_TIMEOUT: "上传超时，请检查网络后重试",
+    CHUNK_UPLOAD_PARTIAL_FAILED: "部分内容上传失败，请重试",
+    CHUNK_COMPLETE_FAILED: "上传完成处理失败，请重试",
+    CHUNK_MERGE_FAILED: "音频合并失败，请重试",
+    CHUNK_UPLOAD_HTTP_ERROR: "上传请求失败，请重试",
+    TRANSCRIPTION_SERVICE_UNAVAILABLE: "语音识别服务暂时不可用，请稍后重试",
+    TRANSCRIPTION_INVALID_FORMAT: "音频格式无效，请重新录制",
+    TRANSCRIPTION_AUDIO_TOO_SHORT: "录音时间过短，请至少录制几秒钟",
     TRANSCRIPTION_FAILED: "语音识别失败，请重试",
     emptyRecording: {
       title: "未检测到有效内容",

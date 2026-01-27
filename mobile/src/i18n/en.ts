@@ -182,9 +182,9 @@ export default {
 
   // Happiness Jar (幸福罐)
   happinessJar: {
-    bannerTitle: "Revisit your Happiness Jar",
+    bannerTitle: "Open your Happiness Jar",
     bannerTitleHighlight: "Happiness",
-    bannerSubtitle: "{{count}} moments that brighten your days",
+    bannerSubtitle: "{{count}} moments to brighten your day",
     pageTitle: "Happiness Moment",
     pageSubtitle: "Collected {{count}} moments of joy",
     emptyMessage: "No happiness moments yet",
@@ -376,6 +376,20 @@ export default {
     TRANSCRIPTION_REPETITIVE_CONTENT: "No valid content detected, please speak clearly",
     TRANSCRIPTION_INVALID_FORMAT: "Unsupported audio format",
     TRANSCRIPTION_FILE_TOO_LARGE: "Audio file too large, please keep within 2 minutes",
+    TRANSCRIPTION_FAILED: "Voice recognition failed, please try again",
+    // Chunk upload error codes
+    AUTH_REQUIRED: "Please sign in first",
+    CHUNK_SESSION_FAILED: "Failed to create upload session, please try again",
+    CHUNK_PRESIGNED_URL_FAILED: "Failed to get upload URL, please try again",
+    CHUNK_NETWORK_ERROR: "Network error during upload, please check connection and try again",
+    CHUNK_UPLOAD_TIMEOUT: "Upload timed out, please check connection and try again",
+    CHUNK_UPLOAD_PARTIAL_FAILED: "Some content failed to upload, please try again",
+    CHUNK_COMPLETE_FAILED: "Failed to complete upload, please try again",
+    CHUNK_MERGE_FAILED: "Failed to merge audio, please try again",
+    CHUNK_UPLOAD_HTTP_ERROR: "Upload request failed, please try again",
+    TRANSCRIPTION_SERVICE_UNAVAILABLE: "Voice recognition service temporarily unavailable, please try again later",
+    TRANSCRIPTION_INVALID_FORMAT: "Invalid audio format. Please record again",
+    TRANSCRIPTION_AUDIO_TOO_SHORT: "Recording too short. Please record at least a few seconds",
     TRANSCRIPTION_FAILED: "Voice recognition failed, please try again",
     emptyRecording: {
       title: "No valid content detected",

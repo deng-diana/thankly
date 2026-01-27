@@ -39,14 +39,16 @@ import DiaryDetailScreen from "./DiaryDetailScreen";
 import ImagePreviewModal from "../components/ImagePreviewModal";
 import { useDiaryAudio } from "../hooks/useDiaryAudio";
 
-const CIRCLE_OPACITY = 0.8; // ✅ 80% 不透明度（参考 Plan）
+const CIRCLE_OPACITY = 1; // ✅ 用户要求：情绪颜色 100% 不透明度
 // ✅ 关键修复：根据容器宽度动态计算单元格大小，确保一行正好7列
 // 容器宽度 = 屏幕宽度 - scrollContent左右padding(20*2) - calendarCard左右padding(16*2) = 屏幕宽度 - 72
 const CELL_SIZE = Math.floor((Dimensions.get("window").width - 72) / 7);
 // ✅ 用户要求：圆形尺寸固定为 28
 const CIRCLE_SIZE = 28;
-// ✅ 多个圆时的横向错位偏移（左右分布）
-const CIRCLE_HORIZONTAL_OFFSET = 2;
+// ✅ 最多展示 3 个不同情绪
+const MAX_DISPLAY_EMOTIONS = 3;
+// ✅ 多情绪堆叠时的向上偏移（px）
+const CIRCLE_STACK_OFFSET = 4;
 // ✅ 用户要求：星期标题和日期单元格之间的间距为 16px
 const CALENDAR_VERTICAL_GAP = 16;
 
@@ -73,24 +75,66 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
-/** ✅ 关键修复：只取当日第一个主要情绪色（不显示多个） */
+type EmotionColorStat = {
+  emotionKey: string;
+  color: string;
+  rgba: string;
+  count: number;
+  latestAt: number;
+};
+
+/** 统计当日情绪：频次优先，并列用最近一次打破，最多返回 4 个不同情绪 */
 function getEmotionColors(
   diaries: Diary[]
 ): Array<{ color: string; rgba: string }> {
-  // ✅ 关键修复：只返回第一个情绪颜色
-  const firstDiary = diaries[0];
-  if (firstDiary) {
-    const e = firstDiary.emotion_data?.emotion;
-    const mapped = e ? EMOTION_MAP[e as EmotionType] : undefined;
-    const config = mapped ?? DEFAULT_EMOTION;
-    return [{
-      color: config.color,
-      rgba: hexToRgba(config.color, CIRCLE_OPACITY),
-    }];
+  if (!diaries.length) {
+    const c = DEFAULT_EMOTION.color;
+    return [{ color: c, rgba: hexToRgba(c, CIRCLE_OPACITY) }];
   }
-  // 如果没有日记，返回默认情绪色
-  const c = DEFAULT_EMOTION.color;
-  return [{ color: c, rgba: hexToRgba(c, CIRCLE_OPACITY) }];
+
+  const stats = new Map<string, { count: number; latestAt: number }>();
+
+  for (const diary of diaries) {
+    const emotionKey = diary.emotion_data?.emotion ?? "__default__";
+    const parsed = Date.parse(diary.created_at ?? diary.date ?? "");
+    const ts = Number.isNaN(parsed) ? 0 : parsed;
+    const prev = stats.get(emotionKey);
+    if (!prev) {
+      stats.set(emotionKey, { count: 1, latestAt: ts });
+      continue;
+    }
+    stats.set(emotionKey, {
+      count: prev.count + 1,
+      latestAt: Math.max(prev.latestAt, ts),
+    });
+  }
+
+  const ranked: EmotionColorStat[] = Array.from(stats.entries()).map(
+    ([emotionKey, { count, latestAt }]) => {
+      const mapped =
+        emotionKey === "__default__"
+          ? undefined
+          : EMOTION_MAP[emotionKey as EmotionType];
+      const config = mapped ?? DEFAULT_EMOTION;
+      return {
+        emotionKey,
+        color: config.color,
+        rgba: hexToRgba(config.color, CIRCLE_OPACITY),
+        count,
+        latestAt,
+      };
+    }
+  );
+
+  ranked.sort((a, b) => {
+    if (b.count !== a.count) return b.count - a.count;
+    return b.latestAt - a.latestAt;
+  });
+
+  return ranked.slice(0, MAX_DISPLAY_EMOTIONS).map(({ color, rgba }) => ({
+    color,
+    rgba,
+  }));
 }
 
 type CalendarCell = {
@@ -358,7 +402,7 @@ export default function MoodCalendarScreen() {
           accessibilityLabel={t("common.close")}
           accessibilityRole="button"
         >
-          <Ionicons name="arrow-back-outline" size={24} color="#866D66" />
+          <Ionicons name="arrow-back-outline" size={24} color="#73483A" />
         </TouchableOpacity>
         <Text
           style={[
@@ -373,7 +417,6 @@ export default function MoodCalendarScreen() {
         >
           {t("moodCalendar.title")}
         </Text>
-        <View style={styles.placeholder} />
       </View>
 
       <ScrollView
@@ -405,7 +448,7 @@ export default function MoodCalendarScreen() {
               <Ionicons
                 name="chevron-back"
                 size={20}
-                color={canPrev ? "#866D66" : "#ccc"}
+                color={canPrev ? "#73483A" : "#ccc"}
               />
             </TouchableOpacity>
 
@@ -456,7 +499,7 @@ export default function MoodCalendarScreen() {
               <Ionicons
                 name="chevron-forward"
                 size={20}
-                color={canNext ? "#866D66" : "#ccc"}
+                color={canNext ? "#73483A" : "#ccc"}
               />
             </TouchableOpacity>
           </View>
@@ -515,14 +558,31 @@ export default function MoodCalendarScreen() {
                     {cell.day}
                   </Text>
                   {hasRecords && colors.length > 0 && cell.isCurrentMonth && (
-                    <View
-                      style={[
-                        styles.singleCircle,
-                        {
-                          backgroundColor: colors[0].rgba,
-                        },
-                      ]}
-                    />
+                    <View style={styles.emotionStack}>
+                      {(() => {
+                        const primary = colors[0];
+                        const secondary = colors.slice(1);
+                        // ✅ primary 放在最顶层（最后渲染），其他情绪在其下方并向上偏移
+                        const stack = [...secondary, primary];
+                        return stack.map((item, index) => {
+                          const offset =
+                            -CIRCLE_STACK_OFFSET * (stack.length - 1 - index);
+                          return (
+                            <View
+                              key={`${item.color}-${index}`}
+                              style={[
+                                styles.emotionCircle,
+                                {
+                                  backgroundColor: item.rgba,
+                                  top: offset,
+                                  zIndex: index + 1,
+                                },
+                              ]}
+                            />
+                          );
+                        });
+                      })()}
+                    </View>
                   )}
                 </View>
               </View>
@@ -650,9 +710,10 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent: "flex-start",
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingTop: 8,
+    paddingBottom: 12,
     borderBottomWidth: 1,
     borderBottomColor: "#F2E2C3",
   },
@@ -664,10 +725,8 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 18,
-    color: "#866D66", // ✅ 用户要求：标题颜色改为 #866D66
-  },
-  placeholder: {
-    width: 40,
+    color: "#73483A", // ✅ 统一标题颜色为指定色值
+    marginLeft: 8, // ✅ 用户要求：标题紧挨返回箭头，间距 8px
   },
   scroll: {
     flex: 1,
@@ -699,13 +758,13 @@ const styles = StyleSheet.create({
   },
   yearMonthLabel: {
     fontSize: 20, // ✅ 用户要求：确保字号是20px
-    color: "#1A1A1A", // ✅ 用户要求：年月颜色改为黑色，与日记标题一致
+    color: "#73483A", // ✅ 用户要求：年月颜色改为指定色值
     fontWeight: "normal", // ✅ 使用字体变体后，不需要 fontWeight，设置为 normal
     textAlign: "center",
   },
   monthSummaryText: {
     fontSize: 14,
-    color: "#866D66", // ✅ 用户要求：改为指定颜色
+    color: "#73483A", // ✅ 用户要求：统计信息颜色改为指定色值
     lineHeight: 18,
     textAlign: "center",
   },
@@ -736,7 +795,7 @@ const styles = StyleSheet.create({
   weekday: {
     width: CELL_SIZE,
     fontSize: 13, // ✅ 用户要求：字号增大2px（11->13）
-    color: "#866D66", // ✅ 用户要求：改为指定颜色，不用灰色
+    color: "#73483A", // ✅ 统一为导航标题色
     textAlign: "center",
   },
   // ✅ 日历网格（每行7列，从周一开始）
@@ -746,7 +805,7 @@ const styles = StyleSheet.create({
   },
   cell: {
     width: CELL_SIZE,
-    height: CELL_SIZE + CALENDAR_VERTICAL_GAP - 4, // ✅ 用户要求：日期距离下方的间距缩小4px（16-4=12）
+    height: CELL_SIZE + CALENDAR_VERTICAL_GAP, // ✅ 用户要求：增加行间距 4px，避免堆叠情绪过于贴近上一行
     alignItems: "center",
     justifyContent: "flex-start",
     padding: 2,
@@ -763,6 +822,8 @@ const styles = StyleSheet.create({
     color: "#1A1A1A",
     fontFamily: "Lora_400Regular",
     textAlign: "center",
+    position: "relative",
+    zIndex: 10, // ✅ 确保日期数字始终在最上层，不被情绪圆遮挡
   },
   cellDayMuted: {
     color: "#bbb",
@@ -783,14 +844,20 @@ const styles = StyleSheet.create({
     width: CIRCLE_SIZE,
     height: CIRCLE_SIZE,
   },
-  singleCircle: {
+  emotionStack: {
+    position: "absolute",
+    width: CIRCLE_SIZE,
+    height: CIRCLE_SIZE,
+    top: 0,
+    left: 0,
+    zIndex: 1,
+  },
+  emotionCircle: {
     position: "absolute",
     width: CIRCLE_SIZE,
     height: CIRCLE_SIZE,
     borderRadius: CIRCLE_SIZE / 2,
-    top: 0,
     left: 0,
-    zIndex: -1,
   },
   diarySection: {
     marginTop: 0, // ✅ 用户要求：日记卡片距离日历卡片16px，由calendarCard的marginBottom控制

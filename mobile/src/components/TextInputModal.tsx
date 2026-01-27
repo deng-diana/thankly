@@ -923,29 +923,24 @@ export default function TextInputModal({
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
           >
-            {isProcessing ? (
-              // ✅ 占位，实际显示在Modal中
-              <View style={{ flex: 1 }} />
-            ) : (
-              <>
-                <DiaryResultView
-                  title={title}
-                  polishedContent={polishedContent}
-                  aiFeedback={aiFeedback}
-                  emotionData={emotionData} // ✅ 传递情绪数据
-                  language={t("common.save") === "Save" ? "en" : "zh"}
-                  isEditingTitle={false} // TextInputModal 暂时不支持编辑标题，保持一致
-                  isEditingContent={isEditing}
-                  editedContent={editedContent}
-                  onStartContentEditing={startEditing}
-                  onContentChange={(text) => {
-                    setEditedContent(text);
-                    setHasChanges(text !== polishedContent);
-                  }}
-                />
-                <View style={{ height: 100 }} />
-              </>
-            )}
+            <>
+              <DiaryResultView
+                title={title}
+                polishedContent={polishedContent}
+                aiFeedback={aiFeedback}
+                emotionData={emotionData} // ✅ 传递情绪数据
+                language={t("common.save") === "Save" ? "en" : "zh"}
+                isEditingTitle={false} // TextInputModal 暂时不支持编辑标题，保持一致
+                isEditingContent={isEditing}
+                editedContent={editedContent}
+                onStartContentEditing={startEditing}
+                onContentChange={(text) => {
+                  setEditedContent(text);
+                  setHasChanges(text !== polishedContent);
+                }}
+              />
+              <View style={{ height: 100 }} />
+            </>
           </ScrollView>
         </KeyboardAvoidingView>
 
@@ -997,11 +992,7 @@ export default function TextInputModal({
               style={[
                 styles.modal,
                 // ✅ 根据状态动态调整高度
-                showResult
-                  ? isProcessing
-                    ? styles.modalProcessing // 加载状态：固定高度
-                    : styles.modalResult // 结果状态：根据内容动态调整
-                  : styles.modalInput, // 输入状态：最大高度
+                showResult ? styles.modalResult : styles.modalInput,
                 {
                   transform: [{ translateY: Animated.add(slideAnim, dragY) }],
                 },
@@ -1347,7 +1338,7 @@ const styles = StyleSheet.create({
   saveButton: {
     backgroundColor: "#E56C45",
     paddingVertical: 16,
-    borderRadius: 12,
+    borderRadius: 999, // ✅ 全圆角
     alignItems: "center",
     shadowColor: "#E56C45",
     shadowOffset: {

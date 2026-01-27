@@ -194,24 +194,42 @@ export async function uploadAudioAndCreateTask(
   console.log("📤 使用单次直传（文件 <= 1MB）");
   
   try {
-    // 第1步: 获取预签名URL
-    console.log("📋 步骤1: 获取预签名URL...");
+    // ✅ 优化 (2026-01-27): 并行执行预签名URL获取和文件读取
+    // 原来是串行: 获取URL → 读取文件 → 上传
+    // 现在是并行: [获取URL + 读取文件] → 上传
+    // 预期节省: 0.5-1秒
+    console.log("📋 步骤1: 并行获取预签名URL和读取文件...");
     const startTime = Date.now();
     
-    const presignedData = await getAudioPresignedUrl("recording.m4a", "audio/m4a");
+    // 启动两个并行任务
+    const presignedPromise = getAudioPresignedUrl("recording.m4a", "audio/m4a");
+    const fileReadPromise = (async () => {
+      const response = await fetch(audioUri);
+      if (!response.ok) {
+        throw new Error("AUDIO_READ_FAILED");
+      }
+      return response.blob();
+    })();
+    
+    // 等待两个任务都完成
+    const [presignedData, audioBlob] = await Promise.all([
+      presignedPromise,
+      fileReadPromise
+    ]);
     
     console.log(
-      `✅ 准备就绪: URL已获取 (耗时: ${(
+      `✅ 准备就绪: URL已获取 + 文件已读取 (耗时: ${(
         (Date.now() - startTime) / 1000
-      ).toFixed(2)}s)`
+      ).toFixed(2)}s, 文件大小: ${(audioBlob.size / 1024 / 1024).toFixed(2)}MB)`
     );
 
-    // 第2步: 直接上传音频到S3（使用新的 XMLHttpRequest 实现）
+    // 第2步: 直接上传音频到S3（使用已读取的 blob）
     console.log("📤 步骤2: 直传音频到S3...");
     const uploadStartTime = Date.now();
     
-    await uploadAudioDirectToS3(
-      audioUri,
+    // ✅ 使用已读取的 blob 直接上传，避免重复读取文件
+    await uploadAudioDirectToS3WithBlob(
+      audioBlob,
       presignedData.presigned_url,
       "audio/m4a",
       onUploadProgress
@@ -278,6 +296,72 @@ export async function uploadAudioAndCreateTask(
     console.error("❌ 优化版音频上传失败:", error);
     throw error;
   }
+}
+
+/**
+ * ✅ 优化版：直接上传已读取的 Blob 到 S3
+ * 
+ * 避免重复读取文件，提高上传效率
+ * 
+ * @param blob - 已读取的音频文件 Blob
+ * @param presignedUrl - S3预签名URL
+ * @param contentType - 文件MIME类型
+ * @param onProgress - 进度回调函数 (0-100)
+ * @returns 上传成功的Promise
+ */
+export async function uploadAudioDirectToS3WithBlob(
+  blob: Blob,
+  presignedUrl: string,
+  contentType: string,
+  onProgress?: (progress: number) => void
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    try {
+      console.log("📤 开始直传音频到S3 (使用预读取的 Blob)...");
+      console.log(`  - Blob 大小: ${(blob.size / 1024 / 1024).toFixed(2)} MB`);
+      console.log(`  - Content-Type: ${contentType}`);
+
+      const xhr = new XMLHttpRequest();
+
+      // 监听上传进度
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable && onProgress) {
+          const percent = Math.round((event.loaded / event.total) * 100);
+          onProgress(percent);
+        }
+      };
+
+      // 监听上传完成
+      xhr.onload = () => {
+        if (xhr.status === 200) {
+          console.log("✅ 音频直传S3成功");
+          onProgress?.(100);
+          resolve();
+        } else {
+          reject(new Error(`S3上传失败: HTTP ${xhr.status}`));
+        }
+      };
+
+      // 监听上传错误
+      xhr.onerror = () => {
+        reject(new Error("网络错误，上传失败"));
+      };
+
+      // 监听上传中断
+      xhr.onabort = () => {
+        reject(new Error("上传已取消"));
+      };
+
+      // 配置并发送请求
+      xhr.open("PUT", presignedUrl);
+      xhr.setRequestHeader("Content-Type", contentType);
+      xhr.send(blob);
+
+    } catch (error: any) {
+      console.error("❌ 音频直传S3失败:", error);
+      reject(error);
+    }
+  });
 }
 
 /**

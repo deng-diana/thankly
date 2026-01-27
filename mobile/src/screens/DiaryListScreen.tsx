@@ -1292,7 +1292,7 @@ export default function DiaryListScreen() {
           accessibilityRole="button"
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <ProfileIcon width={28} height={28} />
+          <ProfileIcon width={36} height={36} />
         </TouchableOpacity>
       </View>
 
@@ -1403,12 +1403,11 @@ export default function DiaryListScreen() {
       {diaries.length > 0 && (
         <View style={styles.sectionTitleContainer}>
           <View style={styles.sectionTitleLeft}>
-            <PreciousMomentsIcon width={20} height={20} />
             <Text
               style={[
                 styles.sectionTitle,
                 {
-                  color: "#80645A",
+                  color: "#73483A",
                   fontFamily: getFontFamilyForText(t("home.myDiary"), "regular"),
                 },
               ]}
@@ -1438,10 +1437,10 @@ export default function DiaryListScreen() {
             style={styles.calendarEntryButton}
             hitSlop={{ top: 0, bottom: 0, left: 0, right: 0 }}
             accessibilityLabel={t("moodCalendar.navTitle")}
-            accessibilityHint={t("moodCalendar.emptyPickDate")}
-            accessibilityRole="button"
-          >
-            <CalendarIconOrange width={22} height={22} />
+          accessibilityHint={t("moodCalendar.emptyPickDate")}
+          accessibilityRole="button"
+        >
+            <CalendarIconOrange width={24} height={24} />
           </TouchableOpacity>
         </View>
       )}
@@ -1602,8 +1601,7 @@ export default function DiaryListScreen() {
         accessibilityHint={t("accessibility.button.viewDetailHint")}
         accessibilityRole="button"
       >
-        {/* ✅ Diagnostic Logging */}
-        {index < 5 && console.log(`🖼️ Rendering Card ${index}: ${item.diary_id}`) || null}
+        {/* ✅ 2026-01-27: 移除过度日志，避免音频播放时每100ms触发重渲染日志 */}
         {/* ✅ 情绪光晕效果 - 放在最外层，不受 Padding 影响 */}
         <EmotionGlow emotion={item.emotion_data?.emotion} />
 
@@ -1833,11 +1831,14 @@ export default function DiaryListScreen() {
     t,
   ]);
 
-  // ✅ memoize renderDiaryCard 以减少重排开销
+  // ✅ 2026-01-27 优化：减少 renderDiaryCard 的重新创建频率
+  // 原问题：依赖数组包含 currentTime/duration Map，每100ms更新导致函数重新创建
+  // 解决方案：只依赖 currentPlayingId，而不是整个 Map
+  // 原理：renderDiaryCard 内部通过闭包访问 Map，渲染时能获取最新值
   const renderDiaryCardMemo = React.useCallback(
     ({ item, index }: { item: Diary; index: number }) =>
       renderDiaryCard({ item, index }),
-    [currentPlayingId, currentTime, duration, hasPlayedOnce, handleDiaryPress, handleDiaryOptions]
+    [currentPlayingId, hasPlayedOnce, handleDiaryPress, handleDiaryOptions, renderDiaryCard]
   );
 
   // ✅ 关键修复：使用 ListFooterComponent + paddingBottom 双重保险
@@ -1856,8 +1857,8 @@ export default function DiaryListScreen() {
     <View style={styles.screenBackground}>
     <SafeAreaView 
       style={styles.safeAreaContainer} 
-      edges={["top"]}
-      // ✅ 方案28: 只处理顶部安全区域，底部由 bottomActionBar 自己处理
+      edges={["top", "bottom"]}
+      // ✅ 让 SafeArea 覆盖底部，避免系统留白
     >
       {/* 动态内容更新提示区域 */}
       <View
@@ -1884,7 +1885,13 @@ export default function DiaryListScreen() {
            * 底部操作栏移到外层，避免影响 flex 布局计算
            */
           <View 
-            style={styles.mainContentWrap}
+            style={[
+              styles.mainContentWrap,
+              {
+                // ✅ 去掉额外底部留白，继续压缩空白区域
+                paddingBottom: 0,
+              },
+            ]}
             onLayout={(e) => {
               // ✅ 调试：测量 mainContentWrap 实际高度（仅在开发环境输出）
               if (__DEV__) {
@@ -1932,7 +1939,7 @@ export default function DiaryListScreen() {
                     <Ionicons
                       name="chevron-down-outline"
                       size={14}
-                      color="#82665B"
+                      color="#73483A"
                       style={styles.stickyYearMonthChevron}
                     />
                   </TouchableOpacity>
@@ -1941,7 +1948,13 @@ export default function DiaryListScreen() {
             <View style={styles.listWrapper}>
               <FlatList
                 ref={flatListRef}
-                style={styles.flatListFill}
+                style={[
+                  styles.flatListFill,
+                  {
+                    // ✅ 小步试验：把列表向下“拉”到工具栏下方，消除等高空白
+                    marginBottom: -BOTTOM_BAR_HEIGHT,
+                  },
+                ]}
                 // ✅ 禁用 iOS 自动 inset，避免额外底部留白
                 contentInsetAdjustmentBehavior="never"
                 // ✅ 方案13: 确保 FlatList 可以滚动
@@ -1974,12 +1987,17 @@ export default function DiaryListScreen() {
                 contentContainerStyle={[
                   styles.listContent,
                   {
-                    // ✅ 方案29: 为底部操作栏预留空间
-                    // paddingBottom = 安全区域 + 操作栏底部间距(12) + 操作栏高度(72) + 额外间距(16)
-                    paddingBottom: insets.bottom + 12 + BOTTOM_BAR_HEIGHT + 16,
+                    // ✅ 由外层 mainContentWrap 统一预留空间
+                    paddingBottom: 0,
                   },
                 ]}
-                extraData={{ currentPlayingId, currentTime, duration }}
+                // ✅ 2026-01-27 优化：只传递当前播放项的进度，避免整个 Map 触发所有卡片重渲染
+                // 原问题：currentTime Map 每100ms更新，导致所有可见卡片重渲染
+                extraData={{ 
+                  currentPlayingId, 
+                  currentTime: currentPlayingId ? currentTime.get(currentPlayingId) : 0,
+                  duration: currentPlayingId ? duration.get(currentPlayingId) : 0,
+                }}
                 onScroll={handleListScroll}
                 scrollEventThrottle={16}
                 onViewableItemsChanged={onViewableItemsChanged}
@@ -2123,43 +2141,67 @@ export default function DiaryListScreen() {
     {!loading && !diaryDetailVisible && !recordingModalVisible && !textInputModalVisible && !imageDiaryModalVisible && (
       <View
         style={[
-          styles.bottomActionBar,
+          styles.bottomInsetCover,
           {
-            // ✅ 方案33: 工具栏向下移动6像素，遮住底部背景
-            bottom: insets.bottom + 6,
+            // ✅ 使用真实安全区高度，避免残留小条
+            height: Math.max(insets.bottom, 0) + 4, // 反方向缩小覆盖范围
+            transform: [{ translateY: -2 }], // 轻微向上覆盖
           },
         ]}
+        pointerEvents="none"
+      />
+    )}
+    
+    {!loading && !diaryDetailVisible && !recordingModalVisible && !textInputModalVisible && !imageDiaryModalVisible && (
+      <View
+        style={[
+          styles.bottomActionBarWrapper,
+          {
+            height: BOTTOM_BAR_HEIGHT + insets.bottom,
+          },
+        ]}
+        pointerEvents="box-none"
       >
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={handleImageUpload}
-          activeOpacity={0.7}
-          accessibilityLabel={t("home.addImageButton")}
-          accessibilityHint={t("accessibility.button.recordHint")}
-          accessibilityRole="button"
+        <View
+          style={[
+            styles.bottomActionBar,
+            {
+              // ✅ 保持工具栏位置不变
+              bottom: insets.bottom + 4,
+            },
+          ]}
         >
-          <ImageInputIcon width={32} height={32} fill={"#332824"} />
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.recordButton}
-          onPress={handleVoiceRecord}
-          activeOpacity={0.8}
-          accessibilityLabel={t("home.recordVoiceButton")}
-          accessibilityHint={t("accessibility.button.recordHint")}
-          accessibilityRole="button"
-        >
-          <MicIcon width={26} height={26} />
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={handleTextInput}
-          activeOpacity={0.7}
-          accessibilityLabel={t("home.writeTextButton")}
-          accessibilityHint={t("accessibility.button.continueHint")}
-          accessibilityRole="button"
-        >
-          <TextInputIcon width={32} height={32} fill={"#332824"} />
-        </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.actionButton}
+            onPress={handleImageUpload}
+            activeOpacity={0.7}
+            accessibilityLabel={t("home.addImageButton")}
+            accessibilityHint={t("accessibility.button.recordHint")}
+            accessibilityRole="button"
+          >
+            <ImageInputIcon width={32} height={32} fill={"#332824"} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.recordButton}
+            onPress={handleVoiceRecord}
+            activeOpacity={0.8}
+            accessibilityLabel={t("home.recordVoiceButton")}
+            accessibilityHint={t("accessibility.button.recordHint")}
+            accessibilityRole="button"
+          >
+            <MicIcon width={26} height={26} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.actionButton}
+            onPress={handleTextInput}
+            activeOpacity={0.7}
+            accessibilityLabel={t("home.writeTextButton")}
+            accessibilityHint={t("accessibility.button.continueHint")}
+            accessibilityRole="button"
+          >
+            <TextInputIcon width={32} height={32} fill={"#332824"} />
+          </TouchableOpacity>
+        </View>
       </View>
     )}
     </View>
@@ -2310,7 +2352,7 @@ const styles = StyleSheet.create({
   },
   stickyYearMonthText: {
     fontSize: 14,
-    color: "#1A1A1A", // ✅ 用户要求：年月颜色改为黑色
+    color: "#73483A", // ✅ 用户要求：统一为指定色值
   },
   stickyYearMonthChevron: {
     marginLeft: 8,
@@ -2320,7 +2362,7 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: 24,
     paddingTop: 12, // 减少顶部内边距，因为现在有独立的菜单行
-    paddingBottom: 12,
+    paddingBottom: 6, // ✅ 减少标题下方到卡片的额外留白
   },
 
   headerMenuRow: {
@@ -2335,7 +2377,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-end',  // ✅ 右对齐
-    marginBottom: 16,
+    marginBottom: 24, // ✅ 增加搜索栏与问候区的间距，缓解顶部拥挤
   },
   compactSearchContainer: {
     width: 160,
@@ -2349,11 +2391,11 @@ const styles = StyleSheet.create({
     shadowColor: "#FFD1B0",
     shadowOffset: {
       width: 0,
-      height: 1, // 更小的偏移
+      height: 2, // 更小的偏移
     },
-    shadowOpacity: 0.15, // ✅ 降低透明度（从0.3改为0.15）
-    shadowRadius: 4, // ✅ 减小半径（从8改为4），让阴影更弱
-    elevation: 1, // ✅ Android 阴影也降低（从2改为1）
+    shadowOpacity: 0.14, // ✅ 更浅阴影
+    shadowRadius: 4, // ✅ 更小扩散
+    elevation: 1, // ✅ Android 阴影更轻
   },
   compactSearchIcon: {
     marginRight: 6,
@@ -2365,13 +2407,21 @@ const styles = StyleSheet.create({
     paddingLeft: 4,
   },
   compactMenuButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,  // 圆形 (28/2)
-    backgroundColor: 'transparent',  // ✅ 去掉白色背景
+    width: 36,
+    height: 36,
+    borderRadius: 18,  // 圆形 (36/2)，与搜索栏高度一致
+    backgroundColor: '#FFFFFF',  // ✅ 与搜索框一致的浅色底
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 12,  // ✅ 距离搜索框12px（从8px改为12px）
+    shadowColor: "#FFD1B0",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.24,
+    shadowRadius: 7,
+    elevation: 3,
   },
   searchingIndicator: {
     flexDirection: 'row',
@@ -2433,7 +2483,7 @@ const styles = StyleSheet.create({
   greetingLight: {
     ...Typography.caption,
     fontSize: 15,
-    color: "#80645A", // ✅ 与日记列表标题颜色保持一致
+    color: "#73483A", // ✅ 与顶部标题栏颜色一致
   },
 
   menuButton: {
@@ -2449,7 +2499,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginTop: 16,
+    marginTop: 8, // ✅ 减少分割线到小标题的间距
     marginBottom: 0,
   },
   sectionTitleLeft: {
@@ -2987,11 +3037,29 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 0,
     shadowColor: "#E56C45",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 12,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.16,
+    shadowRadius: 10,
+    elevation: 6,
     zIndex: 100,
+  },
+  bottomActionBarWrapper: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "transparent", // ✅ 取消遮罩背景色
+    overflow: "visible", // ✅ 不裁切工具栏阴影
+    zIndex: 95,
+  },
+  bottomInsetCover: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0, // ✅ 取消向下延伸
+    height: 0, // ✅ 实际高度由 insets.bottom 动态注入
+    backgroundColor: "transparent", // ✅ 透明，不再制造色块
+    zIndex: 0, // ✅ 放在最底层
   },
 
   actionButton: {

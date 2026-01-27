@@ -1711,9 +1711,7 @@ export default function ImageDiaryModal({
             style={[
               styles.modal,
               // ✅ 根据状态动态调整高度（与 TextInputModal 和 RecordingModal 保持一致）
-              isProcessing
-                ? styles.modalProcessing // 加载状态：固定高度
-                : styles.modalResult, // 结果状态：根据内容动态调整
+              styles.modalResult,
             ]}
           >
             {renderResultView()}
@@ -3097,7 +3095,7 @@ const styles = StyleSheet.create({
   saveButton: {
     backgroundColor: "#E56C45",
     paddingVertical: 16,
-    borderRadius: 12,
+    borderRadius: 999, // ✅ 全圆角
     alignItems: "center",
     shadowColor: "#E56C45",
     shadowOffset: {

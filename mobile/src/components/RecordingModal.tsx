@@ -991,9 +991,25 @@ export default function RecordingModal({
         setPendingDiaryId(null);
         setHasSavedPendingDiary(false);
 
-        const msg = error instanceof Error ? error.message : String(error);
+        const rawMsg = error instanceof Error ? error.message : String(error);
         const errObj = error as any;
         const code = errObj?.code;
+        
+        // ✅ 错误消息国际化：尝试翻译错误代码
+        // 从错误消息中提取错误代码（如 "TRANSCRIPTION_SERVICE_UNAVAILABLE"）
+        const extractErrorCode = (message: string): string | null => {
+          // 匹配形如 "TRANSCRIPTION_XXX" 或 "CHUNK_XXX" 的错误代码
+          const match = message.match(/(TRANSCRIPTION_\w+|CHUNK_\w+|AUDIO_\w+|AUTH_\w+)/);
+          return match ? match[1] : null;
+        };
+        
+        const errorCode = extractErrorCode(rawMsg);
+        // 优先使用翻译后的错误消息，如果没有翻译则使用原始消息
+        const msg = errorCode 
+          ? (t(`error.${errorCode}`) !== `error.${errorCode}` 
+              ? t(`error.${errorCode}`) 
+              : rawMsg)
+          : rawMsg;
 
         // ✅ 弱网保护：更精准的网络错误检测
         const isNetworkError =
@@ -2211,7 +2227,7 @@ const styles = StyleSheet.create({
   saveButton: {
     backgroundColor: "#E56C45",
     paddingVertical: 16,
-    borderRadius: 12,
+    borderRadius: 999, // ✅ 全圆角
     alignItems: "center",
     shadowColor: "#E56C45",
     shadowOffset: {

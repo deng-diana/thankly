@@ -378,7 +378,7 @@ const styles = StyleSheet.create({
   },
   timeTextWithProgress: {
     fontSize: 13,
-    color: "#666",
+    color: "#73483A",
     fontWeight: "500",
     fontFamily: "Menlo",
     letterSpacing: 0.5,
@@ -387,7 +387,7 @@ const styles = StyleSheet.create({
   },
   timeTextWithoutProgress: {
     fontSize: 13,
-    color: "#666",
+    color: "#73483A",
     fontWeight: "500",
     fontFamily: "Menlo",
     letterSpacing: 0.5,

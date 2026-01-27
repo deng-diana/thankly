@@ -378,12 +378,13 @@ const formatDateTime = (dateTimeString: string): string => {
   const renderDetailHeader = () => {
     const isEditing = isEditingTitle || isEditingContent;
     const isImageOnly = isImageOnlyDiary();
+    const hasDiary = !!diary;
 
     // 纯图片日记：显示时间条和关闭按钮
     if (isImageOnly) {
       return (
         <View style={styles.imageOnlyHeader}>
-          <View style={styles.dateContainer}>
+          <View style={[styles.dateContainer, !hasDiary && styles.dateContainerHidden]}>
             <TimeIcon width={16} height={16} color="#80645A" />
             <Text
               style={[
@@ -473,7 +474,7 @@ const formatDateTime = (dateTimeString: string): string => {
         ) : (
           // 预览模式：显示时间条和关闭按钮
           <>
-            <View style={styles.dateContainer}>
+            <View style={[styles.dateContainer, !hasDiary && styles.dateContainerHidden]}>
               <TimeIcon width={16} height={16} color="#80645A" />
               <Text 
                 style={[
@@ -923,6 +924,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 4, // 图标和文字之间的间距
     flex: 1,
+  },
+  dateContainerHidden: {
+    opacity: 0,
   },
 
   dateText: {

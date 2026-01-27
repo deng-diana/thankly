@@ -596,7 +596,7 @@ const HappinessJarScreen: React.FC = () => {
               style={styles.navBackButton}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
-              <Ionicons name="arrow-back" size={24} color="#333" />
+              <Ionicons name="arrow-back-outline" size={24} color="#73483A" />
             </TouchableOpacity>
 
             {/* 标题（滚动时淡入） */}
@@ -611,9 +611,6 @@ const HappinessJarScreen: React.FC = () => {
             >
               {pageTitle}
             </Animated.Text>
-
-            {/* 右侧占位（保持居中） */}
-            <View style={{ width: 40 }} />
           </View>
         )}
 
@@ -745,7 +742,7 @@ const styles = StyleSheet.create({
   navbar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
     paddingHorizontal: 16,
     paddingVertical: 4,
     backgroundColor: '#FFCF9E', // ✅ 与页面背景一致的暖橙色
@@ -760,8 +757,8 @@ const styles = StyleSheet.create({
   navTitle: {
     fontSize: 17,
     fontWeight: '600',
-    color: '#333',
-    textAlign: 'center',
+    color: '#73483A',
+    marginLeft: 8,
   },
   // ✅ Header 区域
   headerContainer: {
@@ -778,7 +775,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 18,
     fontWeight: '700', // 加粗
-    color: '#333',
+    color: '#000',
     textAlign: 'center',
     marginBottom: 4,
     lineHeight: 24,
@@ -786,7 +783,7 @@ const styles = StyleSheet.create({
   headerDescription: {
     fontSize: 14,
     fontWeight: '400',
-    color: '#80645A',
+    color: '#000',
     textAlign: 'center',
     lineHeight: 20,
     width: '100%', // ✅ 占满整个宽度（左右24px由父容器控制）

@@ -194,7 +194,7 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 14, // ✅ 描述文案字号14px
     fontWeight: '400', // regular
-    color: '#80645A', // ✅ 与"Hi Diana"下方文字颜色一致
+    color: '#73483A', // ✅ 与顶部标题栏颜色一致
     lineHeight: 18, // ✅ 调整行高匹配字号
   },
   countText: {

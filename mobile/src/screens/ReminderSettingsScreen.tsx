@@ -171,7 +171,7 @@ export default function ReminderSettingsScreen() {
           accessibilityHint={t("accessibility.button.closeHint")}
           accessibilityRole="button"
         >
-          <Ionicons name="chevron-back-outline" size={24} color="#1A1A1A" />
+          <Ionicons name="arrow-back-outline" size={24} color="#73483A" />
         </TouchableOpacity>
         <Text style={[styles.title, typography.diaryTitle]}>
           {t("reminder.title")}
@@ -301,16 +301,17 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     flexDirection: "row",
     alignItems: "center",
-    gap: 4, // ✅ 缩小箭头与标题之间的间距
+    justifyContent: "flex-start",
   },
   backButton: {
-    width: 36,
-    height: 36,
+    width: 40,
+    height: 40,
     alignItems: "center",
     justifyContent: "center",
   },
   title: {
-    color: "#1A1A1A",
+    color: "#73483A",
+    marginLeft: 8,
   },
   card: {
     backgroundColor: "#FFFFFF",

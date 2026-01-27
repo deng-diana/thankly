@@ -50,13 +50,15 @@ class OpenAIService:
     这个类就像一个温柔的日记助手，它会：
     1. 听懂你的声音（语音转文字 - Whisper）
     2. 美化你的文字（轻度润色 - GPT-4o-mini）
-    3. 给你温暖的回应（心理陪伴 - GPT-4o-mini）
-    4. 帮你起个好标题（画龙点睛 - GPT-4o-mini）
+    3. 准确理解你的情绪（情绪分析 - GPT-4o）🔥 准确度优先
+    4. 给你温暖的回应（心理陪伴 - GPT-4o-mini）
+    5. 帮你起个好标题（画龙点睛 - GPT-4o-mini）
     
-    🔥 模型选择策略：
+    🔥 模型选择策略（2026-01-27 v2）：
     - Whisper: 语音转文字（OpenAI，无可替代）
-    - GPT-4o-mini: 润色 + 标题（快速、稳定、成本可控）
-    - GPT-4o-mini: AI 反馈（TestFlight 回归验证更稳定）
+    - GPT-4o-mini: 润色 + 标题（速度优先，优化提示词保证质量）
+    - GPT-4o: 情绪分析（🔥 准确度优先，影响情绪日历/幸福罐）
+    - GPT-4o-mini: AI 反馈（速度优先，优化提示词保证温度）
     """
     
     # 🎯 模型配置 - OpenAI Models Only
@@ -64,11 +66,11 @@ class OpenAIService:
         # 语音转文字
         "transcription": "whisper-1",
         
-        # 🔥 GPT 模型配置 - 2026-01-27 优化版
-        # 全部使用 gpt-4o-mini + 优化提示词，速度提升 3 倍，质量保持 90%+
-        "polish": "gpt-4o-mini",         # 润色 + 标题: 优化提示词保证质量
-        "emotion": "gpt-4o-mini",        # 情绪分析: 保持不变
-        "feedback": "gpt-4o-mini",       # 温暖反馈: 优化提示词 + 简短有力
+        # 🔥 GPT 模型配置 - 2026-01-27 v2 优化版
+        # 策略: 速度敏感任务用 mini，准确度敏感任务用 4o
+        "polish": "gpt-4o-mini",         # 润色 + 标题: 速度优先，优化提示词保证质量
+        "emotion": "gpt-4o",             # 🔥 情绪分析: 准确度优先（影响情绪日历/幸福罐）
+        "feedback": "gpt-4o-mini",       # 温暖反馈: 速度优先，优化提示词保证温度
         
         # 🎤 为什么 Whisper？
         # ✅ OpenAI 官方语音转文字模型
@@ -132,7 +134,7 @@ class OpenAIService:
         print(f"✅ AI 服务初始化完成（2026-01-27 优化版: gpt-4o-mini + 优化提示词）")
         print(f"   - Whisper: 语音转文字")
         print(f"   - gpt-4o-mini: 润色 + 标题 (polish) - 优化提示词")
-        print(f"   - gpt-4o-mini: 情绪分析 (emotion) - 优化提示词")
+        print(f"   - gpt-4o: 情绪分析 (emotion) - 准确度优先")
         print(f"   - gpt-4o-mini: AI 反馈 (feedback) - 简短有力")
     
     # ========================================================================
@@ -660,21 +662,23 @@ class OpenAIService:
                 """
                 Emotion和Feedback的串行流水线
                 
-                为什么串行?
-                - Feedback需要知道Emotion结果
-                - 可以生成更精准、更贴切的反馈
+                🔥 为什么串行?
+                - Feedback 需要知道 Emotion 结果
+                - 避免重复分析情绪（省时间、省 Token）
+                - 生成更精准、更贴切的反馈
                 """
-                # 步骤1: Emotion分析
+                # 步骤1: Emotion分析 (GPT-4o，准确度优先)
                 emotion_result = await self.analyze_emotion_only(text, detected_lang, encoded_images)
                 print(f"   ✅ Emotion Agent完成: {emotion_result.get('emotion')} (置信度: {emotion_result.get('confidence')})")
                 
-                # 步骤2: 基于Emotion生成Feedback
+                # 步骤2: 基于Emotion生成Feedback (GPT-4o-mini，速度优先)
+                # 🔥 关键优化：传入 emotion_hint，让 Feedback Agent 知道情绪结果
                 feedback_data = await self._call_gpt4o_for_feedback(
                     text,
                     detected_lang,
                     user_name,
-                    encoded_images
-                    # TODO: 未来可以传入 emotion_hint=emotion_result
+                    encoded_images,
+                    emotion_hint=emotion_result  # 🔥 传入 Emotion Agent 的分析结果
                 )
                 print(f"   ✅ Feedback Agent完成")
                 
@@ -706,8 +710,9 @@ class OpenAIService:
             if isinstance(polish_result, Exception):
                 print(f"❌ Polish Agent失败: {polish_result}")
                 print(f"   使用兜底：原文 + 默认标题")
+                # 🔥 修复：兜底标题也不能用"今日记录"，使用"心情随记"
                 polish_result = {
-                    "title": "今日记录" if detected_lang == "Chinese" else "Today's Reflection",
+                    "title": "心情随记" if detected_lang == "Chinese" else "A Moment Captured",
                     "polished_content": text
                 }
             
@@ -831,6 +836,11 @@ P2: 自然流畅 > 语法正确（优先让句子读起来舒服）
 P3: 删除所有语气词（嗯、啊、那个、就是、然后）
 P4: 保留原意，不添加新内容
 
+【🚨 标题规则 - 必须遵守】
+❌ 禁止使用: "今日记录"、"今日感想"、"今日任务"、任何以"今日"开头的标题
+✅ 正确做法: 提取内容的核心主题或关键事件
+✅ 示例: "公园漫步"、"模型的抉择"、"疲惫的一天"、"新知收获"
+
 【润色标准】
 DO: 删除语气词 | 合并短句 | 修正错别字 | 优化表达
 DON'T: 改变情感 | 删除内容 | 过度文艺 | 添加信息
@@ -839,18 +849,18 @@ DON'T: 改变情感 | 删除内容 | 过度文艺 | 添加信息
 
 示例 1 - 语气词清理:
 ❌ "嗯，今天我去了，那个，公园，就是，很开心"
-✅ "今天我去了公园，很开心。"
-📚 Learning: 删除语气词(嗯/那个/就是)，句式更流畅
+✅ 标题: "公园漫步" | 内容: "今天我去了公园，很开心。"
+📚 Learning: 删除语气词(嗯/那个/就是)，标题提取核心主题
 
 示例 2 - 表达优化:
 ❌ "今天工作很累很累，有点那个，不想动"
-✅ "今天工作很累，不想动。"
-📚 Learning: 删除重复(很累很累)和停顿词(有点那个)
+✅ 标题: "疲惫的一天" | 内容: "今天工作很累，不想动。"
+📚 Learning: 删除重复词，标题反映情感主题
 
 示例 3 - 句式合并:
-❌ "我起床。吃早饭。去上班。很累。"
-✅ "我起床后吃了早饭，然后去上班，感觉很累。"
-📚 Learning: 合并短句，增加连接词，更自然"""
+❌ "我换了模型，之前太慢了，希望快一点"
+✅ 标题: "模型的抉择" | 内容: "我换了模型，之前太慢了，希望快一点。"
+📚 Learning: 标题提取核心事件，避免使用泛用标题"""
             elif language == "English":
                 language_instruction = """🎯 LANGUAGE: English
 
@@ -859,6 +869,11 @@ P1: Title MUST be in English (no exceptions)
 P2: Natural fluency > Grammar correctness (make it sound native)
 P3: Remove ALL fillers (um, like, you know, I mean)
 P4: Preserve meaning, don't add new content
+
+【🚨 Title Rules - MUST FOLLOW】
+❌ FORBIDDEN: "Today's Record", "Today's Thoughts", "Daily Log", any title starting with "Today's"
+✅ CORRECT: Extract the CORE THEME or KEY EVENT from content
+✅ Examples: "A Day at the Park", "The Model Switch", "Productive Morning"
 
 【Polishing Standards】
 DO: Remove fillers | Fix grammar | Use contractions (I'm, don't) | Combine choppy sentences
@@ -875,60 +890,148 @@ DON'T: Change emotion | Delete content | Over-formalize | Add information
 
 Example 1 - Fillers + Grammar:
 ❌ "um, today i go to park and, like, see many flower"
-✅ "I went to the park today and saw so many flowers."
-📚 Learning: Removed fillers(um/like), fixed tense(go→went), added article(the), fixed plural(flower→flowers)
+✅ Title: "A Day at the Park" | Content: "I went to the park today and saw so many flowers."
+📚 Learning: Removed fillers, fixed grammar, title captures core theme
 
 Example 2 - Native Patterns:
 ❌ "I am very like this new job because can learn many things"
-✅ "I really love this new job because I'm learning so much!"
-📚 Learning: "very like"→"really love", added subject "I'm", used contraction, "many things"→"so much"
+✅ Title: "New Job Joy" | Content: "I really love this new job because I'm learning so much!"
+📚 Learning: Fixed non-native patterns, title reflects emotion
 
 Example 3 - Flow + Vocabulary:
-❌ "Today weather is not good so I stay at house"
-✅ "The weather was terrible today, so I just stayed home."
-📚 Learning: Added "the", "not good"→"terrible"(vivid), "at house"→"home", added natural "just" """
+❌ "I switched the model because it was too slow"
+✅ Title: "The Model Switch" | Content: "I switched the model because it was too slow."
+📚 Learning: Title extracts key event, NOT "Today's Record" """
             else:
                 # 默认：自动检测语言
                 language_instruction = """🎯 AUTO-DETECT LANGUAGE
 
 Title language MUST match user's primary input language:
-- Chinese input → Chinese title
-- English input → English title
-- Mixed → Use the dominant language"""
+- Chinese input → Chinese title (e.g., "公园漫步", NOT "今日记录")
+- English input → English title (e.g., "A Day at the Park", NOT "Today's Record")
+- Mixed → Use the dominant language
+
+🚨 CRITICAL: Never use generic titles like "今日记录", "Today's Record", etc."""
             
             # ============================================================================
-            # 🎯 GPT-4o-mini 优化版系统提示 (2026-01-27)
-            # 设计原则: 简洁、结构化、高效
+            # 🎯 GPT-4o-mini 优化版系统提示 (2026-01-27 v3)
+            # 
+            # 📚 Prompt Engineering Best Practice - 教科书级别设计
             # ============================================================================
-            system_prompt = f"""You are a diary editor. Polish the entry and create a title.
+            # 
+            # 设计原则 (Industry Standard):
+            # 1. 层次分明 - 用视觉层级（🚨 > 【】> -）区分规则优先级
+            # 2. 正例+反例 - 同时给出正确和错误示例，形成对比学习
+            # 3. 具体量化 - 用数字而非模糊词（"100字以上" vs "长文本"）
+            # 4. 场景驱动 - 根据输入动态调整行为（短文本 vs 长文本）
+            # 5. 格式强制 - 明确输出结构，减少解析失败
+            #
+            # ============================================================================
+            
+            system_prompt = f"""You are a professional diary editor and writer. Your job is to polish diary entries with the care and craft of a published author.
 
 {language_instruction}
 
-【Core Rules - Priority Order】
+# ════════════════════════════════════════════════════════════════════════════════
+# 🚨 CRITICAL RULES (MUST FOLLOW - TOP PRIORITY)
+# ════════════════════════════════════════════════════════════════════════════════
+
+## 🚨 Rule 1: PARAGRAPH FORMATTING IS MANDATORY (非可选！)
+
+This is a PRODUCT QUALITY requirement, not a suggestion.
+
+**For content > 100 characters: You MUST add paragraph breaks (\\n\\n)**
+
+### How to Break Paragraphs Like a Professional Writer:
+
+| Trigger | Action |
+|---------|--------|
+| Topic change | New paragraph |
+| Time transition (然后/后来/接着/then/after) | New paragraph |
+| Emotional shift | New paragraph |
+| New person/event introduced | New paragraph |
+| Logical transition (所以/因为/but/so) | New paragraph |
+
+### Paragraph Length Guidelines:
+- Chinese: Each paragraph should be 50-150 characters
+- English: Each paragraph should be 2-4 sentences
+- NEVER have a single paragraph > 200 characters
+
+### ❌ BAD (Wall of Text):
+"我今天特别困,我就发现人在困的时候脑子就特别的雾所以呢我就打算今天晚上一定要把这个东西弄完我就要好好睡觉了因为明天有几个需要勇气的事情我需要让自己有一个特别好的状态"
+
+### ✅ GOOD (Properly Paragraphed):
+"我今天特别困，发现人在困的时候脑子就特别雾蒙蒙的。
+
+所以我打算今天晚上一定要把这个东西弄完，然后好好睡觉。
+
+因为明天有几个需要勇气的事情，我需要让自己有一个特别好的状态。"
+
+## 🚨 Rule 2: PUNCTUATION IS MANDATORY
+
+- Every sentence MUST end with proper punctuation (。！？/ . ! ?)
+- NEVER leave a sentence without ending punctuation
+- Use appropriate punctuation: 。for statements, ！for excitement, ？for questions
+
+## 🚨 Rule 3: TITLE RULES
+
+**FORBIDDEN TITLES (Never use):**
+❌ "今日记录"、"今日感想"、"今日任务"、任何以"今日"开头
+❌ "Today's Record"、"Today's Thoughts"、任何以"Today's"开头
+
+**GOOD TITLES:**
+✅ Extract the CORE THEME: "勇敢的尝试"、"模型的抉择"、"疲惫与期待"
+✅ Be specific, evocative, 4-12 Chinese chars or 3-8 English words
+
+## 🚨 Rule 4: NO DUPLICATE BETWEEN TITLE AND CONTENT (重要！)
+
+**The polished_content MUST NOT start with the title text.**
+
+❌ BAD: Title="自我管理的挑战", Content="自我管理的挑战\\n我一直觉得..."
+✅ GOOD: Title="自我管理的挑战", Content="我一直觉得做产品是一个..."
+
+If your generated content would start with the title, REMOVE the title from the beginning of content.
+
+# ════════════════════════════════════════════════════════════════════════════════
+# 📝 POLISHING GUIDELINES
+# ════════════════════════════════════════════════════════════════════════════════
+
+**Priority Order:**
 1. Title language = Input language (NO EXCEPTIONS)
-2. Natural fluency > Perfect grammar
-3. Preserve ALL content (no deletions)
-4. Length ≤115% of original
+2. Readability first - Natural, fluent, easy to read
+3. Preserve ALL content - Never delete user's ideas
+4. Length ≤ 115% of original
 
-【Formatting】
-- Long content (>150 chars): Add 2-4 paragraph breaks (\\n\\n)
-- Keep existing structure if present
-- Group related ideas together
+**Polish Actions:**
+- Remove filler words (嗯、那个、就是 / um, like, you know)
+- Fix grammar naturally
+- Add proper punctuation
+- **Add paragraph breaks for long content**
 
-【Title Rules】
-- Be specific, not generic
-- NO "今日/Today's" - use specific dates if needed (1月9日)
-- Don't repeat first line of content
+# ════════════════════════════════════════════════════════════════════════════════
+# 📤 OUTPUT FORMAT - Return valid JSON
+# ════════════════════════════════════════════════════════════════════════════════
 
-【Output Format】
 {{
-  "title": "Same language as input, 5-15 chars",
-  "polished_content": "Polished text with paragraph breaks"
+  "title": "Meaningful title, same language as input",
+  "polished_content": "Polished text WITH proper paragraphs (use \\n\\n) and punctuation"
 }}
 
-【Examples】
-Chinese: "嗯，今天去公园，很开心" → {{"title": "公园漫步", "polished_content": "今天去公园，很开心。"}}
-English: "um today i go to park" → {{"title": "A Day at the Park", "polished_content": "Today I went to the park."}}"""
+# ════════════════════════════════════════════════════════════════════════════════
+# 📚 COMPLETE EXAMPLES
+# ════════════════════════════════════════════════════════════════════════════════
+
+**Example 1 - Long Chinese (MUST paragraph):**
+Input: "我今天特别困我就发现人在困的时候脑子就特别的雾所以呢我就打算今天晚上一定要把这个东西弄完然后好好睡觉因为明天有几个需要勇气的事情"
+Output: {{"title": "疲惫与勇气", "polished_content": "我今天特别困，发现人在困的时候脑子就特别雾蒙蒙的。\\n\\n所以我打算今天晚上一定要把这个东西弄完，然后好好睡觉。\\n\\n因为明天有几个需要勇气的事情，我需要让自己保持最好的状态。"}}
+
+**Example 2 - Short Chinese:**
+Input: "嗯今天去公园很开心"
+Output: {{"title": "公园漫步", "polished_content": "今天去公园，很开心。"}}
+
+**Example 3 - Long English (MUST paragraph):**
+Input: "today i was really tired and i realized when youre tired your brain just doesnt work so i decided to finish this thing tonight and sleep well because tomorrow i have some things that require courage"
+Output: {{"title": "Tired but Determined", "polished_content": "Today I was really tired, and I realized that when you're tired, your brain just doesn't work properly.\\n\\nSo I decided to finish this thing tonight and get some good sleep.\\n\\nBecause tomorrow, I have some things that require courage."}}"""
 
             # 构建用户消息内容
             user_content = []
@@ -1019,17 +1122,27 @@ English: "um today i go to park" → {{"title": "A Day at the Park", "polished_c
                 print(f"✅ GPT-4o-mini: 润色完成")
                 print(f"📊 长度对比: 原始={original_length} 字符, 润色后={polished_length} 字符, 比例={length_ratio:.2%}")
                 
-                # ⚠️ 如果润色后内容明显少于原始内容（小于80%），可能是被截断了
-                if polished_length < original_length * 0.8:
-                    print(f"⚠️ 警告：润色后内容明显少于原始内容，可能被截断！")
-                    print(f"   原始内容前100字符: {text[:100]}...")
-                    print(f"   润色后内容前100字符: {polished_content[:100]}...")
-                    # 如果确实被截断，使用原始内容作为降级方案
-                    polished_content = text
-                    print(f"   使用原始内容作为降级方案")
+                # 🔥 2026-01-27 优化：移除长度比较检查
+                # 
+                # 为什么删除这个检查？
+                # 1. AI 删除语气词后内容变短是正常的（75-80% 很常见）
+                # 2. 这个检查导致误判，让有分段的润色结果被替换成无分段的原文
+                # 3. 我们已有 JSON 验证，如果格式正确就应该信任 AI 输出
+                # 4. Prompt 已约束 "preserve ALL content"，无需二次检查
+                # 5. 相信 AI 的输出，减少不必要的干预
+                #
+                # 如果真的发生截断，表现会是：JSON 解析失败或内容为空，那些有单独处理
+                
+                # 🔥 后处理：确保内容不以标题开头（避免重复）
+                title = result.get("title", "A Moment Captured")
+                if polished_content.strip().startswith(title):
+                    print(f"⚠️ 检测到内容以标题开头，自动移除重复")
+                    # 移除标题和可能的换行符
+                    polished_content = polished_content.strip()[len(title):].lstrip('\n').lstrip()
+                    print(f"   移除后内容开头: {polished_content[:50]}...")
                 
                 return {
-                    "title": result.get("title", "Today's Reflection"),
+                    "title": title,
                     "polished_content": polished_content
                 }
             except json.JSONDecodeError as e:
@@ -1041,7 +1154,7 @@ English: "um today i go to park" → {{"title": "A Day at the Park", "polished_c
                     try:
                         result = json.loads(json_match.group())
                         return {
-                            "title": result.get("title", "Today's Reflection"),
+                            "title": result.get("title", "A Moment Captured"),
                             "polished_content": result.get("polished_content", text)
                         }
                     except:
@@ -1050,7 +1163,7 @@ English: "um today i go to park" → {{"title": "A Day at the Park", "polished_c
                 # 降级方案
                 print(f"⚠️ GPT-4o-mini: 使用降级方案")
                 return {
-                    "title": "Today's Reflection" if language == "English" else "今日记录",
+                    "title": "A Moment Captured" if language == "English" else "心情随记",
                     "polished_content": text
                 }
         
@@ -1075,7 +1188,7 @@ English: "um today i go to park" → {{"title": "A Day at the Park", "polished_c
             
             # 降级方案
             return {
-                "title": "Today's Reflection" if language == "English" else "今日记录",
+                "title": "A Moment Captured" if language == "English" else "心情随记",
                 "polished_content": text
             }
     
@@ -1088,69 +1201,161 @@ English: "um today i go to park" → {{"title": "A Day at the Park", "polished_c
         text: str,
         language: str,
         user_name: Optional[str] = None,
-        encoded_images: Optional[List[str]] = None
-    ) -> Dict[str, Any]:
+        encoded_images: Optional[List[str]] = None,
+        emotion_hint: Optional[Dict[str, Any]] = None  # 🔥 新增：来自 Emotion Agent 的情绪结果
+    ) -> str:
         """
-        调用 GPT-4o 生成温暖的 AI 反馈 + 情绪分析
+        调用 GPT-4o-mini 生成温暖的 AI 反馈
         
-        注：虽然函数名曾叫 _call_gpt4o_mini_for_feedback，现在已升级为 gpt-4o 以确保情绪感知的准确性。
+        🔥 优化 (2026-01-27): 
+        - 接收 emotion_hint 参数，直接使用 Emotion Agent 的分析结果
+        - 不再重复分析情绪，专注于生成高质量反馈
+        - 更快、更省 Token、更准确
+        
+        参数:
+            emotion_hint: 来自 analyze_emotion_only 的结果，包含:
+                - emotion: 情绪类型 (如 "Joyful")
+                - confidence: 置信度 (如 0.9)
+                - rationale: 分析理由
         
         返回:
-            {
-                "reply": "温暖的反馈文字",
-                "emotion": "Joyful",
-                "confidence": 0.9,
-                "rationale": "分析理由..."
-            }
+            str: 温暖的反馈文字
         """
         try:
-            print(f"💬 GPT-4o: 开始生成反馈 + 情绪分析...")
+            # 🔥 使用来自 Emotion Agent 的情绪分析结果
+            emotion_from_agent = emotion_hint.get("emotion", "Thoughtful") if emotion_hint else "Thoughtful"
+            emotion_rationale = emotion_hint.get("rationale", "") if emotion_hint else ""
+            
+            print(f"💬 GPT-4o-mini: 开始生成反馈...")
             print(f"👤 用户名字: {user_name if user_name else '未提供'}")
+            print(f"🎯 使用 Emotion Agent 分析结果: {emotion_from_agent}")
             
-            # 计算用户输入长度，用于动态调整反馈长度
+            # ============================================================================
+            # 🔥 动态长度计算 - 根据用户输入调整反馈长度
+            # ============================================================================
             user_text_length = len(text.strip())
-            max_feedback_length = max(user_text_length, 20 if language == "Chinese" else 15)
             
-            # 构建统一的系统提示词
+            # 🔥 动态长度策略 v2：温暖但不啰嗦
+            # 调整：降低各档位的句子数，避免回复过长
+            if user_text_length < 50:
+                length_guidance = "SHORT"
+                length_desc = "1 sentence only"
+            elif user_text_length < 150:
+                length_guidance = "MEDIUM"
+                length_desc = "1-2 sentences"
+            elif user_text_length < 400:
+                length_guidance = "LONG"
+                length_desc = "2-3 sentences max"
+            else:
+                length_guidance = "EXTENDED"
+                length_desc = "3-4 sentences max, no more"
+            
+            print(f"📏 用户输入长度: {user_text_length} 字符 → 反馈策略: {length_guidance} ({length_desc})")
+            
             # ============================================================================
-            # 🎯 GPT-4o-mini 优化版 Feedback 提示词 (2026-01-27)
-            # 设计原则: 简短有力的回复 + 精准的情绪分析
+            # 🎯 GPT-4o-mini 优化版 Feedback 提示词 (2026-01-27 v3)
+            # 
+            # 📚 Prompt Engineering Best Practice - 教科书级别设计
+            # ============================================================================
+            # 
+            # 核心理念转变：
+            # ❌ 旧思路：简短优先 → "1-2 句话"
+            # ✅ 新思路：温度优先 → 根据用户表达量动态调整
+            # 
+            # 设计原则:
+            # 1. 温度感 > 简短 - 宁可多说一点暖心话，也不要显得敷衍
+            # 2. 动态长度 - 用户说得多，我们回复也相应增加
+            # 3. 情绪共鸣 - 利用 Emotion Agent 的分析结果精准回应
+            # 4. 真诚陪伴 - 像朋友一样倾听，而非机械回复
+            #
             # ============================================================================
             
-            system_prompt = f"""You are a warm listener and emotion analyst.
+            system_prompt = f"""You are a warm, empathetic companion - like a caring friend who truly listens.
 
-【Reply Rules - CRITICAL】
-- Language: Same as user's input (fallback: {language})
-- Length: 1-2 sentences ONLY. Short and powerful.
-- Tone: Warm, acknowledging, resonant
-- NO questions (never ask "How are you?")
-- Greeting: {"Start with '" + user_name + (", " if language == "English" else "，") + "'" if user_name else "Start directly"}
+# ════════════════════════════════════════════════════════════════════════════════
+# 🎯 CONTEXT
+# ════════════════════════════════════════════════════════════════════════════════
 
-【Emotion List - Choose ONE】
-POSITIVE: Joyful(喜悦) | Grateful(感恩) | Fulfilled(充实) | Proud(欣慰) | Surprised(惊喜) | Excited(期待) | Peaceful(平静) | Hopeful(希望)
-NEUTRAL: Thoughtful(若有所思,DEFAULT) | Reflective(内省) | Intentional(笃定,计划) | Inspired(启迪,学习) | Curious(好奇) | Nostalgic(怀念) | Calm(淡然)
-NEGATIVE: Uncertain(迷茫) | Misunderstood(委屈) | Lonely(孤独) | Down(低落) | Anxious(焦虑) | Overwhelmed(疲惫) | Venting(宣泄) | Frustrated(受挫)
+**User's Emotion:** {emotion_from_agent}
+{f'**Why:** {emotion_rationale}' if emotion_rationale else ''}
+**User Input Length:** {user_text_length} characters → **Response Mode: {length_guidance}**
 
-【Key Distinctions】
-- Fulfilled(完成目标) vs Joyful(纯粹快乐)
-- Intentional → keywords: 计划/打算/想要/goal/plan
-- Inspired → keywords: 学到/发现/learn/discover
-- Thoughtful = default neutral (just recording)
+# ════════════════════════════════════════════════════════════════════════════════
+# 🚨 CORE PRINCIPLE: WARMTH OVER BREVITY (温度优先)
+# ════════════════════════════════════════════════════════════════════════════════
 
-【Output Format】
-{{"reply": "1-2 sentences, warm and concise", "emotion": "OneFromList"}}
-   
-5. "今天我想要把这个产品更新到App Store"
-   → **Intentional** ✅ (planning keywords: "想要", "更新")
-   → NOT Fulfilled ❌ (planning future, not completed yet)
+Your goal is to make the user feel HEARD and UNDERSTOOD.
+- If they shared a lot, acknowledge the depth of what they shared
+- If they're going through something difficult, offer genuine support
+- If they achieved something, celebrate with authentic enthusiasm
+- NEVER give a generic, cold, or dismissive response
 
-Response format (JSON ONLY):
-{{
-  "reply": "Your warm response text here...",
-  "emotion": "Selected Emotion from list",
-  "confidence": 0.9,
-  "rationale": "Short reason for analysis"
-}}"""
+# ════════════════════════════════════════════════════════════════════════════════
+# 📏 DYNAMIC LENGTH GUIDE
+# ════════════════════════════════════════════════════════════════════════════════
+
+Based on user input length ({user_text_length} chars), use **{length_guidance}** mode:
+
+| Mode | User Input | Your Response | ⚠️ HARD LIMIT |
+|------|-----------|---------------|---------------|
+| SHORT | <50 chars | 1 sentence only | MAX 1 sentence |
+| MEDIUM | 50-150 chars | 1-2 sentences | MAX 2 sentences |
+| LONG | 150-400 chars | 2-3 sentences | MAX 3 sentences |
+| EXTENDED | >400 chars | 3-4 sentences | MAX 4 sentences |
+
+🚨 **CRITICAL: DO NOT exceed the sentence limit for your mode. Warmth ≠ Length.**
+
+**Current Mode: {length_guidance} → Target: {length_desc}**
+
+# ════════════════════════════════════════════════════════════════════════════════
+# 💝 EMOTION-SPECIFIC WARMTH GUIDE
+# ════════════════════════════════════════════════════════════════════════════════
+
+**{emotion_from_agent}** detected. Tailor your warmth:
+
+| Emotion Type | How to Respond |
+|--------------|----------------|
+| Joyful/Grateful/Fulfilled/Proud | Celebrate! Amplify their joy. Share in their happiness. |
+| Excited/Hopeful/Intentional | Encourage their enthusiasm. Support their plans. |
+| Peaceful/Calm | Acknowledge the serenity. Appreciate the moment with them. |
+| Thoughtful/Reflective | Validate their introspection. Honor their depth. |
+| Inspired/Curious | Support their exploration. Fan the flame of discovery. |
+| Anxious/Uncertain | Offer gentle reassurance. Be their calm anchor. |
+| Down/Lonely/Overwhelmed | Show deep understanding. Be present. No judgment. |
+| Frustrated/Venting | Acknowledge their feelings completely. Let them feel heard. |
+
+# ════════════════════════════════════════════════════════════════════════════════
+# 📝 RESPONSE RULES
+# ════════════════════════════════════════════════════════════════════════════════
+
+- **Language:** Same as user's input (fallback: {language})
+- **Greeting:** {"Start with '" + user_name + (", " if language == "English" else "，") + "'" if user_name else "Start directly with warmth"}
+- **NO questions** - Don't ask "How are you?" or similar
+- **Be specific** - Reference something they actually said, not generic platitudes
+- **End with warmth** - Leave them feeling supported
+
+# ════════════════════════════════════════════════════════════════════════════════
+# 📤 OUTPUT FORMAT
+# ════════════════════════════════════════════════════════════════════════════════
+
+Return JSON only:
+{{"reply": "Your warm, {length_desc} response here"}}
+
+# ════════════════════════════════════════════════════════════════════════════════
+# 📚 EXAMPLES BY LENGTH
+# ════════════════════════════════════════════════════════════════════════════════
+
+**SHORT (1 sentence max):**
+{{"reply": "Boss，这份快乐真好。"}}
+
+**MEDIUM (2 sentences max):**
+{{"reply": "Boss，完成重要项目的感觉真棒！好好享受这份成就感。"}}
+
+**LONG (3 sentences max):**
+{{"reply": "Boss，听你分享今天的经历，能感受到你付出了很多。你的努力和勇气值得被看见，好好休息。"}}
+
+**EXTENDED (4 sentences max):**
+{{"reply": "Boss，谢谢你分享这么多。今天确实不容易，但你对明天的期待很让人感动。好好休息，明天会更好。加油！"}}"""
 
 
             # 构建消息
@@ -1167,7 +1372,8 @@ Response format (JSON ONLY):
                 messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": f"Analyze emotion and respond to this:\n\n{text}"}]
 
             # 增加 max_tokens 以容纳 JSON
-            estimated_output_length = max_feedback_length + 200 
+            # 🔥 修复：使用 user_text_length 替代已删除的 max_feedback_length
+            estimated_output_length = user_text_length + 200 
             max_tokens = max(300, min(estimated_output_length, 1000))
 
             # ✅ Phase 1.1 + 1.4: 使用 AsyncOpenAI + 重试机制
@@ -1187,12 +1393,12 @@ Response format (JSON ONLY):
             try:
                 result = json.loads(content)
                 reply = result.get("reply", "").strip()
-                emotion = result.get("emotion", "Reflective")
                 
                 # ✅ 添加调试日志
                 print(f"🔍 [DEBUG] 名字前缀检查:")
                 print(f"   user_name 参数: '{user_name}'")
                 print(f"   AI 原始回复: '{reply}'")
+                print(f"   使用情绪: {emotion_from_agent}")
                 
                 # 名字前缀检查
                 if user_name and user_name.strip():
@@ -1202,18 +1408,12 @@ Response format (JSON ONLY):
                         separator = "，" if has_cjk else ", "
                         reply = f"{user_name}{separator}{trimmed_reply}"
                 
-                result["reply"] = reply
-                print(f"✅ 反馈生成: {reply[:30]}... (Mood: {emotion})")
-                return result
+                print(f"✅ 反馈生成: {reply[:30]}... (基于情绪: {emotion_from_agent})")
+                return reply  # 🔥 直接返回字符串，情绪已经由 Emotion Agent 提供
                 
             except json.JSONDecodeError:
                 print("⚠️ JSON 解析失败，回退到纯文本处理")
-                return {
-                    "reply": content.strip(),
-                    "emotion": "Reflective", 
-                    "confidence": 0.5,
-                    "rationale": "Extracted from non-JSON response"
-                }
+                return content.strip()  # 🔥 直接返回纯文本
         
         except Exception as e:
             print(f"❌ 反馈生成失败: {e}")
@@ -1224,12 +1424,7 @@ Response format (JSON ONLY):
                 separator = "，" if language == "Chinese" else ", "
                 fallback_reply = f"{user_name}{separator}{fallback_reply}"
                 
-            return {
-                "reply": fallback_reply,
-                "emotion": "Reflective",
-                "confidence": 0.0,
-                "rationale": f"Fallback due to error: {str(e)}"
-            }
+            return fallback_reply  # 🔥 直接返回字符串
     
     # ========================================================================
     # 🔥 新增: 专门的情绪分析Agent (Agent Orchestration 架构)
@@ -1502,7 +1697,7 @@ Response Format (JSON):
         
         if title_language_mismatch:
             # 使用降级方案，确保语言一致
-            title = "今日记录" if is_chinese else "Today's Reflection"
+            title = "心情随记" if is_chinese else "A Moment Captured"
             used_fallback = True
             print(f"✅ 已修正标题为: '{title}'")
         
@@ -1640,7 +1835,7 @@ Response Format (JSON):
         title = re.sub(r'\s+', ' ', title).strip()
         
         if len(title) < self.LENGTH_LIMITS["title_min"]:
-            title = "Today's Reflection" if any(ord(c) < 128 for c in original_text) else "今日记录"
+            title = "A Moment Captured" if any(ord(c) < 128 for c in original_text) else "心情随记"
         elif len(title) > self.LENGTH_LIMITS["title_max"]:
             max_len = self.LENGTH_LIMITS["title_max"]
             if ' ' in title and len(title) > max_len:
@@ -1719,7 +1914,7 @@ Response Format (JSON):
             feedback = f"{user_name}{separator}{feedback}"
 
         return {
-            "title": "今日记录" if is_chinese else "Today's Reflection",
+            "title": "心情随记" if is_chinese else "A Moment Captured",
             "polished_content": text,
             "feedback": feedback,
             "emotion_data": {"emotion": "Reflective", "confidence": 0.5} # ✅ 默认情绪

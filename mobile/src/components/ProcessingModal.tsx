@@ -38,17 +38,8 @@ export default function ProcessingModal({
   const safeStepIndex = Math.max(0, Math.min(processingStep, steps.length - 1));
   const currentStep = steps[safeStepIndex] || (steps.length > 0 ? steps[0] : { icon: "⏳", text: "处理中..." });
 
-  // ✅ 调试日志（生产环境可移除）
-  if (__DEV__) {
-    console.log("📊 ProcessingModal:", {
-      visible,
-      processingStep,
-      safeStepIndex,
-      stepsLength: steps.length,
-      currentStepText: currentStep?.text,
-      steps: steps.map(s => s.text),
-    });
-  }
+  // ✅ 2026-01-27: 移除过度日志，提升开发体验
+  // 原因：进度更新频繁（每200ms一次），日志过多影响调试
 
   return (
     <Modal visible={visible} transparent animationType="fade">

@@ -71,7 +71,7 @@ async function splitAudioIntoChunks(audioUri: string): Promise<Blob[]> {
   // 读取音频文件
   const response = await fetch(audioUri);
   if (!response.ok) {
-    throw new Error("无法读取音频文件");
+    throw new Error("AUDIO_READ_FAILED");
   }
   
   const blob = await response.blob();
@@ -106,7 +106,7 @@ async function splitAudioIntoChunks(audioUri: string): Promise<Blob[]> {
 async function createChunkSession(sessionId: string): Promise<void> {
   const accessToken = await getAccessToken();
   if (!accessToken) {
-    throw new Error("未登录");
+    throw new Error("AUTH_REQUIRED");
   }
   
   const formData = new FormData();
@@ -121,8 +121,8 @@ async function createChunkSession(sessionId: string): Promise<void> {
   });
   
   if (!response.ok) {
-    const errorText = await response.text().catch(() => "未知错误");
-    throw new Error(`创建会话失败: ${response.status} - ${errorText}`);
+    const errorText = await response.text().catch(() => "UNKNOWN_ERROR");
+    throw new Error(`CHUNK_SESSION_FAILED: ${response.status} - ${errorText}`);
   }
   
   console.log("✅ 分块上传会话创建成功");
@@ -137,7 +137,7 @@ async function getChunkPresignedUrl(
 ): Promise<{ presignedUrl: string; s3Key: string }> {
   const accessToken = await getAccessToken();
   if (!accessToken) {
-    throw new Error("未登录");
+    throw new Error("AUTH_REQUIRED");
   }
   
   const formData = new FormData();
@@ -154,7 +154,7 @@ async function getChunkPresignedUrl(
   });
   
   if (!response.ok) {
-    throw new Error(`获取预签名URL失败: ${response.status}`);
+    throw new Error(`CHUNK_PRESIGNED_URL_FAILED: ${response.status}`);
   }
   
   const data = await response.json();
@@ -192,17 +192,17 @@ async function uploadChunk(
         console.log(`✅ Chunk ${chunkIndex} 上传完成`);
         resolve();
       } else {
-        reject(new Error(`Chunk ${chunkIndex} 上传失败: HTTP ${xhr.status}`));
+        reject(new Error(`CHUNK_UPLOAD_HTTP_ERROR: chunk_${chunkIndex}, status_${xhr.status}`));
       }
     };
     
     // 监听错误
     xhr.onerror = () => {
-      reject(new Error(`Chunk ${chunkIndex} 网络错误`));
+      reject(new Error(`CHUNK_NETWORK_ERROR: chunk_${chunkIndex}`));
     };
     
     xhr.ontimeout = () => {
-      reject(new Error(`Chunk ${chunkIndex} 上传超时`));
+      reject(new Error(`CHUNK_UPLOAD_TIMEOUT: chunk_${chunkIndex}`));
     };
     
     // 发送请求
@@ -317,7 +317,7 @@ async function uploadChunksInParallel(
   // 检查是否有失败的
   const failedChunks = chunkInfos.filter(c => c.status === 'failed');
   if (failedChunks.length > 0) {
-    throw new Error(`${failedChunks.length} 个 chunks 上传失败`);
+    throw new Error(`CHUNK_UPLOAD_PARTIAL_FAILED: ${failedChunks.length} chunks failed`);
   }
   
   console.log("✅ 所有 chunks 上传完成");
@@ -337,7 +337,7 @@ async function completeChunkUpload(
 ): Promise<{ taskId: string; audioUrl: string }> {
   const accessToken = await getAccessToken();
   if (!accessToken) {
-    throw new Error("未登录");
+    throw new Error("AUTH_REQUIRED");
   }
   
   const headers: Record<string, string> = {
@@ -371,8 +371,9 @@ async function completeChunkUpload(
   });
   
   if (!response.ok) {
-    const errorText = await response.text().catch(() => "未知错误");
-    throw new Error(`完成上传失败: ${response.status} - ${errorText}`);
+    const errorText = await response.text().catch(() => "UNKNOWN_ERROR");
+    // ✅ Best Practice: 使用英文 error code，让前端 i18n 翻译
+    throw new Error(`CHUNK_COMPLETE_FAILED: ${response.status} - ${errorText}`);
   }
   
   const data = await response.json();
@@ -468,17 +469,36 @@ export async function uploadAudioWithChunks(
  * 策略：文件大于 1MB 时使用分块上传
  */
 export async function shouldUseChunkUpload(audioUri: string): Promise<boolean> {
-  try {
-    const response = await fetch(audioUri);
-    if (!response.ok) return false;
-    
-    const blob = await response.blob();
-    const threshold = 1 * 1024 * 1024; // 1MB
-    
-    return blob.size > threshold;
-  } catch {
-    return false;
-  }
+  /**
+   * ⚠️ 紧急修复 #7 (2026-01-27):
+   * 
+   * M4A 文件不能使用分块上传！
+   * 
+   * 原因：M4A 是容器格式，包含 moov/mdat 等原子结构。
+   * 简单的 blob.slice() 切割会破坏文件结构，导致：
+   * - Whisper API 返回 "Invalid file format" 错误
+   * - 后端只取最后一个 chunk，丢失大部分音频数据
+   * 
+   * 解决方案：
+   * - 暂时禁用分块上传，使用单次预签名 URL 直传
+   * - S3 预签名 URL 支持任意大小的文件上传
+   * - 未来如需分块，需使用 FFmpeg 进行正确的音频合并
+   */
+  console.log("ℹ️ [ChunkUpload] M4A 格式不支持分块上传，使用单次直传");
+  return false;
+  
+  // === 原逻辑（已禁用）===
+  // try {
+  //   const response = await fetch(audioUri);
+  //   if (!response.ok) return false;
+  //   
+  //   const blob = await response.blob();
+  //   const threshold = 1 * 1024 * 1024; // 1MB
+  //   
+  //   return blob.size > threshold;
+  // } catch {
+  //   return false;
+  // }
 }
 
 export default {
