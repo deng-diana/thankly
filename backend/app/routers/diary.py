@@ -485,14 +485,32 @@ async def process_pure_voice_diary_async(
         
         # 🚀 优化：增加虚拟进度，防止转录期间卡死
         async def transcribe_with_progress():
-            # 内部虚拟进度，保持“呼吸感”，不轻易跳跃
+            # ============================================
+            # ✅ 2026-01-27 优化: 虚拟进度循环（行业最佳实践）
+            # - 每5%持久化一次，确保前端能看到进度
+            # - 两阶段速度：快速启动 + 平稳等待
+            # ============================================
             async def smooth_progress():
-                current_p = 18 # Demo优化：从 18% 开始
-                while current_p < 58:  # Demo优化：到 58% 结束
-                    await asyncio.sleep(0.6) # ✅ Demo优化: 更快的更新频率
-                    current_p += 2 # ✅ Demo优化: 更平滑的步进
-                    # ✅ Phase 1.3: 虚拟进度只更新内存，不写入 DynamoDB
-                    update_task_progress(task_id, "processing", current_p, 1, "转录中", "正在努力识别你的声音...", user_id=user['user_id'], persist=False)
+                current_p = 18  # 从 18% 开始
+                last_persisted = 18
+                
+                # Phase 1: 快速增长 (18% → 42%)
+                while current_p < 42:
+                    await asyncio.sleep(0.3)
+                    current_p += 1
+                    should_persist = (current_p - last_persisted) >= 5
+                    if should_persist:
+                        last_persisted = current_p
+                    update_task_progress(task_id, "processing", current_p, 1, "转录中", "正在努力识别你的声音...", user_id=user['user_id'], persist=should_persist)
+                
+                # Phase 2: 缓慢增长 (42% → 55%)
+                while current_p < 55:
+                    await asyncio.sleep(0.8)
+                    current_p += 1
+                    should_persist = (current_p - last_persisted) >= 5
+                    if should_persist:
+                        last_persisted = current_p
+                    update_task_progress(task_id, "processing", current_p, 1, "转录中", "语音识别中，请稍候...", user_id=user['user_id'], persist=should_persist)
             
             progress_task = asyncio.create_task(smooth_progress())
             try:
@@ -515,43 +533,103 @@ async def process_pure_voice_diary_async(
         detected_language = transcription_result.get("detected_language")
         print(f"🌍 Whisper 检测到的语言: {detected_language}")
         
-        update_task_progress(task_id, "processing", 60, 1, "处理中", "语音识别完成", user_id=user['user_id'])  # Demo优化：60%
+        update_task_progress(task_id, "processing", 58, 1, "处理中", "语音识别完成", user_id=user['user_id'])
         
         # 验证转录内容
         validate_transcription(transcription, duration)
         
         # ============================================
-        # Step 2: AI 处理 - 润色 + 反馈 (60% → 90%) ← Demo优化
+        # Step 2: AI 处理 - 润色 + 反馈 (58% → 90%)
+        # ✅ 2026-01-27 修复: 为 AI 处理添加虚拟进度，减少停顿感
         # ============================================
-        update_task_progress(task_id, "processing", 65, 2, "AI润色", "正在美化文字...", user_id=user['user_id'])  # Demo优化：65%
+        update_task_progress(task_id, "processing", 60, 2, "AI润色", "正在美化文字...", user_id=user['user_id'])
         
         # 获取用户名字（优先使用 X-User-Name header）
         user_display_name = get_display_name(user, request)
         
-        # ✅ Demo优化：直接调用AI，不使用虚拟进度（更真实）
-        update_task_progress(task_id, "processing", 55, 2, "AI润色", "正在美化文字...", user_id=user['user_id'])
+        # ============================================
+        # ✅ 2026-01-27 重构: AI处理期间的虚拟进度循环
+        # 行业最佳实践：
+        # 1. 平滑进度更新（每400ms增加1%）
+        # 2. 关键节点持久化（每5%写入一次DynamoDB，确保多实例环境下一致性）
+        # 3. 进度保护（不会倒退，只会前进）
+        # 4. 详细的进度消息，提升用户体验
+        # ============================================
+        async def ai_with_progress():
+            # 使用 nonlocal 变量跟踪当前进度，便于在 finally 中获取
+            current_progress = 60
+            
+            async def smooth_ai_progress():
+                nonlocal current_progress
+                # ✅ 丰富的进度消息，让用户感知到"真实"的处理过程
+                messages = [
+                    "正在美化文字...",      # 60-65%
+                    "AI正在润色中...",       # 66-70%
+                    "精心打磨语句...",       # 71-75%
+                    "生成温暖反馈...",       # 76-80%
+                    "最后检查中...",         # 81-85%
+                    "即将完成..."            # 86-88%
+                ]
+                last_persisted = 60  # 上次持久化的进度
+                
+                while current_progress < 88:
+                    await asyncio.sleep(0.35)  # ✅ 优化：稍快一点，更流畅
+                    current_progress += 1
+                    
+                    # 计算消息索引（每5%切换一次消息）
+                    msg_idx = min((current_progress - 60) // 5, len(messages) - 1)
+                    
+                    # ✅ 关键优化：每5%持久化一次到DynamoDB，确保进度可见
+                    should_persist = (current_progress - last_persisted) >= 5
+                    if should_persist:
+                        last_persisted = current_progress
+                        print(f"📊 [Progress] AI处理虚拟进度: {current_progress}% (已持久化)")
+                    
+                    update_task_progress(
+                        task_id, "processing", current_progress, 2, "AI润色", 
+                        messages[msg_idx], 
+                        user_id=user['user_id'], 
+                        persist=should_persist  # ✅ 关键节点持久化
+                    )
+            
+            progress_task = asyncio.create_task(smooth_ai_progress())
+            try:
+                return await openai_service.polish_content_multilingual(
+                    transcription, 
+                    user_name=user_display_name,
+                    whisper_detected_language=detected_language
+                )
+            finally:
+                progress_task.cancel()
+                # ✅ 确保最终进度被持久化（防止AI处理太快导致进度没更新）
+                final_progress = max(current_progress, 85)  # 至少到85%
+                print(f"📊 [Progress] AI处理完成，最终虚拟进度: {final_progress}%")
+                update_task_progress(
+                    task_id, "processing", final_progress, 2, "AI润色", 
+                    "AI处理完成", 
+                    user_id=user['user_id'], 
+                    persist=True
+                )
         
-        ai_result = await openai_service.polish_content_multilingual(
-            transcription, 
-            user_name=user_display_name,
-            whisper_detected_language=detected_language
-        )
-
-        
-        # ✅ 更新到收尾阶段（Demo优化：90%）
-        update_task_progress(task_id, "processing", 90, 3, "完成处理", "AI处理完成", user_id=user['user_id'])
+        ai_result = await ai_with_progress()
         
         # ============================================
-        # Step 3: 保存到数据库 (90% → 100%) ← Demo优化
+        # Step 3: 保存到数据库 (88% → 100%)
+        # ✅ 2026-01-27 优化：平滑的保存进度过渡
         # ============================================
-        update_task_progress(task_id, "processing", 93, 3, "保存", "正在保存日记...", user_id=user['user_id'])  # Demo优化：93%
+        print(f"📊 [Progress] 开始保存阶段 (88% → 100%)")
+        
+        # 88% → 90%: 准备保存
+        update_task_progress(task_id, "processing", 88, 3, "保存中", "准备保存日记...", user_id=user['user_id'])
+        await asyncio.sleep(0.2)  # 短暂延迟，让进度可见
+        
+        # 90%: 处理情绪数据
+        update_task_progress(task_id, "processing", 90, 3, "保存中", "整理情绪数据...", user_id=user['user_id'])
         
         # --------------------------------------------------------
-        # 🔥 Step 2.5: 情绪分析结果 (Pure Text Analysis)
+        # 🔥 情绪分析结果 (Pure Text Analysis)
         # --------------------------------------------------------
         text_emotion = ai_result.get("emotion_data", {})
-        
-        # 直接使用 GPT-4o-mini 的分析结果
         final_emotion_data = {
             "emotion": text_emotion.get("emotion", "Reflective"),
             "confidence": text_emotion.get("confidence", 0.0),
@@ -561,6 +639,11 @@ async def process_pure_voice_diary_async(
                 "text": text_emotion
             }
         }
+        
+        await asyncio.sleep(0.15)  # 短暂延迟，让进度可见
+        
+        # 93%: 写入数据库
+        update_task_progress(task_id, "processing", 93, 3, "保存中", "写入数据库...", user_id=user['user_id'])
 
         diary_obj = db_service.create_diary(
             user_id=user['user_id'],
@@ -571,14 +654,21 @@ async def process_pure_voice_diary_async(
             title=ai_result["title"],
             audio_url=audio_url,
             audio_duration=duration,
-            emotion_data=final_emotion_data # ✅ 传递情绪数据
+            emotion_data=final_emotion_data
         )
-
-
+        
+        # 96%: 数据库写入完成
+        update_task_progress(task_id, "processing", 96, 3, "保存中", "数据保存成功...", user_id=user['user_id'])
+        await asyncio.sleep(0.15)  # 短暂延迟，让进度可见
+        
+        # 98%: 最终验证
+        update_task_progress(task_id, "processing", 98, 3, "完成中", "最终验证...", user_id=user['user_id'])
+        await asyncio.sleep(0.1)  # 短暂延迟，让进度可见
         
         # ============================================
         # Step 4: 完成 (100%)
         # ============================================
+        print(f"📊 [Progress] 任务完成: {task_id}")
         update_task_progress(task_id, "completed", 100, 4, "完成", "日记创建成功", diary=diary_obj, user_id=user['user_id'])
         
     except HTTPException as e:
@@ -664,14 +754,32 @@ async def process_voice_diary_async(
         async def do_transcription():
             update_task_progress(task_id, "processing", 20, 2, "语音识别", "正在倾听你的故事...", user_id=user['user_id'])  # Demo优化：20%
             
-            # 内部虚拟进度，保持“呼吸感”，不轻易跳跃
+            # ============================================
+            # ✅ 2026-01-27 优化: 虚拟进度循环（行业最佳实践）
+            # - 每5%持久化一次，确保前端能看到进度
+            # - 两阶段速度：快速启动 + 平稳等待
+            # ============================================
             async def smooth_progress():
-                current_p = 20  # Demo优化：从 20% 开始
-                while current_p < 58:  # Demo优化：到 58% 结束
-                    await asyncio.sleep(0.5) # ✅ Demo优化: 更快的更新频率
-                    current_p += 2 # ✅ Demo优化: 更平滑的步进
-                    # ✅ Phase 1.3: 虚拟进度只更新内存，不写入 DynamoDB
-                    update_task_progress(task_id, "processing", min(current_p, 58), 2, "语音识别", "正在将语音转为文字...", user_id=user['user_id'], persist=False)
+                current_p = 20
+                last_persisted = 20
+                
+                # Phase 1: 快速增长 (20% → 42%)
+                while current_p < 42:
+                    await asyncio.sleep(0.3)
+                    current_p += 1
+                    should_persist = (current_p - last_persisted) >= 5
+                    if should_persist:
+                        last_persisted = current_p
+                    update_task_progress(task_id, "processing", current_p, 2, "语音识别", "正在将语音转为文字...", user_id=user['user_id'], persist=should_persist)
+                
+                # Phase 2: 缓慢增长 (42% → 55%)
+                while current_p < 55:
+                    await asyncio.sleep(0.8)
+                    current_p += 1
+                    should_persist = (current_p - last_persisted) >= 5
+                    if should_persist:
+                        last_persisted = current_p
+                    update_task_progress(task_id, "processing", current_p, 2, "语音识别", "语音识别中，请稍候...", user_id=user['user_id'], persist=should_persist)
             
             progress_task = asyncio.create_task(smooth_progress())
             try:
@@ -687,7 +795,7 @@ async def process_voice_diary_async(
                 return {"text": text, "detected_language": detected_lang}
             finally:
                 progress_task.cancel()
-                update_task_progress(task_id, "processing", 60, 2, "语音识别", "识别完成", user_id=user['user_id'])  # Demo优化：60%
+                update_task_progress(task_id, "processing", 58, 2, "语音识别", "识别完成", user_id=user['user_id'])
         
         # 立即启动转录任务
         transcription_task = asyncio.create_task(do_transcription())
@@ -1475,7 +1583,7 @@ async def get_voice_diary_progress(
     查询语音日记处理进度
     
     📚 学习点：轮询模式
-    - 前端定期调用此端点（如每500ms）
+    - 前端定期调用此端点（如每300ms）
     - 返回当前进度、状态和结果
     - 当status为"completed"时，返回完整的diary对象
     
@@ -1490,13 +1598,18 @@ async def get_voice_diary_progress(
         "diary": {...}  # 仅当status为completed时存在
         "error": "..."  # 仅当status为failed时存在
     }
-    """
-    # 优先从 DynamoDB 获取任务状态
-    task_data = db_service.get_task_progress(task_id, user_id=user['user_id'])
     
-    # 如果 DynamoDB 中没有，再尝试从内存缓存中获取（可能任务刚创建，还未完全写入 DB）
+    ✅ 2026-01-27 优化：进度查询策略
+    - 优先从内存缓存读取（实时性更好，能看到虚拟进度）
+    - 内存缓存没有时再查询 DynamoDB（确保任务完成后也能查到）
+    - 这样可以让前端看到 60%→88% 的平滑虚拟进度
+    """
+    # ✅ 优先从内存缓存读取（实时性更好，能看到虚拟进度更新）
+    task_data = task_progress.get(task_id)
+    
+    # 如果内存缓存中没有，再从 DynamoDB 获取（任务可能已完成并从内存中清理）
     if not task_data:
-        task_data = task_progress.get(task_id)
+        task_data = db_service.get_task_progress(task_id, user_id=user['user_id'])
     
     if not task_data:
         raise HTTPException(status_code=404, detail="任务不存在或已过期")
@@ -1739,6 +1852,7 @@ async def complete_chunk_upload(
     image_urls: str = Form(None),
     expect_images: bool = Form(False),
     user: Dict = Depends(get_current_user),
+    request: Request = None,
     x_user_name: Optional[str] = Header(None, alias="X-User-Name")
 ):
     """
@@ -1757,59 +1871,103 @@ async def complete_chunk_upload(
         image_urls: 可选的图片 URL 列表（JSON）
         expect_images: 是否期待后续图片上传
         user: 当前认证用户
+        request: FastAPI Request 对象
         x_user_name: 用户名称（通过 Header）
     
     Returns:
         task_id 和状态信息
     """
     try:
-        print(f"🔀 完成分块上传: session={session_id}, chunks={chunk_count}, duration={duration}s")
+        print(f"🔀 [ChunkComplete] 开始处理: session={session_id}, chunks={chunk_count}, duration={duration}s")
+        print(f"   - user_id: {user.get('user_id')}")
+        print(f"   - x_user_name: {x_user_name}")
+        print(f"   - content: {content[:50] if content and len(content) > 0 else 'None'}...")
+        print(f"   - image_urls: {image_urls}")
+        print(f"   - expect_images: {expect_images}")
         
         # Step 1: 合并 chunks
+        print(f"📦 [ChunkComplete] Step 1: 合并 chunks...")
         merged_audio_url = s3_service.merge_chunks(
             session_id=session_id,
             chunk_count=chunk_count,
             output_filename="recording.m4a"
         )
-        print(f"✅ 音频合并完成: {merged_audio_url}")
+        print(f"✅ [ChunkComplete] 音频合并完成: {merged_audio_url}")
         
         # Step 2: 创建任务 ID
         task_id = str(uuid.uuid4())
+        print(f"📋 [ChunkComplete] Step 2: 创建任务 ID: {task_id}")
         
         # Step 3: 解析 image_urls
         parsed_image_urls = None
         if image_urls:
             try:
                 parsed_image_urls = json.loads(image_urls)
-            except:
-                pass
+                print(f"📸 [ChunkComplete] Step 3: 解析到 {len(parsed_image_urls) if parsed_image_urls else 0} 张图片")
+            except Exception as parse_err:
+                print(f"⚠️ [ChunkComplete] 解析 image_urls 失败: {parse_err}")
+                parsed_image_urls = None
         
         # Step 4: 初始化任务进度
-        update_task_progress(
-            task_id, 
-            "processing", 
-            10,  # 合并完成，进度 10%
-            1, 
-            "准备处理", 
-            "音频已准备就绪，开始处理...",
-            user_id=user['user_id']
-        )
+        print(f"📊 [ChunkComplete] Step 4: 初始化任务进度...")
+        pending_image_upload = bool(expect_images) and not parsed_image_urls
+        task_data = {
+            "status": "processing",
+            "progress": 15,  # 合并完成，进度 15%
+            "step": 1,
+            "step_name": "音频已准备",
+            "message": "音频已准备就绪，开始处理...",
+            "user_id": user['user_id'],
+            "image_urls": parsed_image_urls,
+            "pending_image_upload": pending_image_upload,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "start_time": time.time(),
+            "user_name": x_user_name or get_display_name(user, request),
+            "audio_url": merged_audio_url
+        }
+        db_service.save_task_progress(task_id, task_data, user_id=user['user_id'])
+        task_progress[task_id] = task_data
         
         # Step 5: 启动后台处理任务
-        asyncio.create_task(
-            process_pure_voice_diary_async(
-                task_id=task_id,
-                audio_url=merged_audio_url,
-                duration=duration,
-                user=user,
-                user_name=x_user_name,
-                content=content,
-                image_urls=parsed_image_urls,
-                expect_images=expect_images
-            )
-        )
+        # ✅ 关键修复: 根据是否有图片/文字选择正确的处理函数
+        has_images = parsed_image_urls and len(parsed_image_urls) > 0
+        has_text_content = content and content.strip()
+        pending_images = pending_image_upload
         
-        print(f"✅ 分块上传任务创建成功: task_id={task_id}")
+        print(f"🔍 [ChunkComplete] Step 5: 选择处理函数...")
+        print(f"   - has_images: {has_images}")
+        print(f"   - has_text_content: {has_text_content}")
+        print(f"   - pending_images: {pending_images}")
+        
+        if has_images or has_text_content or pending_images:
+            # 混合媒体模式：使用完整处理流程
+            print(f"📸 [ChunkComplete] 使用混合媒体处理流程 (process_voice_diary_with_url_async)")
+            asyncio.create_task(
+                process_voice_diary_with_url_async(
+                    task_id=task_id,
+                    audio_url=merged_audio_url,
+                    duration=int(duration),
+                    user=user,
+                    request=request,
+                    image_urls=parsed_image_urls,
+                    content=content
+                )
+            )
+        else:
+            # 纯语音模式：使用快速通道
+            print(f"🎤 [ChunkComplete] 使用纯语音快速通道 (process_pure_voice_diary_with_url_async)")
+            asyncio.create_task(
+                process_pure_voice_diary_with_url_async(
+                    task_id=task_id,
+                    audio_url=merged_audio_url,
+                    duration=int(duration),
+                    user=user,
+                    request=request
+                )
+            )
+        
+        print(f"✅ [ChunkComplete] 分块上传任务创建成功: task_id={task_id}")
         
         return {
             "task_id": task_id,
@@ -1820,12 +1978,14 @@ async def complete_chunk_upload(
         
     except ValueError as e:
         error_str = str(e)
-        print(f"❌ 分块上传完成失败 (ValueError): {error_str}")
+        print(f"❌ [ChunkComplete] ValueError: {error_str}")
+        import traceback
+        traceback.print_exc()
         if error_str.startswith("TRANSCRIPTION_") or error_str == "No chunks to merge":
             raise HTTPException(status_code=400, detail=error_str)
         raise HTTPException(status_code=500, detail="CHUNK_MERGE_FAILED")
     except Exception as e:
-        print(f"❌ 分块上传完成失败: {str(e)}")
+        print(f"❌ [ChunkComplete] Exception: {str(e)}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail="CHUNK_COMPLETE_FAILED")

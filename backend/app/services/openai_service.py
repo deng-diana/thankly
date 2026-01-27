@@ -95,14 +95,27 @@ class OpenAIService:
         # ✅ 用户最关注，体验优先
     }
     
-    # 📏 长度限制（保持不变）
+    # 📏 长度限制
+    # ✅ 修复 #9 (2026-01-27): 完全移除 feedback_min
+    # 原因：
+    # 1. 短反馈不等于差反馈，中文几个字就能传达完整情感（如 "加油！"、"早点休息"）
+    # 2. GPT-4o 足够智能，会根据上下文决定合适的反馈长度
+    # 3. 用通用 fallback 替换有针对性的短回复是体验的倒退
+    # 4. 只需检查空值，避免 API 异常返回空字符串
+    #
+    # ✅ 修复 #10 (2026-01-27): min_audio_text 从 5 降至 2
+    # 原因：
+    # 1. 中文一个字可以表达完整含义（如 "累"、"好"）
+    # 2. "我有点累" (4 字) 是完整有意义的句子，不应被拒绝
+    # 3. 更严格的验证由后续的语言特定检查处理（中文需 3+ 汉字，英文需 2+ 有意义词）
+    # 4. 这里只做最基本的空值过滤，避免误杀真实内容
     LENGTH_LIMITS = {
         "title_min": 4,
         "title_max": 50,
-        "feedback_min": 30,
+        # "feedback_min" 已移除 - 不再检查最小长度，信任 AI 输出
         "feedback_max": 250,
         "polished_ratio": 1.15,
-        "min_audio_text": 5,
+        "min_audio_text": 2,  # ✅ 修复 #10: 从 5 降至 2，避免误杀短但有意义的中文内容
     }
     
     def __init__(self):
@@ -219,35 +232,78 @@ class OpenAIService:
             print(f"✅ 临时文件准备完成")
             
             # ✅ Phase 1.1: 使用 httpx.AsyncClient 异步调用 Whisper（提升性能）
+            # ✅ 2026-01-27 修复: 增加重试机制，提高网络稳定性
             print("📤 正在识别语音（verbose_json 模式 - 异步）...")
             response_json = None
-            try:
-                async with httpx.AsyncClient(timeout=60.0) as client:
-                    file_stream = io.BytesIO(audio_content)
-                    response = await client.post(
-                        "https://api.openai.com/v1/audio/transcriptions",
-                        headers={
-                            "Authorization": f"Bearer {self.openai_api_key}",
-                        },
-                        data={
-                            "model": self.MODEL_CONFIG["transcription"],
-                            "language": "",
-                            "temperature": "0",
-                            "response_format": "verbose_json",
-                        },
-                        files={
-                            "file": (filename or "recording.m4a", file_stream, "audio/m4a"),
-                        },
-                    )
-                    response.raise_for_status()
-                    response_json = response.json()
-            except httpx.HTTPError as http_err:
-                print(f"❌ Whisper HTTP 请求失败: {http_err}")
-                if http_err.response is not None:
-                    print(f"📄 Whisper 响应状态码: {http_err.response.status_code}")
-                    print(f"📄 Whisper 响应内容: {http_err.response.text[:500]}...")
-                # ✅ 使用英文 error code，前端根据 code 显示 i18n 翻译
-                raise ValueError("TRANSCRIPTION_SERVICE_UNAVAILABLE")
+            max_retries = 3
+            retry_delay = 2  # 秒
+            
+            for attempt in range(max_retries):
+                try:
+                    # ✅ 增加超时时间到120秒，适应慢网络
+                    async with httpx.AsyncClient(timeout=120.0) as client:
+                        file_stream = io.BytesIO(audio_content)
+                        response = await client.post(
+                            "https://api.openai.com/v1/audio/transcriptions",
+                            headers={
+                                "Authorization": f"Bearer {self.openai_api_key}",
+                            },
+                            data={
+                                "model": self.MODEL_CONFIG["transcription"],
+                                "language": "",
+                                "temperature": "0",
+                                "response_format": "verbose_json",
+                            },
+                            files={
+                                "file": (filename or "recording.m4a", file_stream, "audio/m4a"),
+                            },
+                        )
+                        response.raise_for_status()
+                        response_json = response.json()
+                        break  # 成功，退出重试循环
+                        
+                except httpx.HTTPStatusError as http_err:
+                    # HTTP状态码错误（4xx, 5xx）- 有 response 属性
+                    print(f"❌ Whisper HTTP 状态错误 (尝试 {attempt + 1}/{max_retries}): {http_err}")
+                    if http_err.response is not None:
+                        print(f"📄 Whisper 响应状态码: {http_err.response.status_code}")
+                        try:
+                            print(f"📄 Whisper 响应内容: {http_err.response.text[:500]}...")
+                        except:
+                            pass
+                    if attempt < max_retries - 1:
+                        print(f"⏳ 等待 {retry_delay} 秒后重试...")
+                        await asyncio.sleep(retry_delay)
+                        retry_delay *= 2  # 指数退避
+                    else:
+                        raise ValueError("TRANSCRIPTION_SERVICE_UNAVAILABLE")
+                        
+                except (httpx.ReadError, httpx.ConnectError, httpx.TimeoutException) as transport_err:
+                    # ✅ 修复: 网络传输错误（没有 response 属性）- 单独处理
+                    print(f"❌ Whisper 网络传输错误 (尝试 {attempt + 1}/{max_retries}): {type(transport_err).__name__}: {transport_err}")
+                    if attempt < max_retries - 1:
+                        print(f"⏳ 等待 {retry_delay} 秒后重试...")
+                        await asyncio.sleep(retry_delay)
+                        retry_delay *= 2  # 指数退避
+                    else:
+                        raise ValueError("TRANSCRIPTION_NETWORK_ERROR")
+                        
+                except httpx.HTTPError as http_err:
+                    # 其他 HTTP 错误
+                    print(f"❌ Whisper HTTP 请求失败 (尝试 {attempt + 1}/{max_retries}): {type(http_err).__name__}: {http_err}")
+                    # ✅ 修复: 安全地检查是否有 response 属性
+                    if hasattr(http_err, 'response') and http_err.response is not None:
+                        print(f"📄 Whisper 响应状态码: {http_err.response.status_code}")
+                        try:
+                            print(f"📄 Whisper 响应内容: {http_err.response.text[:500]}...")
+                        except:
+                            pass
+                    if attempt < max_retries - 1:
+                        print(f"⏳ 等待 {retry_delay} 秒后重试...")
+                        await asyncio.sleep(retry_delay)
+                        retry_delay *= 2
+                    else:
+                        raise ValueError("TRANSCRIPTION_SERVICE_UNAVAILABLE")
             
             if not response_json:
                 raise ValueError("TRANSCRIPTION_NO_RESPONSE")
@@ -504,9 +560,13 @@ class OpenAIService:
         - 更温暖：AI 回应"真实的你"而不是"完美的文字"
         """
         try:
-            # 输入检查
-            if not text or len(text.strip()) < 5:
-                raise ValueError("内容太短，请多写一些")
+            # ✅ 修复 #10 (2026-01-27): 移除硬编码的长度检查
+            # 原因：
+            # 1. "我好累呀" (4 字) 是完全有效的日记内容，不应被拒绝
+            # 2. 转录阶段已经有更智能的验证（中文需 3+ 汉字）
+            # 3. 这里只做空值检查，让 AI 去处理任何非空内容
+            if not text or not text.strip():
+                raise ValueError("内容为空")
             
             print(f"✨ 开始AI处理（并行模式）: {text[:50]}...")
             
@@ -691,8 +751,8 @@ class OpenAIService:
                 "emotion_data": emotion_result  # ✅ 来自专门的Emotion Agent
             }
             
-            # 质量检查
-            result = self._validate_and_fix_result(result, text)
+            # 质量检查 - ✅ 修复: 传递 user_name 以支持反馈降级时添加用户称呼
+            result = self._validate_and_fix_result(result, text, user_name=user_name)
             
             print(f"✅ 处理完成:")
             print(f"  - 标题: {result['title']}")
@@ -1057,17 +1117,43 @@ Your responsibilities:
 3. **Universal rules:**
    - Keep polished content ≤115% of original length
    - **CRITICAL: Preserve ALL original content. Do NOT delete or omit any part of the user's entry.**
-   - **Formatting: Preserve the user's line breaks, blank lines, and bullet/numbered lists. Do NOT merge everything into one paragraph.**
-   - **If the input is long and mostly one block (no line breaks), add clear paragraph breaks based on meaning.**
-   - **Avoid overly short paragraphs. Do NOT break right after the first sentence. Keep the first 3 sentences in the same paragraph when you add breaks.**
+
+4. **🚨 PARAGRAPH FORMATTING - EXTREMELY IMPORTANT:**
+   - **Preserve existing structure**: If the user's input already has line breaks or bullet points, keep them exactly.
+   - **Add paragraphs for long content**: If the input is long (>150 characters) and has NO line breaks:
+     - **MUST add 2-4 natural paragraph breaks** based on topic shifts or logical breaks
+     - Use double newline (\\n\\n) to separate paragraphs
+     - Each paragraph should be 3-6 sentences, grouping related ideas together
+   - **Good paragraph break points:**
+     - When the topic or subject changes
+     - When time shifts (e.g., "Later that day...", "然后...")
+     - When mood/emotion changes
+     - Before concluding thoughts or reflections
+   - **DON'T:**
+     - DON'T create single-sentence paragraphs (too choppy)
+     - DON'T merge everything into one giant wall of text (unreadable)
+     - DON'T break in the middle of a thought
    
-4. **🚨 MOST CRITICAL: Create a title in the EXACT SAME LANGUAGE as the user's primary input language**
+   **Example of GOOD formatting:**
+   Input: "今天去了公园散步天气很好遇到了老朋友聊了很久后来一起喝了咖啡聊了工作和生活的事情回家后感觉心情特别好决定以后要多出去走走"
+   
+   Output: "今天去了公园散步，天气很好。遇到了老朋友，聊了很久。
+   
+   后来一起喝了咖啡，聊了工作和生活的事情。
+   
+   回家后感觉心情特别好，决定以后要多出去走走。"
+   
+   **Example of BAD formatting (DO NOT DO THIS):**
+   ❌ Everything in one long paragraph with no breaks - hard to read
+   ❌ Every sentence on its own line - too choppy and unnatural
+   
+5. **🚨 MOST CRITICAL: Create a title in the EXACT SAME LANGUAGE as the user's primary input language**
    - If user writes in Chinese → Title MUST be in Chinese
    - If user writes in English → Title MUST be in English
    - The title language must match the content language - NO EXCEPTIONS
    - Title should be short, warm, poetic, and meaningful, but ALWAYS in the user's language
    
-5. **🚨 TITLE CONTENT RULES - AVOID GENERIC AND REDUNDANT TITLES:**
+6. **🚨 TITLE CONTENT RULES - AVOID GENERIC AND REDUNDANT TITLES:**
    - **NEVER use "今日" (today) in Chinese titles** - It's too generic and meaningless
    - **NEVER use "Today's..." in English titles** - Same reason, too generic
    - **If you must reference the day, use specific date format instead**: "1月9日" (Jan 9), not "今日"
@@ -1102,7 +1188,7 @@ Style Guidelines:
 Response format (JSON only):
 {{
   "title": "Title in the EXACT SAME LANGUAGE as the user's primary input (Chinese or English only - MUST match user's language)",
-  "polished_content": "fixed text, preserving original language AND original formatting (line breaks/lists) - MUST include all original content"
+  "polished_content": "Polished text with PROPER PARAGRAPH BREAKS (use \\n\\n for paragraph separation). For long content, MUST add 2-4 natural paragraph breaks. MUST include all original content."
 }}
 
 🚨 CRITICAL EXAMPLES - Study these carefully:
@@ -1768,12 +1854,16 @@ Response Format (JSON):
     def _validate_and_fix_result(
         self, 
         result: Dict[str, str], 
-        original_text: str
+        original_text: str,
+        user_name: str = None  # ✅ 修复: 添加 user_name 参数以支持反馈降级时添加用户名
     ) -> Dict[str, str]:
         """
         验证并修正AI输出 - 质量把关
         
-        🔥 注意：这个方法完全保持不变
+        Args:
+            result: AI处理结果字典
+            original_text: 原始文本
+            user_name: 用户名字，用于反馈降级时添加称呼
         """
         
         orig_len = len(original_text.strip())
@@ -1989,11 +2079,16 @@ Response Format (JSON):
         # 修正反馈
         feedback = clean_text(feedback)
         
-        if not used_fallback and len(feedback) < self.LENGTH_LIMITS.get("feedback_min", 20):
-            print(f"⚠️ 反馈过短，使用降级")
+        # ✅ 修复 #9 (2026-01-27): 移除最小长度检查，只检查空值
+        # 原因：短反馈可能是最合适的回复，不应被通用 fallback 替换
+        if not feedback or not feedback.strip():
+            print(f"⚠️ 反馈为空，使用降级")
             feedback = "感谢分享你的这一刻。" if is_chinese else "Thanks for sharing this moment."
-            # ✅ 即使是 fallback，也要加上用户名字
-            if user_name and user_name.strip():
+        
+        # ✅ 确保反馈始终以用户名开头（无论是 AI 生成还是 fallback）
+        if user_name and user_name.strip():
+            # 检查反馈是否已经以用户名开头
+            if not feedback.startswith(user_name):
                 separator = "，" if is_chinese else ", "
                 feedback = f"{user_name}{separator}{feedback}"
         
