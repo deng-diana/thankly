@@ -113,6 +113,13 @@ export default function ImageDiaryModal({
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const hasUnsavedContentRef = useRef(false); // 标记是否有未保存的内容
   
+  // ✅ 草稿恢复弹窗状态（使用自定义 Modal 替代 Alert.alert 以支持主题字体）
+  const [showDraftRestoreModal, setShowDraftRestoreModal] = useState(false);
+  const [pendingDraftData, setPendingDraftData] = useState<{
+    textContent?: string;
+    images?: string[];
+  } | null>(null);
+  
   // ✅ 新增：组件挂载监听
   const isMounted = useRef(true);
   useEffect(() => {
@@ -283,35 +290,12 @@ export default function ImageDiaryModal({
         const draftAge = now - draftData.timestamp;
         
         if (draftAge < MAX_DRAFT_AGE && (draftData.textContent?.trim() || draftData.images?.length > 0)) {
-          // 提示用户恢复草稿
-          Alert.alert(
-            t("draft.restoreTitle") || "发现未保存的内容",
-            `${t("draft.restoreMessage") || "是否恢复上次未保存的内容?"}\n${draftData.textContent ? `(${draftData.textContent.substring(0, 30)}...)` : `(${draftData.images?.length || 0}张图片)`}`,
-            [
-              {
-                text: t("draft.discard") || "放弃",
-                style: "destructive",
-                onPress: async () => {
-                  await AsyncStorage.removeItem(IMAGE_DIARY_AUTO_SAVE_KEY);
-                  setIsDraftRestored(true);
-                }
-              },
-              {
-                text: t("draft.restore") || "恢复",
-                onPress: () => {
-                  if (draftData.textContent) {
-                    setTextContent(draftData.textContent);
-                  }
-                  if (draftData.images && draftData.images.length > 0) {
-                    setImages(draftData.images);
-                  }
-                  hasUnsavedContentRef.current = true;
-                  console.log("✅ 已恢复草稿");
-                  setIsDraftRestored(true);
-                }
-              }
-            ]
-          );
+          // ✅ 使用自定义 Modal 替代 Alert.alert 以支持主题字体
+          setPendingDraftData({
+            textContent: draftData.textContent,
+            images: draftData.images,
+          });
+          setShowDraftRestoreModal(true);
         } else {
           // 草稿过期或为空,删除
           await AsyncStorage.removeItem(IMAGE_DIARY_AUTO_SAVE_KEY);
@@ -2269,6 +2253,146 @@ export default function ImageDiaryModal({
             </TouchableOpacity>
           </Modal>
         )}
+
+        {/* ✅ 草稿恢复弹窗 - 使用自定义 Modal 以支持主题字体（Lora/Noto） */}
+        {showDraftRestoreModal && (
+          <Modal visible={showDraftRestoreModal} transparent animationType="fade">
+            <TouchableOpacity
+              style={styles.confirmOverlay}
+              activeOpacity={1}
+              onPress={() => {
+                setShowDraftRestoreModal(false);
+                setIsDraftRestored(true);
+              }}
+            >
+              <TouchableOpacity
+                activeOpacity={1}
+                onPress={(e) => e.stopPropagation()}
+              >
+                <View style={styles.confirmContainer}>
+                  {/* 标题 */}
+                  <Text
+                    style={[
+                      styles.draftRestoreTitle,
+                      {
+                        fontFamily: getFontFamilyForText(
+                          t("draft.restoreTitle"),
+                          "semibold"
+                        ),
+                      },
+                    ]}
+                  >
+                    {t("draft.restoreTitle")}
+                  </Text>
+
+                  {/* 消息 */}
+                  <Text
+                    style={[
+                      styles.draftRestoreMessage,
+                      {
+                        fontFamily: getFontFamilyForText(
+                          t("draft.restoreMessage"),
+                          "regular"
+                        ),
+                      },
+                    ]}
+                  >
+                    {t("draft.restoreMessage")}
+                  </Text>
+
+                  {/* 提示信息（图片数量或文字预览） */}
+                  <Text
+                    style={[
+                      styles.draftRestoreHint,
+                      {
+                        fontFamily: getFontFamilyForText(
+                          pendingDraftData?.textContent 
+                            ? t("draft.restoreTextHint", { preview: "" })
+                            : t("draft.restoreImagesHint", { count: 0 }),
+                          "regular"
+                        ),
+                      },
+                    ]}
+                  >
+                    {pendingDraftData?.textContent 
+                      ? t("draft.restoreTextHint", { preview: pendingDraftData.textContent.substring(0, 30) })
+                      : t("draft.restoreImagesHint", { count: pendingDraftData?.images?.length || 0 })}
+                  </Text>
+
+                  <View style={styles.confirmButtons}>
+                    {/* Discard 按钮 */}
+                    <TouchableOpacity
+                      style={[
+                        styles.confirmButton,
+                        styles.draftDiscardButton,
+                      ]}
+                      onPress={async () => {
+                        await AsyncStorage.removeItem(IMAGE_DIARY_AUTO_SAVE_KEY);
+                        setShowDraftRestoreModal(false);
+                        setPendingDraftData(null);
+                        setIsDraftRestored(true);
+                      }}
+                      accessibilityLabel={t("draft.discard")}
+                      accessibilityRole="button"
+                    >
+                      <Text
+                        style={[
+                          styles.draftDiscardButtonText,
+                          {
+                            fontFamily: getFontFamilyForText(
+                              t("draft.discard"),
+                              "regular"
+                            ),
+                          },
+                        ]}
+                      >
+                        {t("draft.discard")}
+                      </Text>
+                    </TouchableOpacity>
+
+                    {/* Restore 按钮 */}
+                    <TouchableOpacity
+                      style={[
+                        styles.confirmButton,
+                        styles.confirmButtonPrimary,
+                      ]}
+                      onPress={() => {
+                        if (pendingDraftData?.textContent) {
+                          setTextContent(pendingDraftData.textContent);
+                        }
+                        if (pendingDraftData?.images && pendingDraftData.images.length > 0) {
+                          setImages(pendingDraftData.images);
+                        }
+                        hasUnsavedContentRef.current = true;
+                        console.log("✅ 已恢复草稿");
+                        setShowDraftRestoreModal(false);
+                        setPendingDraftData(null);
+                        setIsDraftRestored(true);
+                      }}
+                      accessibilityLabel={t("draft.restore")}
+                      accessibilityRole="button"
+                    >
+                      <Text
+                        style={[
+                          styles.confirmButtonTextPrimary,
+                          {
+                            fontFamily: getFontFamilyForText(
+                              t("draft.restore"),
+                              "semibold"
+                            ),
+                          },
+                        ]}
+                      >
+                        {t("draft.restore")}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </TouchableOpacity>
+            </TouchableOpacity>
+          </Modal>
+        )}
+
         {/* Toast 提示 - 使用全屏容器确保居中 */}
         {toastVisible && (
           <View style={styles.toastOverlay} pointerEvents="none">
@@ -2596,6 +2720,37 @@ const styles = StyleSheet.create({
     ...Typography.body,
     fontWeight: "600",
     color: "#fff",
+  },
+
+  // ✅ 草稿恢复弹窗样式
+  draftRestoreTitle: {
+    ...Typography.h3,
+    color: "#1A1A1A",
+    textAlign: "center",
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  draftRestoreMessage: {
+    ...Typography.body,
+    color: "#1A1A1A",
+    textAlign: "center",
+    lineHeight: 24,
+    marginTop: 0, // ✅ 与标题紧密相连，不需要大的顶部间距
+    marginBottom: 8,
+  },
+  draftRestoreHint: {
+    ...Typography.caption,
+    color: "#999",
+    textAlign: "center",
+    marginBottom: 24,
+  },
+  draftDiscardButton: {
+    backgroundColor: "#F5F5F5",
+  },
+  draftDiscardButtonText: {
+    ...Typography.body,
+    fontWeight: "500",
+    color: "#E56C45", // ✅ 使用橙色作为 Discard 的文字颜色（destructive action）
   },
 
   // 底部工具栏样式 - 只保留语音按钮，居中显示

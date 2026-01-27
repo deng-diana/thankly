@@ -193,13 +193,13 @@ export default {
   // Mood Calendar (情绪日历)
   moodCalendar: {
     navTitle: "Mood Calendar",
-    title: "Days You've Lived",
-    subtitle: "Your moments, in color",
-    summaryFormat: "{{days}} days | {{entries}} entries",
-    emptyPickDate: "Tap a date with entries to view diaries",
+    title: "Mood Calendar", // ✅ UX优化：更直观的标题
+    // ✅ UX优化：删除副标题 "Your moments, in color"（冗余信息）
+    summaryFormat: "{{days}} days • {{entries}} moments", // ✅ UX优化：使用 • 替代 |，使用 moments 替代 entries
+    emptyPickDate: "Select a date to view your moments", // ✅ UX优化：更友好的空状态文案
     prevMonth: "Previous month",
     nextMonth: "Next month",
-    entriesLabel: "entries",
+    entriesLabel: "moments", // ✅ UX优化：使用 moments 替代 entries
     weekdayMon: "Mon",
     weekdayTue: "Tue",
     weekdayWed: "Wed",
@@ -411,6 +411,8 @@ export default {
   draft: {
     restoreTitle: "Unsaved Content Found",
     restoreMessage: "Do you want to restore your last unsaved content?",
+    restoreImagesHint: "({{count}} images)",
+    restoreTextHint: "({{preview}}...)",
     restore: "Restore",
     discard: "Discard",
     unsavedTitle: "Unsaved changes",

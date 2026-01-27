@@ -46,7 +46,6 @@ import {
   Dimensions,
   ToastAndroid,
   TextInput, // ✅ 搜索输入框
-  ScrollView,
 } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -169,10 +168,13 @@ export default function DiaryListScreen() {
   const [monthPickerVisible, setMonthPickerVisible] = useState(false);
   
   const flatListRef = useRef<FlatList<Diary> | null>(null);
-  const monthPickerSlide = useRef(new Animated.Value(400)).current;
+  // ✅ 关键修复：使用屏幕高度作为初始值，确保动画正确
+  const windowHeight = Dimensions.get("window").height;
   const stickyBarOpacity = useRef(new Animated.Value(0)).current;
   const lastScrollY = useRef(0);
   const headerHeightRef = useRef(300); // 默认高度
+
+  // ✅ 月份选择器：使用原生 slide 动画，避免自定义 translateY 造成布局异常
 
   // ✅ 问候语状态
   const [greetingWelcome, setGreetingWelcome] = useState("");
@@ -183,6 +185,25 @@ export default function DiaryListScreen() {
   const [actionSheetVisible, setActionSheetVisible] = useState(false);
   const [selectedDiary, setSelectedDiary] = useState<Diary | null>(null);
   const actionSheetSlide = useRef(new Animated.Value(300)).current;
+
+  // ✅ 关键修复：ActionSheet 动画逻辑（修复点击三个点不显示菜单的问题）
+  React.useEffect(() => {
+    if (actionSheetVisible) {
+      // 打开时：从屏幕外滑入
+      Animated.timing(actionSheetSlide, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      // 关闭时：滑出屏幕外
+      Animated.timing(actionSheetSlide, {
+        toValue: 300,
+        duration: 250,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [actionSheetVisible, actionSheetSlide]);
 
   // ✅ DiaryDetail Modal 相关状态
   const [diaryDetailVisible, setDiaryDetailVisible] = useState(false);
@@ -216,11 +237,25 @@ export default function DiaryListScreen() {
     stopAllAudio,
   } = useDiaryAudio();
 
-  // ✅ 解决循环依赖：使用 ref 来引用 stopRecording，避免声明前使用的问题
-  const stopRecordingRef = useRef<(() => Promise<string | null>) | null>(null);
+  // ✅ 🚨🚨🚨 紧急修复：追踪生命周期（必须最先执行以验证代码是否加载）
+  React.useEffect(() => {
+    console.log("🏗️🔥🔥🔥 [DiaryListScreen] Component mounted - CODE RELOAD VERIFICATION");
+    return () => {
+      console.log("🗑️🔥🔥🔥 [DiaryListScreen] Component unmounting - CRITICAL WARNING");
+    };
+  }, []);
 
   // ✅ 将录音 Hook 提到屏幕顶级，确保在 Modal 内部不会因为重绘/重刷而丢失状态
   const voiceRecording = useVoiceRecording();
+
+  // ✅ 监控 voiceRecording 的状态变化，追踪是否导致重新渲染
+  React.useEffect(() => {
+    console.log("🔍🔥 [DiaryListScreen] voiceRecording state changed:", {
+      isRecording: voiceRecording.isRecording,
+      isPaused: voiceRecording.isPaused,
+      duration: voiceRecording.duration,
+    });
+  }, [voiceRecording.isRecording, voiceRecording.isPaused, voiceRecording.duration]);
 
   /** 有日记记录的年月映射 { year: [month, ...] } */
   const yearMonthMap = React.useMemo(() => {
@@ -236,6 +271,59 @@ export default function DiaryListScreen() {
     }
     return map;
   }, [diaries]);
+
+  // ✅ 最早日记年月（用于限制年份/月份起点）
+  const earliestYearMonth = React.useMemo(() => {
+    if (diaries.length === 0) return null;
+    let minTime = Number.POSITIVE_INFINITY;
+    for (const d of diaries) {
+      const t = new Date(d.created_at).getTime();
+      if (!Number.isNaN(t) && t < minTime) minTime = t;
+    }
+    if (!Number.isFinite(minTime)) return null;
+    const date = new Date(minTime);
+    return { year: date.getFullYear(), month: date.getMonth() + 1 };
+  }, [diaries]);
+
+  const [pickerYear, setPickerYear] = useState<number | null>(null);
+  const [pickerMonth, setPickerMonth] = useState<number | null>(null);
+  const yearListRef = useRef<FlatList<number> | null>(null);
+  const monthListRef = useRef<FlatList<number> | null>(null);
+
+  // ✅ 打开月份选择器时初始化滚轮到当前/吸顶月份
+  React.useEffect(() => {
+    if (!monthPickerVisible || !earliestYearMonth) return;
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
+    let year = stickyYear ?? currentYear;
+    year = Math.min(currentYear, Math.max(earliestYearMonth.year, year));
+    const startMonth = year === earliestYearMonth.year ? earliestYearMonth.month : 1;
+    const endMonth = year === currentYear ? currentMonth : 12;
+    let month = stickyMonth ?? currentMonth;
+    if (month < startMonth) month = startMonth;
+    if (month > endMonth) month = endMonth;
+    setPickerYear(year);
+    setPickerMonth(month);
+    setTimeout(() => {
+      const years = [];
+      for (let y = earliestYearMonth.year; y <= currentYear; y++) years.push(y);
+      const yearIndex = years.indexOf(year);
+      if (yearIndex >= 0) {
+        try {
+          yearListRef.current?.scrollToIndex({ index: yearIndex, animated: false });
+        } catch (_) {}
+      }
+      const months = [];
+      for (let m = startMonth; m <= endMonth; m++) months.push(m);
+      const monthIndex = months.indexOf(month);
+      if (monthIndex >= 0) {
+        try {
+          monthListRef.current?.scrollToIndex({ index: monthIndex, animated: false });
+        } catch (_) {}
+      }
+    }, 0);
+  }, [monthPickerVisible, earliestYearMonth, stickyYear, stickyMonth]);
 
   const formatStickyYearMonth = React.useCallback(
     (year: number, month: number) => {
@@ -341,13 +429,33 @@ export default function DiaryListScreen() {
       
       setDiaries(sanitizedDiaries);
       console.log(`✅ [DiaryList] Diaries loaded & set: ${sanitizedDiaries.length}`);
+      
+      // ✅ 关键修复：初始化 stickyYear 和 stickyMonth
+      // 如果有日记，从第一条日记初始化；否则使用当前日期
+      if (sanitizedDiaries.length > 0) {
+        const { year, month } = getYearMonth(sanitizedDiaries[0].created_at);
+        if (year > 0 && month > 0) {
+          setStickyYear(year);
+          setStickyMonth(month);
+        }
+      } else {
+        // 没有日记时，使用当前日期
+        const now = new Date();
+        setStickyYear(now.getFullYear());
+        setStickyMonth(now.getMonth() + 1);
+      }
     } catch (error: unknown) {
-      console.error("❌ 加载日记失败:", error);
+      // 这里是可预期的网络/服务错误，避免触发 LogBox 红屏
+      console.log("⚠️ 加载日记失败:", error);
       await handleAuthErrorOnly(error, async () => {
         console.log("🔒 Token已过期，静默跳转到登录页");
         resetToRoot("Login");
       });
       setDiaries([]);
+      // 错误时也初始化当前日期
+      const now = new Date();
+      setStickyYear(now.getFullYear());
+      setStickyMonth(now.getMonth() + 1);
     }
   }, []);
 
@@ -362,7 +470,8 @@ export default function DiaryListScreen() {
       startAutoRefresh();
       await loadDiaries();
     } catch (error) {
-      console.error("加载数据失败:", error);
+      // 避免 LogBox 红屏
+      console.log("⚠️ 加载数据失败:", error);
     } finally {
       setLoading(false);
     }
@@ -720,15 +829,51 @@ export default function DiaryListScreen() {
 
   /**
    * 跳转到指定月份的第一条日记并关闭月份选择器
+   * ✅ 修复：即使找不到精确匹配的月份，也会滚动到最接近的日记
+   * ✅ 修复：更新 stickyYear 和 stickyMonth 到用户选择的值
    */
   const scrollToMonth = React.useCallback(
     (year: number, month: number) => {
-      const idx = diaries.findIndex((d) => {
+      // ✅ 先关闭 Modal，确保用户体验流畅
+      setMonthPickerVisible(false);
+      
+      // ✅ 关键修复：立即更新 sticky header 到用户选择的年月
+      setStickyYear(year);
+      setStickyMonth(month);
+      console.log(`📅 更新 sticky header 到 ${year}/${month}`);
+      
+      // 查找精确匹配的月份
+      let idx = diaries.findIndex((d) => {
         const { year: y, month: m } = getYearMonth(d.created_at);
         return y === year && m === month;
       });
-      if (idx === -1) return;
-      setMonthPickerVisible(false);
+      
+      // ✅ 如果找不到精确匹配，查找最接近的日记（该月份之前或之后）
+      if (idx === -1) {
+        const targetDate = new Date(year, month - 1, 15); // 目标月份的中间日期
+        let closestIdx = -1;
+        let closestDiff = Infinity;
+        
+        for (let i = 0; i < diaries.length; i++) {
+          const diaryDate = new Date(diaries[i].created_at);
+          const diff = Math.abs(diaryDate.getTime() - targetDate.getTime());
+          if (diff < closestDiff) {
+            closestDiff = diff;
+            closestIdx = i;
+          }
+        }
+        
+        if (closestIdx !== -1) {
+          idx = closestIdx;
+          console.log(`📅 找不到 ${year}/${month} 的日记，滚动到最接近的日记（索引 ${idx}）`);
+        }
+      }
+      
+      if (idx === -1) {
+        console.log(`📅 没有日记可滚动`);
+        return;
+      }
+      
       setTimeout(() => {
         try {
           flatListRef.current?.scrollToIndex({
@@ -736,10 +881,18 @@ export default function DiaryListScreen() {
             viewPosition: 0,
             animated: true,
           });
-        } catch (_) {
-          // 列表未布局或动态高度时 scrollToIndex 可能失败，忽略
+          console.log(`📅 滚动到索引 ${idx}（${year}/${month}）`);
+        } catch (e) {
+          // 列表未布局或动态高度时 scrollToIndex 可能失败
+          console.log(`📅 scrollToIndex 失败，尝试 scrollToOffset`);
+          // 备选方案：使用 scrollToOffset（估算位置）
+          const estimatedItemHeight = 180; // 估算每个日记卡片的高度
+          flatListRef.current?.scrollToOffset({
+            offset: idx * estimatedItemHeight,
+            animated: true,
+          });
         }
-      }, 200);
+      }, 350); // ✅ 增加延迟，确保 Modal 关闭动画完成
     },
     [diaries]
   );
@@ -863,149 +1016,214 @@ export default function DiaryListScreen() {
   /** 月份选择器 Modal：自底向上，按年份分组，1–12 月，仅可跳有记录的月份 */
   const renderMonthPickerModal = () => {
     if (!monthPickerVisible) return null;
-    const years = Object.keys(yearMonthMap)
-      .map(Number)
-      .sort((a, b) => b - a);
+    
+    // ✅ 关键修复：计算当前日期，用于限制未来日期不可选
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1; // 1-12
+    
+    if (!earliestYearMonth) {
+      return (
+        <Modal
+          visible={monthPickerVisible}
+          transparent
+          animationType="slide"
+          presentationStyle="overFullScreen"
+          onRequestClose={() => setMonthPickerVisible(false)}
+        >
+          <View style={styles.modalContainer}>
+            <TouchableOpacity
+              style={styles.modalOverlay}
+              activeOpacity={1}
+              onPress={() => setMonthPickerVisible(false)}
+            />
+            <View style={[styles.monthPickerContainer, { maxHeight: windowHeight * 0.6 }]}>
+              <View style={styles.monthPickerHeader}>
+                <Text style={styles.monthPickerTitle}>{t("home.monthPickerTitle")}</Text>
+                <TouchableOpacity
+                  style={styles.actionSheetCloseButton}
+                  onPress={() => setMonthPickerVisible(false)}
+                  accessibilityLabel={t("common.close")}
+                  accessibilityRole="button"
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Ionicons name="close-outline" size={24} color="#666" />
+                </TouchableOpacity>
+              </View>
+              <View style={styles.monthPickerEmpty}>
+                <Text style={styles.monthPickerEmptyText}>
+                  {t("home.monthPickerEmpty")}
+                </Text>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      );
+    }
+
+    // ✅ 年份范围：从用户最早日记年份到当前年
+    const years = [];
+    for (let y = earliestYearMonth.year; y <= currentYear; y++) {
+      years.push(y);
+    }
+
+    // ✅ 修复：只返回有日记的月份，而不是所有月份
+    const getMonthOptions = (year: number) => {
+      // 首先检查 yearMonthMap 中是否有该年份的记录
+      const monthsWithDiaries = yearMonthMap[year];
+      if (monthsWithDiaries && monthsWithDiaries.length > 0) {
+        // 返回有日记的月份（升序排列）
+        return [...monthsWithDiaries].sort((a, b) => a - b);
+      }
+      // 如果没有日记记录，返回有效范围内的所有月份（备选方案）
+      const startMonth = year === earliestYearMonth.year ? earliestYearMonth.month : 1;
+      const endMonth = year === currentYear ? currentMonth : 12;
+      const months = [];
+      for (let m = startMonth; m <= endMonth; m++) months.push(m);
+      return months;
+    };
+
+    const baseYear = pickerYear ?? stickyYear ?? currentYear;
+    const selectedYear = Math.min(currentYear, Math.max(earliestYearMonth.year, baseYear));
+    const monthOptions = getMonthOptions(selectedYear);
+    const baseMonth = pickerMonth ?? stickyMonth ?? currentMonth;
+    const selectedMonth = Math.min(monthOptions[monthOptions.length - 1], Math.max(monthOptions[0], baseMonth));
+
+    const handleClose = () => {
+      setMonthPickerVisible(false);
+    };
 
     return (
       <Modal
         visible={monthPickerVisible}
         transparent
         animationType="fade"
-        onRequestClose={() => setMonthPickerVisible(false)}
+        presentationStyle="overFullScreen"
+        onRequestClose={handleClose}
       >
-        <View style={styles.modalContainer}>
-          <TouchableOpacity
-            style={styles.modalOverlay}
-            activeOpacity={1}
-            onPress={() => setMonthPickerVisible(false)}
-          />
-          <Animated.View
+          <View style={styles.modalContainer}>
+            <TouchableOpacity
+              style={styles.modalOverlay}
+              activeOpacity={1}
+              onPress={handleClose}
+            />
+          <View
             style={[
               styles.monthPickerContainer,
-              { transform: [{ translateY: monthPickerSlide }] },
+              {
+                // ✅ 关键修复：确保有足够空间显示所有内容（包括确认/取消按钮）
+                minHeight: 376, // header(50) + wheel(176) + actions(64) + padding(40) + safeArea(46)
+              },
             ]}
           >
-            <View style={styles.monthPickerHeader}>
-              <Text
-                style={[
-                  styles.monthPickerTitle,
-                  {
-                    fontFamily: getFontFamilyForText(
-                      t("home.monthPickerTitle"),
-                      "medium"
-                    ),
-                  },
-                ]}
-              >
-                {t("home.monthPickerTitle")}
-              </Text>
-              <TouchableOpacity
-                style={styles.actionSheetCloseButton}
-                onPress={() => setMonthPickerVisible(false)}
-                accessibilityLabel={t("common.close")}
-                accessibilityRole="button"
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              >
-                <Ionicons name="close-outline" size={24} color="#666" />
-              </TouchableOpacity>
-            </View>
-            {years.length === 0 ? (
-              <View style={styles.monthPickerEmpty}>
+            <SafeAreaView style={{ flexShrink: 0 }} edges={["bottom"]}>
+              <View style={styles.monthPickerHeader}>
                 <Text
                   style={[
-                    styles.monthPickerEmptyText,
-                    { fontFamily: getFontFamilyForText(t("home.monthPickerEmpty"), "regular") },
+                    styles.monthPickerTitle,
+                    {
+                      fontFamily: getFontFamilyForText(
+                        t("home.monthPickerTitle"),
+                        "medium"
+                      ),
+                    },
                   ]}
                 >
-                  {t("home.monthPickerEmpty")}
+                  {t("home.monthPickerTitle")}
                 </Text>
+                <TouchableOpacity
+                  style={styles.actionSheetCloseButton}
+                  onPress={handleClose}
+                  accessibilityLabel={t("common.close")}
+                  accessibilityRole="button"
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Ionicons name="close-outline" size={24} color="#666" />
+                </TouchableOpacity>
               </View>
-            ) : (
-            <ScrollView
-              style={styles.monthPickerScroll}
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={styles.monthPickerContent}
-            >
-              {years.map((year) => {
-                const months = yearMonthMap[year] ?? [];
-                const hasMonth = (m: number) => months.includes(m);
-                return (
-                  <View key={year} style={styles.monthPickerSection}>
-                    <Text
-                      style={[
-                        styles.monthPickerYearLabel,
-                        {
-                          fontFamily: getFontFamilyForText(
-                            String(year),
-                            "semibold"
-                          ),
-                        },
-                      ]}
-                    >
-                      {year}
-                    </Text>
-                    <View style={styles.monthPickerGrid}>
-                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => {
-                        const enabled = hasMonth(m);
-                        const label =
-                          getCurrentLocale() === "zh"
-                            ? `${m}月`
-                            : MONTH_NAMES_SHORT[m - 1];
-                        if (enabled) {
-                          return (
-                            <TouchableOpacity
-                              key={m}
-                              style={styles.monthPickerChip}
-                              onPress={() => scrollToMonth(year, m)}
-                              activeOpacity={0.7}
-                              accessibilityLabel={`${year} ${label}`}
-                              accessibilityRole="button"
-                            >
-                              <Text
-                                style={[
-                                  styles.monthPickerChipText,
-                                  {
-                                    fontFamily: getFontFamilyForText(
-                                      label,
-                                      "regular"
-                                    ),
-                                  },
-                                ]}
-                              >
-                                {label}
-                              </Text>
-                            </TouchableOpacity>
-                          );
+              <View style={styles.wheelContainer}>
+                <View style={styles.wheelColumn}>
+                  <FlatList
+                    ref={yearListRef}
+                    data={years}
+                    keyExtractor={(y) => String(y)}
+                    style={styles.wheelList}
+                    contentContainerStyle={styles.wheelListContent}
+                    showsVerticalScrollIndicator={false}
+                    snapToInterval={44}
+                    decelerationRate="fast"
+                    getItemLayout={(_, index) => ({ length: 44, offset: 44 * index, index })}
+                    onMomentumScrollEnd={(e) => {
+                      const idx = Math.round(e.nativeEvent.contentOffset.y / 44);
+                      const y = years[idx] ?? years[0];
+                      setPickerYear(y);
+                      const months = getMonthOptions(y);
+                      let m = pickerMonth ?? months[0];
+                      if (m < months[0]) m = months[0];
+                      if (m > months[months.length - 1]) m = months[months.length - 1];
+                      setPickerMonth(m);
+                      setTimeout(() => {
+                        const mIndex = months.indexOf(m);
+                        if (mIndex >= 0) {
+                          monthListRef.current?.scrollToIndex({ index: mIndex, animated: true });
                         }
-                        return (
-                          <View
-                            key={m}
-                            style={[styles.monthPickerChip, styles.monthPickerChipDisabled]}
-                          >
-                            <Text
-                              style={[
-                                styles.monthPickerChipTextDisabled,
-                                {
-                                  fontFamily: getFontFamilyForText(
-                                    label,
-                                    "regular"
-                                  ),
-                                },
-                              ]}
-                            >
-                              {label}
-                            </Text>
-                          </View>
-                        );
-                      })}
-                    </View>
-                  </View>
-                );
-              })}
-            </ScrollView>
-            )}
-          </Animated.View>
+                      }, 0);
+                    }}
+                    renderItem={({ item }) => (
+                      <View style={styles.wheelItem}>
+                        <Text style={[styles.wheelText, item === pickerYear && styles.wheelTextActive]}>
+                          {getCurrentLocale() === "zh" ? `${item}年` : String(item)}
+                        </Text>
+                      </View>
+                    )}
+                  />
+                </View>
+                <View style={styles.wheelColumn}>
+                  <FlatList
+                    ref={monthListRef}
+                    data={monthOptions}
+                    keyExtractor={(m) => String(m)}
+                    style={styles.wheelList}
+                    contentContainerStyle={styles.wheelListContent}
+                    showsVerticalScrollIndicator={false}
+                    snapToInterval={44}
+                    decelerationRate="fast"
+                    getItemLayout={(_, index) => ({ length: 44, offset: 44 * index, index })}
+                    onMomentumScrollEnd={(e) => {
+                      const idx = Math.round(e.nativeEvent.contentOffset.y / 44);
+                      const m = monthOptions[idx] ?? monthOptions[0];
+                      setPickerMonth(m);
+                    }}
+                    renderItem={({ item }) => (
+                      <View style={styles.wheelItem}>
+                        <Text style={[styles.wheelText, item === pickerMonth && styles.wheelTextActive]}>
+                          {getCurrentLocale() === "zh" ? `${item}月` : MONTH_NAMES_SHORT[item - 1]}
+                        </Text>
+                      </View>
+                    )}
+                  />
+                </View>
+                <View style={styles.wheelHighlight} pointerEvents="none" />
+              </View>
+              <View style={styles.pickerActions}>
+                <TouchableOpacity style={styles.pickerButton} onPress={handleClose}>
+                  <Text style={styles.pickerButtonText}>{t("common.cancel")}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.pickerButton, styles.pickerButtonPrimary]}
+                  onPress={() => {
+                    const y = pickerYear ?? selectedYear;
+                    const m = pickerMonth ?? selectedMonth;
+                    scrollToMonth(y, m);
+                  }}
+                >
+                  <Text style={[styles.pickerButtonText, styles.pickerButtonTextPrimary]}>
+                    {t("common.confirm")}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </SafeAreaView>
+          </View>
         </View>
       </Modal>
     );
@@ -1492,7 +1710,7 @@ export default function DiaryListScreen() {
           {/* 日期 + 三点菜单图标 - 移到底部 */}
           <View style={styles.cardFooter}>
             <View style={styles.dateContainer}>
-              <TimeIcon width={20} height={20} color="#80645A" />
+              <TimeIcon width={16} height={16} color="#80645A" />
               <Text
                 style={[
                   styles.cardDate,
@@ -1614,10 +1832,25 @@ export default function DiaryListScreen() {
     [currentPlayingId, currentTime, duration, hasPlayedOnce, handleDiaryPress, handleDiaryOptions]
   );
 
+  // ✅ 关键修复：使用 ListFooterComponent + paddingBottom 双重保险
+  // 问题分析：
+  // 1. ListFooterComponent 的高度应该只考虑操作栏高度和间距
+  // 2. 但为了确保内容可以滚动到底部，我们同时使用 paddingBottom 作为保险
+  const listFooter = React.useMemo(() => {
+    // 不再额外增加 footer 空白，避免底部出现大块遮挡
+    return <View style={{ height: 0 }} />;
+  }, []);
+
   // ========== 主渲染 ==========
 
   return (
-    <SafeAreaView style={styles.container} edges={["top"]}>
+    // ✅ 方案30: 外层 View 确保背景色延伸到屏幕底部（包括 home indicator 区域）
+    <View style={styles.screenBackground}>
+    <SafeAreaView 
+      style={styles.safeAreaContainer} 
+      edges={["top"]}
+      // ✅ 方案28: 只处理顶部安全区域，底部由 bottomActionBar 自己处理
+    >
       {/* 动态内容更新提示区域 */}
       <View
         accessibilityLiveRegion="polite"
@@ -1639,65 +1872,103 @@ export default function DiaryListScreen() {
       {loading ? (
         renderSkeleton()
       ) : (
-        <>
-          {/* 列表区：使用 flex:1 自动填满可用空间，不再手动计算高度 */}
-          <View style={styles.mainContentWrap}>
-            <View style={styles.listWrapper}>
-              {diaries.length > 0 &&
-                searchQuery.trim() === "" &&
-                stickyYear != null &&
-                stickyMonth != null &&
-                stickyBarVisible && (
-                  <Animated.View
-                    style={[
-                      styles.stickyYearMonthBarOverlay,
-                      { opacity: stickyBarOpacity },
-                    ]}
-                    pointerEvents={stickyBarVisible ? "auto" : "none"}
+          /* ✅ 方案25: 移除 Fragment，直接使用 mainContentWrap 作为唯一子元素
+           * 底部操作栏移到外层，避免影响 flex 布局计算
+           */
+          <View 
+            style={styles.mainContentWrap}
+            onLayout={(e) => {
+              // ✅ 调试：测量 mainContentWrap 实际高度（仅在开发环境输出）
+              if (__DEV__) {
+                const { height } = e.nativeEvent.layout;
+                console.log('📏 [Layout Debug] mainContentWrap height:', height);
+                console.log('📏 [Layout Debug] insets.bottom:', insets.bottom);
+                console.log('📏 [Layout Debug] BOTTOM_BAR_HEIGHT:', BOTTOM_BAR_HEIGHT);
+              }
+            }}
+          >
+            {/* ✅ 将 stickyYearMonthBarOverlay 移到 listWrapper 外部，避免影响 FlatList 布局 */}
+            {diaries.length > 0 &&
+              searchQuery.trim() === "" &&
+              stickyYear != null &&
+              stickyMonth != null &&
+              stickyBarVisible && (
+                <Animated.View
+                  style={[
+                    styles.stickyYearMonthBarOverlay,
+                    { opacity: stickyBarOpacity },
+                  ]}
+                  pointerEvents={stickyBarVisible ? "auto" : "none"}
+                >
+                  <TouchableOpacity
+                    style={styles.stickyYearMonthBar}
+                    onPress={() => setMonthPickerVisible(true)}
+                    activeOpacity={0.7}
+                    accessibilityLabel={formatStickyYearMonth(stickyYear, stickyMonth)}
+                    accessibilityHint={t("home.monthPickerTitle")}
+                    accessibilityRole="button"
                   >
-                    <TouchableOpacity
-                      style={styles.stickyYearMonthBar}
-                      onPress={() => setMonthPickerVisible(true)}
-                      activeOpacity={0.7}
-                      accessibilityLabel={formatStickyYearMonth(stickyYear, stickyMonth)}
-                      accessibilityHint={t("home.monthPickerTitle")}
-                      accessibilityRole="button"
+                    <Text
+                      style={[
+                        styles.stickyYearMonthText,
+                        {
+                          fontFamily: getFontFamilyForText(
+                            formatStickyYearMonth(stickyYear, stickyMonth),
+                            "regular"
+                          ),
+                        },
+                      ]}
                     >
-                      <Text
-                        style={[
-                          styles.stickyYearMonthText,
-                          {
-                            fontFamily: getFontFamilyForText(
-                              formatStickyYearMonth(stickyYear, stickyMonth),
-                              "regular"
-                            ),
-                          },
-                        ]}
-                      >
-                        {formatStickyYearMonth(stickyYear, stickyMonth)}
-                      </Text>
-                      <Ionicons
-                        name="chevron-down-outline"
-                        size={14}
-                        color="#82665B"
-                        style={styles.stickyYearMonthChevron}
-                      />
-                    </TouchableOpacity>
-                  </Animated.View>
-                )}
+                      {formatStickyYearMonth(stickyYear, stickyMonth)}
+                    </Text>
+                    <Ionicons
+                      name="chevron-down-outline"
+                      size={14}
+                      color="#82665B"
+                      style={styles.stickyYearMonthChevron}
+                    />
+                  </TouchableOpacity>
+                </Animated.View>
+              )}
+            <View style={styles.listWrapper}>
               <FlatList
                 ref={flatListRef}
                 style={styles.flatListFill}
+                // ✅ 禁用 iOS 自动 inset，避免额外底部留白
+                contentInsetAdjustmentBehavior="never"
+                // ✅ 方案13: 确保 FlatList 可以滚动
+                scrollEnabled={true}
+                // ✅ 方案14: 禁用嵌套滚动（如果有的话）
+                nestedScrollEnabled={false}
+                // ✅ 方案15: 禁用内容裁剪，确保所有内容可见
+                removeClippedSubviews={false}
+                // ✅ 方案16: 优化滚动性能
+                initialNumToRender={10}
+                maxToRenderPerBatch={10}
+                windowSize={10}
                 data={searchQuery.trim() !== '' ? searchResults : diaries}
                 renderItem={renderDiaryCardMemo}
                 keyExtractor={(item) => item.diary_id}
                 ListHeaderComponent={listHeader}
                 ListEmptyComponent={listEmpty}
+                ListFooterComponent={listFooter}
+                onLayout={(e) => {
+                  // ✅ 方案6: 动态测量 FlatList 实际高度，用于调试和验证
+                  if (__DEV__) {
+                    const { height } = e.nativeEvent.layout;
+                    const footerHeight = BOTTOM_BAR_HEIGHT + 12;
+                    console.log('📏 [Layout Debug] FlatList height:', height);
+                    console.log('📏 [Layout Debug] Footer height:', footerHeight);
+                    console.log('📏 [Layout Debug] Available scroll height:', height);
+                    console.log('📏 [Layout Debug] insets.bottom:', insets.bottom);
+                  }
+                }}
                 contentContainerStyle={[
                   styles.listContent,
                   {
-                    paddingBottom: BOTTOM_BAR_HEIGHT + insets.bottom + 24,
-                    // Removing flexGrow: 1 to prevent layout occlusion issues
+                    // ✅ 方案29: 为底部操作栏预留空间
+                    // paddingBottom = 安全区域 + 操作栏底部间距(12) + 操作栏高度(72) + 额外间距(16)
+                    paddingBottom: insets.bottom + 12 + BOTTOM_BAR_HEIGHT + 16,
                   },
                 ]}
                 extraData={{ currentPlayingId, currentTime, duration }}
@@ -1714,6 +1985,23 @@ export default function DiaryListScreen() {
                   />
                 }
                 showsVerticalScrollIndicator={false}
+                // ✅ 关键修复：处理 scrollToIndex 失败的情况（动态高度 item）
+                onScrollToIndexFailed={(info) => {
+                  console.log(`📅 scrollToIndex 失败，index: ${info.index}, 尝试备选方案`);
+                  // 先滚动到大致位置，然后延迟重试
+                  flatListRef.current?.scrollToOffset({
+                    offset: info.averageItemLength * info.index,
+                    animated: true,
+                  });
+                  // 延迟后重试 scrollToIndex
+                  setTimeout(() => {
+                    flatListRef.current?.scrollToIndex({
+                      index: info.index,
+                      viewPosition: 0,
+                      animated: true,
+                    });
+                  }, 100);
+                }}
                 accessibilityLabel={
                   diaries.length > 0
                     ? `${diaries.length} ${t("accessibility.list.diaryCard")}`
@@ -1721,50 +2009,8 @@ export default function DiaryListScreen() {
                 }
               />
             </View>
-          </View>
 
-          {/* 底部操作栏：与 mainContentWrap 平级，绝对定位悬浮，固定高度绝不拉伸 */}
-          <View
-            style={[
-              styles.bottomActionBar,
-              {
-                bottom: insets.bottom + 12,
-                height: BOTTOM_BAR_HEIGHT,
-              },
-            ]}
-          >
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={handleImageUpload}
-              activeOpacity={0.7}
-              accessibilityLabel={t("home.addImageButton")}
-              accessibilityHint={t("accessibility.button.recordHint")}
-              accessibilityRole="button"
-            >
-              <ImageInputIcon width={32} height={32} fill={"#332824"} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.recordButton}
-              onPress={handleVoiceRecord}
-              activeOpacity={0.8}
-              accessibilityLabel={t("home.recordVoiceButton")}
-              accessibilityHint={t("accessibility.button.recordHint")}
-              accessibilityRole="button"
-            >
-              <MicIcon width={26} height={26} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={handleTextInput}
-              activeOpacity={0.7}
-              accessibilityLabel={t("home.writeTextButton")}
-              accessibilityHint={t("accessibility.button.continueHint")}
-              accessibilityRole="button"
-            >
-              <TextInputIcon width={32} height={32} fill={"#332824"} />
-            </TouchableOpacity>
           </View>
-        </>
       )}
 
       {/* Action Sheet */}
@@ -1861,6 +2107,54 @@ export default function DiaryListScreen() {
         </View>
       )}
     </SafeAreaView>
+    
+    {/* ✅ 方案31: 将底部操作栏放在 SafeAreaView 外部，但在 screenBackground 内部
+     * 这样它会相对于整个屏幕定位，正确覆盖 home indicator 区域
+     * ✅ 方案32: 当详情页、录音弹窗等显示时，隐藏工具栏
+     */}
+    {!loading && !diaryDetailVisible && !recordingModalVisible && !textInputModalVisible && !imageDiaryModalVisible && (
+      <View
+        style={[
+          styles.bottomActionBar,
+          {
+            // ✅ 方案33: 工具栏向下移动6像素，遮住底部背景
+            bottom: insets.bottom + 6,
+          },
+        ]}
+      >
+        <TouchableOpacity
+          style={styles.actionButton}
+          onPress={handleImageUpload}
+          activeOpacity={0.7}
+          accessibilityLabel={t("home.addImageButton")}
+          accessibilityHint={t("accessibility.button.recordHint")}
+          accessibilityRole="button"
+        >
+          <ImageInputIcon width={32} height={32} fill={"#332824"} />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.recordButton}
+          onPress={handleVoiceRecord}
+          activeOpacity={0.8}
+          accessibilityLabel={t("home.recordVoiceButton")}
+          accessibilityHint={t("accessibility.button.recordHint")}
+          accessibilityRole="button"
+        >
+          <MicIcon width={26} height={26} />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.actionButton}
+          onPress={handleTextInput}
+          activeOpacity={0.7}
+          accessibilityLabel={t("home.writeTextButton")}
+          accessibilityHint={t("accessibility.button.continueHint")}
+          accessibilityRole="button"
+        >
+          <TextInputIcon width={32} height={32} fill={"#332824"} />
+        </TouchableOpacity>
+      </View>
+    )}
+    </View>
   );
 }
 
@@ -1944,26 +2238,49 @@ function formatAudioDuration(seconds: number): string {
  */
 const styles = StyleSheet.create({
   // ===== 容器 =====
+  // ✅ 方案30: 外层 View 确保背景色延伸到屏幕底部
+  screenBackground: {
+    flex: 1,
+    backgroundColor: "#FAF6ED",
+  },
+  // ✅ 方案30: SafeAreaView 容器（透明背景，由外层提供背景色）
+  safeAreaContainer: {
+    flex: 1,
+    backgroundColor: "transparent",
+  },
+  // 保留旧的 container 样式以防其他地方引用
   container: {
     flex: 1,
     backgroundColor: "#FAF6ED",
   },
 
-  /** 主内容区包裹层：确保 flex 上下文，列表填满可用高度，消除底部色块遮挡 */
+  /** 
+   * 主内容区包裹层：确保 flex 上下文，列表填满可用高度
+   * ✅ 方案29: 简化样式，bottomActionBar 已移到外部
+   */
   mainContentWrap: {
     flex: 1,
+    // ✅ 方案29: 不再需要 position: relative，因为 bottomActionBar 已移到外部
   },
 
   listContent: {
-    paddingBottom: 100, // 占位；实际由 JS 覆盖为 BOTTOM_BAR_HEIGHT + insets.bottom + 24
+    // ✅ 不额外留白，让列表内容延伸到底部（避免出现遮挡色块）
+    paddingBottom: 0,
   },
 
+  /**
+   * ✅ 方案22: 简化 listWrapper 样式，只保留必要的 flex: 1
+   */
   listWrapper: {
     flex: 1,
-    position: "relative",
+    // ⚠️ 不设置其他可能干扰布局的属性
   },
+  /**
+   * ✅ 方案23: 简化 FlatList 样式
+   */
   flatListFill: {
     flex: 1,
+    // ⚠️ 不设置其他可能干扰布局的属性
   },
 
   stickyYearMonthBarOverlay: {
@@ -1972,8 +2289,9 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: 36,
-    zIndex: 10,
+    zIndex: 100, // ✅ 提高 zIndex，确保在 FlatList 之上
     backgroundColor: "#FAF6ED",
+    // ✅ 确保不占用布局空间，不影响 FlatList 的布局计算
   },
   stickyYearMonthBar: {
     height: 36,
@@ -1984,7 +2302,7 @@ const styles = StyleSheet.create({
   },
   stickyYearMonthText: {
     fontSize: 14,
-    color: "#82665B",
+    color: "#1A1A1A", // ✅ 用户要求：年月颜色改为黑色
   },
   stickyYearMonthChevron: {
     marginLeft: 8,
@@ -2182,7 +2500,7 @@ const styles = StyleSheet.create({
     marginTop: 0,
     paddingTop: 0,
     paddingBottom: 0,
-    height: 20, // ✅ 与 20px 图标高度完全一致，消除垂直偏移
+    height: 20, // ✅ 固定高度，确保对齐（图标现在是 16px，通过 alignItems: center 居中）
   },
 
   dateContainer: {
@@ -2406,55 +2724,23 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    paddingBottom: 34,
     paddingTop: 20,
     paddingHorizontal: 20,
-    maxHeight: "70%",
+    paddingBottom: 20, // ✅ 关键修复：确保底部有足够空间显示按钮
+    width: "100%",
+    // ✅ 关键修复：移除 maxHeight 限制或设置更合理的值
   },
   monthPickerHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 16,
+    marginBottom: 8, // ✅ 用户要求：减少间距（从16改为8）
   },
   monthPickerTitle: {
     fontSize: 18,
     fontWeight: "600",
     color: "#333",
     flex: 1,
-  },
-  monthPickerScroll: { flex: 1, minHeight: 200, maxHeight: 360 },
-  monthPickerContent: { paddingBottom: 24, flexGrow: 1 },
-  monthPickerSection: { marginBottom: 20 },
-  monthPickerYearLabel: {
-    fontSize: 16,
-    color: "#82665B",
-    marginBottom: 12,
-  },
-  monthPickerGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  monthPickerChip: {
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 12,
-    backgroundColor: "#FAF6ED",
-    minWidth: 56,
-    alignItems: "center",
-  },
-  monthPickerChipText: {
-    fontSize: 14,
-    color: "#82665B",
-  },
-  monthPickerChipDisabled: {
-    backgroundColor: "#F0F0F0",
-    opacity: 0.6,
-  },
-  monthPickerChipTextDisabled: {
-    fontSize: 14,
-    color: "#999",
   },
   monthPickerEmpty: {
     paddingVertical: 40,
@@ -2463,6 +2749,75 @@ const styles = StyleSheet.create({
   monthPickerEmptyText: {
     fontSize: 14,
     color: "#999",
+  },
+
+  // ===== 滚轮选择器 =====
+  wheelContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingVertical: 4, // ✅ 用户要求：减少上下间距（从8改为4）
+    height: 176, // ✅ 用户要求：减少高度（从220改为176，减少44px）
+  },
+  wheelColumn: {
+    width: "48%",
+    alignItems: "center",
+  },
+  wheelList: {
+    height: 176, // ✅ 与 wheelContainer 保持一致
+    width: "100%",
+  },
+  wheelListContent: {
+    paddingVertical: (176 - 44) / 2, // ✅ 调整内容 padding
+  },
+  wheelItem: {
+    height: 44,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  wheelText: {
+    fontSize: 16,
+    color: "#B8A89D",
+  },
+  wheelTextActive: {
+    color: "#1A1A1A",
+    fontWeight: "600",
+  },
+  wheelHighlight: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: (176 - 44) / 2, // ✅ 与 wheelContainer 高度保持一致
+    height: 44,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: "#E5E5E5",
+  },
+  pickerActions: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 12,
+    paddingTop: 16,
+    paddingBottom: 16, // ✅ 关键修复：增加底部间距确保按钮完全可见
+    marginTop: 8, // ✅ 与滚轮保持一定距离
+  },
+  pickerButton: {
+    flex: 1,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: "#F2F2F2",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pickerButtonPrimary: {
+    backgroundColor: "#E56C45", // ✅ 用户要求：Confirm 按钮使用橙色主题色
+  },
+  pickerButtonText: {
+    fontSize: 16,
+    color: "#333",
+    fontWeight: "600",
+  },
+  pickerButtonTextPrimary: {
+    color: "#fff",
   },
 
   actionSheetHeader: {
@@ -2601,12 +2956,16 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
 
-  // ===== 底部操作栏（胶囊效果）=====
-  // height、bottom 由 JS 动态设置；绝不使用 flex，避免被拉伸成半屏遮挡
+  /**
+   * ===== 底部操作栏（胶囊效果）=====
+   * ✅ 方案24: 简化样式，确保绝对定位正确工作
+   * 关键：position: absolute + 固定 height，不使用 flex
+   */
   bottomActionBar: {
     position: "absolute",
     left: 56,
     right: 56,
+    height: 72, // ✅ 固定高度，不使用 maxHeight/minHeight
     backgroundColor: "#fff",
     borderRadius: 200,
     flexDirection: "row",
@@ -2619,6 +2978,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 16,
     elevation: 12,
+    zIndex: 100,
   },
 
   actionButton: {

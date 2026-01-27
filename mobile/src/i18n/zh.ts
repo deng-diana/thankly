@@ -187,10 +187,10 @@ export default {
   // 情绪日历
   moodCalendar: {
     navTitle: "情绪日历",
-    title: "走过的每一天",
-    subtitle: "情绪，记录着你的时间",
-    summaryFormat: "累计 {{days}} 天 | {{entries}} 条笔记",
-    emptyPickDate: "点击有记录的日期查看日记",
+    title: "情绪日历", // ✅ UX优化：更直观的标题
+    // ✅ UX优化：删除副标题 "情绪，记录着你的时间"（冗余信息）
+    summaryFormat: "{{days}} 天 • {{entries}} 个瞬间", // ✅ UX优化：使用 • 替代 |，使用"瞬间"替代"笔记"
+    emptyPickDate: "选择一个日期，查看你的瞬间", // ✅ UX优化：更友好的空状态文案
     prevMonth: "上一月",
     nextMonth: "下一月",
     entriesLabel: "条",
@@ -397,6 +397,8 @@ export default {
   draft: {
     restoreTitle: "发现未保存的内容",
     restoreMessage: "是否恢复上次未保存的内容？",
+    restoreImagesHint: "({{count}}张图片)",
+    restoreTextHint: "({{preview}}...)",
     restore: "恢复",
     discard: "放弃",
     unsavedTitle: "尚未保存的内容",
