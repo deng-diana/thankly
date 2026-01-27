@@ -106,13 +106,26 @@ def get_openai_service():
 def update_task_progress(task_id: str, status: str, progress: int = 0, 
                         step: int = 0, step_name: str = "", message: str = "",
                         diary: Optional[Dict] = None, error: Optional[str] = None,
-                        user_id: str = "TASK_SYSTEM"):
-    """更新任务进度，并保存到 DynamoDB"""
-    # 从 DynamoDB 获取最新任务状态
-    current_task_data = db_service.get_task_progress(task_id, user_id=user_id)
+                        user_id: str = "TASK_SYSTEM",
+                        persist: bool = True):
+    """
+    更新任务进度
+    
+    ✅ Phase 1.3 优化：添加 persist 参数
+    - persist=True（默认）：写入 DynamoDB，用于关键节点（开始、完成、错误、步骤变化）
+    - persist=False：只更新内存缓存，用于虚拟进度循环（减少 DynamoDB 写入开销）
+    
+    🔥 性能提升：虚拟进度循环不再频繁写入 DynamoDB，显著降低延迟
+    """
+    # 优先从内存缓存获取（减少 DynamoDB 读取）
+    current_task_data = task_progress.get(task_id)
+    
+    # 只有在关键节点需要持久化时才从 DynamoDB 读取（确保数据一致性）
+    if not current_task_data and persist:
+        current_task_data = db_service.get_task_progress(task_id, user_id=user_id)
+    
     if not current_task_data:
-        # 如果 DynamoDB 中没有，则从内存中获取（可能是刚创建的任务）
-        current_task_data = task_progress.get(task_id, {
+        current_task_data = {
             "status": "processing",
             "progress": 0,
             "step": 0,
@@ -120,7 +133,7 @@ def update_task_progress(task_id: str, status: str, progress: int = 0,
             "message": "",
             "user_id": user_id,
             "created_at": datetime.now(timezone.utc).isoformat()
-        })
+        }
     
     # 🔥 关键优化：进度保护逻辑 - 进度只能增加，不能减少（除非状态改变）
     new_progress = max(current_task_data.get("progress", 0), progress)
@@ -140,10 +153,11 @@ def update_task_progress(task_id: str, status: str, progress: int = 0,
     if error:
         current_task_data["error"] = error
 
-    # 保存到 DynamoDB
-    db_service.save_task_progress(task_id, current_task_data, user_id=user_id)
+    # ✅ Phase 1.3: 仅在 persist=True 时写入 DynamoDB
+    if persist:
+        db_service.save_task_progress(task_id, current_task_data, user_id=user_id)
     
-    # 同时更新内存缓存
+    # 始终更新内存缓存（用于快速查询）
     task_progress[task_id] = current_task_data
 
 
@@ -472,7 +486,8 @@ async def process_pure_voice_diary_async(
                 while current_p < 58:  # Demo优化：到 58% 结束
                     await asyncio.sleep(0.6) # ✅ Demo优化: 更快的更新频率
                     current_p += 2 # ✅ Demo优化: 更平滑的步进
-                    update_task_progress(task_id, "processing", current_p, 1, "转录中", "正在努力识别你的声音...", user_id=user['user_id'])
+                    # ✅ Phase 1.3: 虚拟进度只更新内存，不写入 DynamoDB
+                    update_task_progress(task_id, "processing", current_p, 1, "转录中", "正在努力识别你的声音...", user_id=user['user_id'], persist=False)
             
             progress_task = asyncio.create_task(smooth_progress())
             try:
@@ -650,7 +665,8 @@ async def process_voice_diary_async(
                 while current_p < 58:  # Demo优化：到 58% 结束
                     await asyncio.sleep(0.5) # ✅ Demo优化: 更快的更新频率
                     current_p += 2 # ✅ Demo优化: 更平滑的步进
-                    update_task_progress(task_id, "processing", min(current_p, 58), 2, "语音识别", "正在将语音转为文字...", user_id=user['user_id'])
+                    # ✅ Phase 1.3: 虚拟进度只更新内存，不写入 DynamoDB
+                    update_task_progress(task_id, "processing", min(current_p, 58), 2, "语音识别", "正在将语音转为文字...", user_id=user['user_id'], persist=False)
             
             progress_task = asyncio.create_task(smooth_progress())
             try:
