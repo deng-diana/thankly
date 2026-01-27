@@ -24,6 +24,7 @@ import uuid
 from datetime import datetime
 from ..utils.cognito_auth import get_current_user
 from ..services.dynamodb_service import DynamoDBService
+from ..config import get_settings, get_boto3_kwargs
 
 # 创建路由器
 router = APIRouter()
@@ -35,7 +36,11 @@ COGNITO_CLIENT_ID = "6e521vvi1g2a1efbf3l70o83k2"
 COGNITO_REGION = "us-east-1"
 
 # 创建 Cognito 客户端
-cognito_client = boto3.client('cognito-idp', region_name=COGNITO_REGION)
+_settings = get_settings()
+cognito_client = boto3.client(
+    "cognito-idp",
+    **get_boto3_kwargs(_settings, _settings.cognito_region)
+)
 
 
 class AppleLoginRequest(BaseModel):
@@ -345,7 +350,7 @@ async def refresh_token(request: RefreshTokenRequest):
         
         # 所有重试都失败
         print(f"❌ 刷新失败（已重试{max_retries}次）: {last_error}")
-        raise HTTPException(status_code=500, detail="服务暂时不可用，请稍后重试")
+        raise HTTPException(status_code=500, detail="SERVICE_UNAVAILABLE")
         
     except HTTPException:
         # 已经是HTTPException，直接抛出

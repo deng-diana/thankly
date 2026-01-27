@@ -10,6 +10,7 @@ import { refreshAccessToken } from "./authService"; // ← 自动刷新
 import { API_BASE_URL } from "../config/aws-config"; // ← 需要这个
 import { EmotionData } from "../types/emotion";
 import * as FileSystem from "expo-file-system";
+import i18n from "../i18n";
 
 type PreparedImage = {
   uri: string;
@@ -1265,14 +1266,18 @@ export async function pollTaskProgress(
       }
 
       // ✅ 如果是最终错误（完成或失败），直接抛出
+      const errorMsg = error.message;
+      
+      // 检查是否是后端 error code 格式（TRANSCRIPTION_xxx）
+      if (errorMsg.startsWith("TRANSCRIPTION_")) {
+        // 使用 i18n 翻译 error code
+        const translatedMsg = i18n.t(`error.${errorMsg}`, { defaultValue: i18n.t("error.TRANSCRIPTION_FAILED") });
+        throw new Error(translatedMsg);
+      }
+      
       if (
-        error.message.includes("任务完成") ||
-        error.message.includes("任务处理失败") ||
-        error.message.includes("任务不存在") ||
-        error.message.includes("TASK_COMPLETED_OR_EXPIRED") ||
-        error.message.includes("语音识别失败") ||
-        error.message.includes("未识别到有效内容") ||
-        error.message.includes("处理失败")
+        errorMsg.includes("TASK_COMPLETED_OR_EXPIRED") ||
+        errorMsg.includes("处理失败")
       ) {
         throw error;
       }
@@ -1293,7 +1298,7 @@ export async function pollTaskProgress(
     }
   }
 
-  throw new Error("任务处理超时，请稍后重试");
+  throw new Error(i18n.t("error.serverError"));
 }
 
 /**

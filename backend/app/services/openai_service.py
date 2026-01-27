@@ -244,11 +244,13 @@ class OpenAIService:
             except httpx.HTTPError as http_err:
                 print(f"❌ Whisper HTTP 请求失败: {http_err}")
                 if http_err.response is not None:
-                    print(f"📄 Whisper 响应: {http_err.response.text[:200]}...")
-                raise ValueError("语音识别失败: 服务暂时不可用，请稍后重试")
+                    print(f"📄 Whisper 响应状态码: {http_err.response.status_code}")
+                    print(f"📄 Whisper 响应内容: {http_err.response.text[:500]}...")
+                # ✅ 使用英文 error code，前端根据 code 显示 i18n 翻译
+                raise ValueError("TRANSCRIPTION_SERVICE_UNAVAILABLE")
             
             if not response_json:
-                raise ValueError("语音识别失败: 未收到有效响应")
+                raise ValueError("TRANSCRIPTION_NO_RESPONSE")
             
             text = (response_json.get("text") or "").strip()
             segments = response_json.get("segments", []) or []
@@ -260,7 +262,7 @@ class OpenAIService:
                 print(f"❌ 检测到不支持的语言: '{detected_language}'")
                 print(f"   识别文本: '{text[:100]}'")
                 print(f"   这可能是背景音乐或噪音被误识别")
-                raise ValueError("未识别到有效内容，请用中文或英文说话")
+                raise ValueError("TRANSCRIPTION_UNSUPPORTED_LANGUAGE")
             
             # 🔥 新增：检测韩语/日语字符 - 双重保险
             korean_chars = len(re.findall(r'[\uac00-\ud7af]', text))  # 韩语字符
@@ -269,7 +271,7 @@ class OpenAIService:
                 print(f"❌ 检测到韩语/日语字符: 韩语={korean_chars}, 日语={japanese_chars}")
                 print(f"   识别文本: '{text[:100]}'")
                 print(f"   这可能是背景音乐或噪音被误识别")
-                raise ValueError("未识别到有效内容，请用中文或英文说话")
+                raise ValueError("TRANSCRIPTION_UNSUPPORTED_LANGUAGE")
             
             # 🔥 新增：检测重复文本模式 - Whisper 幻觉的常见特征
             # 例如: "닭가슴살 치킨입니다. 닭가슴살 치킨과 닭가슴살 치킨은..."
@@ -289,13 +291,13 @@ class OpenAIService:
                     print(f"❌ 检测到高度重复的文本模式: 重复率={repetition_ratio:.1%}")
                     print(f"   识别文本: '{text[:100]}'")
                     print(f"   这可能是背景音乐或噪音被误识别")
-                    raise ValueError("未识别到有效内容，请说清楚一些")
+                    raise ValueError("TRANSCRIPTION_CONTENT_TOO_SHORT")
             
             normalized_text = re.sub(r"\s+", "", text)
             
             if len(normalized_text) < self.LENGTH_LIMITS["min_audio_text"]:
                 print(f"❌ 转录内容过短: '{text}'")
-                raise ValueError("未识别到有效内容，请说清楚一些")
+                raise ValueError("TRANSCRIPTION_CONTENT_TOO_SHORT")
             
             filler_tokens = {
                 "um",
@@ -325,7 +327,7 @@ class OpenAIService:
                     "❌ 转录结果包含大量重复字符，视为无效:",
                     {"text": text, "normalized": normalized_text},
                 )
-                raise ValueError("未识别到有效内容，请说清楚一些")
+                raise ValueError("TRANSCRIPTION_CONTENT_TOO_SHORT")
             
             # 分析 Whisper 段结果，确认是否真的有讲话
             def _segment_value(segment, attr, default):
@@ -406,7 +408,7 @@ class OpenAIService:
                             "segments_count": len(segments),
                         },
                     )
-                    raise ValueError("未识别到有效内容，请说清楚一些")
+                    raise ValueError("TRANSCRIPTION_CONTENT_TOO_SHORT")
             
             # 对长录音不再使用字符密度硬阈值，避免误杀真实内容
 
@@ -424,7 +426,7 @@ class OpenAIService:
                                 "duration": reference_duration,
                             },
                         )
-                        raise ValueError("未识别到有效内容，请稍作表达后再试")
+                        raise ValueError("TRANSCRIPTION_CONTENT_TOO_SHORT")
                 else:
                     if (
                         len(meaningful_tokens) < 2
@@ -438,7 +440,7 @@ class OpenAIService:
                                 "duration": reference_duration,
                             }
                         )
-                        raise ValueError("未识别到有效内容，请稍作表达后再试")
+                        raise ValueError("TRANSCRIPTION_CONTENT_TOO_SHORT")
             
             print(f"✅ 语音识别成功: '{text[:50]}...'")
             print(f"🌍 Whisper 检测到的语言: {detected_language}")
@@ -451,12 +453,18 @@ class OpenAIService:
             
         except Exception as e:
             print(f"❌ 语音转文字失败: {str(e)}")
-            if "Invalid file format" in str(e):
-                raise ValueError("音频格式不支持，请使用 m4a 格式")
-            elif "File too large" in str(e):
-                raise ValueError("音频文件太大，请控制在 2 分钟内")
+            error_str = str(e)
+            # ✅ 如果已经是 error code 格式，直接重新抛出
+            if error_str.startswith("TRANSCRIPTION_"):
+                raise
+            elif "Invalid file format" in error_str:
+                raise ValueError("TRANSCRIPTION_INVALID_FORMAT")
+            elif "File too large" in error_str:
+                raise ValueError("TRANSCRIPTION_FILE_TOO_LARGE")
             else:
-                raise ValueError(f"语音识别失败: {str(e)}")
+                # 记录详细错误用于调试，但返回通用 error code
+                print(f"📋 详细错误信息: {error_str}")
+                raise ValueError("TRANSCRIPTION_FAILED")
         
         finally:
             # 清理临时文件

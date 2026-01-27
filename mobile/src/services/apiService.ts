@@ -12,6 +12,7 @@
 
 import { API_BASE_URL } from "../config/aws-config";
 import { getAccessToken } from "./authService";
+import i18n from "../i18n";
 
 /**
  * API响应类型
@@ -275,17 +276,13 @@ class APIService {
           // 忽略解析错误
         }
 
-        // 根据状态码返回用户友好的提示
+        // 根据状态码返回用户友好的提示（使用 i18n）
         if (response.status === 403) {
-          errorMessage = "没有权限访问";
+          errorMessage = i18n.t("error.forbidden", { defaultValue: "Access denied" });
         } else if (response.status === 404) {
-          errorMessage = "资源不存在";
-        } else if (response.status === 502) {
-          errorMessage = "服务暂时不可用，请稍后重试";
-        } else if (response.status === 503) {
-          errorMessage = "服务暂时不可用，请稍后重试";
-        } else if (response.status >= 500) {
-          errorMessage = "服务暂时不可用，请稍后重试";
+          errorMessage = i18n.t("error.notFound", { defaultValue: "Resource not found" });
+        } else if (response.status === 502 || response.status === 503 || response.status >= 500) {
+          errorMessage = i18n.t("error.serverError");
         } else if (response.status === 400) {
           // 400通常有具体的业务错误信息，可以显示
           errorMessage =
@@ -303,9 +300,9 @@ class APIService {
     } catch (error: any) {
       console.log("⚠️ API请求异常:", error);
 
-      // 统一错误处理
+      // 统一错误处理（使用 i18n）
       if (error.message.includes("Network request failed")) {
-        throw new Error("网络连接失败，请检查网络");
+        throw new Error(i18n.t("error.networkError"));
       }
 
       throw error;

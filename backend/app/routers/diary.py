@@ -385,17 +385,22 @@ async def create_voice_diary(
         # 其他 HTTPException 直接抛出
         raise
     except ValueError as e:
-        # 空内容错误（兼容旧逻辑）
-        if "空内容" in str(e) or "未识别到有效内容" in str(e):
+        error_str = str(e)
+        # ✅ 识别新的 error code 格式（TRANSCRIPTION_xxx）
+        if error_str.startswith("TRANSCRIPTION_"):
             raise HTTPException(
                 status_code=400,
-                detail=json.dumps({
-                    "code": "EMPTY_TRANSCRIPT",
-                    "message": "No valid speech detected."
-                })
+                detail=error_str  # 直接返回 error code，前端使用 i18n 翻译
+            )
+        # 兼容旧逻辑（空内容错误）
+        elif "空内容" in error_str:
+            raise HTTPException(
+                status_code=400,
+                detail="TRANSCRIPTION_CONTENT_TOO_SHORT"
             )
         else:
-            raise HTTPException(status_code=500, detail=f"处理语音失败: {str(e)}")
+            print(f"❌ ValueError 详情: {error_str}")
+            raise HTTPException(status_code=500, detail="TRANSCRIPTION_FAILED")
     except Exception as e:
         # 其他未预期的错误
         print(f"❌ 创建语音日记失败: {str(e)}")
@@ -403,7 +408,7 @@ async def create_voice_diary(
         traceback.print_exc()
         raise HTTPException(
             status_code=500,
-            detail=f"处理语音失败: {str(e)}"
+            detail="TRANSCRIPTION_FAILED"
         )
 
 

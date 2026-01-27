@@ -350,6 +350,8 @@ export default {
     networkError: "Network connection failed",
     serverError: "Server unavailable, please try again later",
     authExpired: "Session expired, please sign in again",
+    forbidden: "Access denied",
+    notFound: "Resource not found",
     saveFailed: "Save failed",
     deleteFailed: "Delete failed",
     loadFailed: "Load failed",
@@ -361,6 +363,15 @@ export default {
       "Please enable microphone access in Settings to record audio.",
     genericError: "An error occurred",
     retryMessage: "Please try again",
+    // 后端 error code 翻译
+    TRANSCRIPTION_SERVICE_UNAVAILABLE: "Voice service temporarily unavailable, please try again",
+    TRANSCRIPTION_NO_RESPONSE: "No response from voice service, please try again",
+    TRANSCRIPTION_UNSUPPORTED_LANGUAGE: "Please speak in Chinese or English",
+    TRANSCRIPTION_CONTENT_TOO_SHORT: "No valid content detected, please speak clearly",
+    TRANSCRIPTION_REPETITIVE_CONTENT: "No valid content detected, please speak clearly",
+    TRANSCRIPTION_INVALID_FORMAT: "Unsupported audio format",
+    TRANSCRIPTION_FILE_TOO_LARGE: "Audio file too large, please keep within 2 minutes",
+    TRANSCRIPTION_FAILED: "Voice recognition failed, please try again",
     emptyRecording: {
       title: "No valid content detected",
       message:
