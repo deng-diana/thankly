@@ -21,10 +21,11 @@ import asyncio  # 🔥 用于并行执行
 import re  # 用于文本处理
 import traceback  # 用于错误追踪
 from typing import Dict, Optional, List, Any
-from openai import OpenAI, AsyncOpenAI
+from openai import OpenAI, AsyncOpenAI, APIError, RateLimitError, APIConnectionError
 import io
 import base64
 import requests
+import httpx  # ✅ 统一导入，用于异步 HTTP 请求
 
 # ✅ Phase 1.4: 添加重试机制
 from tenacity import (
@@ -127,7 +128,8 @@ class OpenAIService:
     @retry(
         stop=stop_after_attempt(3),  # 最多重试 3 次
         wait=wait_exponential(multiplier=1, min=1, max=10),  # 指数退避：1s, 2s, 4s...
-        retry=retry_if_exception_type((Exception,)),  # 重试所有异常
+        # ✅ Review 优化：只重试网络和 API 相关异常，避免重试逻辑错误
+        retry=retry_if_exception_type((APIError, RateLimitError, APIConnectionError, httpx.RequestError)),
         before_sleep=before_sleep_log(logger, logging.WARNING),  # 重试前记录日志
         reraise=True  # 最终失败时重新抛出异常
     )
@@ -217,7 +219,6 @@ class OpenAIService:
             print(f"✅ 临时文件准备完成")
             
             # ✅ Phase 1.1: 使用 httpx.AsyncClient 异步调用 Whisper（提升性能）
-            import httpx
             print("📤 正在识别语音（verbose_json 模式 - 异步）...")
             response_json = None
             try:
@@ -2053,7 +2054,6 @@ Response Format (JSON):
         Returns:
             base64编码的图片数据
         """
-        import httpx
         try:
             print(f"📥 下载图片: {image_url[:50]}...")
             
