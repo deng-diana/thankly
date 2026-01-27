@@ -332,7 +332,7 @@ export function DiaryCard({
         {/* 底部：日期 + 选项菜单 */}
         <View style={styles.cardFooter}>
           <View style={styles.dateContainer}>
-            <TimeIcon width={20} height={20} color="#80645A" />
+            <TimeIcon width={16} height={16} color="#80645A" />
             <Text
               style={[
                 styles.cardDate,
@@ -372,10 +372,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     borderRadius: 16,
     marginBottom: 16,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
+    // ✅ 投影样式与 DiaryListScreen 保持一致（暖色调柔和扩散）
+    shadowColor: "#FFD1B0",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.45,
+    shadowRadius: 28,
     elevation: 3,
     overflow: "visible",
     position: "relative",
@@ -423,7 +424,7 @@ const styles = StyleSheet.create({
   },
   cardDate: {
     fontSize: 14,
-    color: "#B8A89D",
+    color: "#80645A", // ✅ 与 DiaryListScreen 保持一致
   },
   optionsButton: {
     padding: 4,

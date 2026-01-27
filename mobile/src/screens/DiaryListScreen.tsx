@@ -876,12 +876,14 @@ export default function DiaryListScreen() {
       
       setTimeout(() => {
         try {
+          // ✅ 使用 animated: false 实现即时跳转（参考微信等行业最佳实践）
+          // 避免用户看到快速滚动的动画，提供更专业的用户体验
           flatListRef.current?.scrollToIndex({
             index: idx,
             viewPosition: 0,
-            animated: true,
+            animated: false,
           });
-          console.log(`📅 滚动到索引 ${idx}（${year}/${month}）`);
+          console.log(`📅 跳转到索引 ${idx}（${year}/${month}）`);
         } catch (e) {
           // 列表未布局或动态高度时 scrollToIndex 可能失败
           console.log(`📅 scrollToIndex 失败，尝试 scrollToOffset`);
@@ -889,7 +891,7 @@ export default function DiaryListScreen() {
           const estimatedItemHeight = 180; // 估算每个日记卡片的高度
           flatListRef.current?.scrollToOffset({
             offset: idx * estimatedItemHeight,
-            animated: true,
+            animated: false,
           });
         }
       }, 350); // ✅ 增加延迟，确保 Modal 关闭动画完成
@@ -1039,7 +1041,10 @@ export default function DiaryListScreen() {
             />
             <View style={[styles.monthPickerContainer, { maxHeight: windowHeight * 0.6 }]}>
               <View style={styles.monthPickerHeader}>
-                <Text style={styles.monthPickerTitle}>{t("home.monthPickerTitle")}</Text>
+                <View style={styles.monthPickerTitleRow}>
+                  <PreciousMomentsIcon width={20} height={20} />
+                  <Text style={styles.monthPickerTitle}>{t("home.monthPickerTitle")}</Text>
+                </View>
                 <TouchableOpacity
                   style={styles.actionSheetCloseButton}
                   onPress={() => setMonthPickerVisible(false)}
@@ -1118,19 +1123,22 @@ export default function DiaryListScreen() {
           >
             <SafeAreaView style={{ flexShrink: 0 }} edges={["bottom"]}>
               <View style={styles.monthPickerHeader}>
-                <Text
-                  style={[
-                    styles.monthPickerTitle,
-                    {
-                      fontFamily: getFontFamilyForText(
-                        t("home.monthPickerTitle"),
-                        "medium"
-                      ),
-                    },
-                  ]}
-                >
-                  {t("home.monthPickerTitle")}
-                </Text>
+                <View style={styles.monthPickerTitleRow}>
+                  <PreciousMomentsIcon width={20} height={20} />
+                  <Text
+                    style={[
+                      styles.monthPickerTitle,
+                      {
+                        fontFamily: getFontFamilyForText(
+                          t("home.monthPickerTitle"),
+                          "medium"
+                        ),
+                      },
+                    ]}
+                  >
+                    {t("home.monthPickerTitle")}
+                  </Text>
+                </View>
                 <TouchableOpacity
                   style={styles.actionSheetCloseButton}
                   onPress={handleClose}
@@ -1988,17 +1996,17 @@ export default function DiaryListScreen() {
                 // ✅ 关键修复：处理 scrollToIndex 失败的情况（动态高度 item）
                 onScrollToIndexFailed={(info) => {
                   console.log(`📅 scrollToIndex 失败，index: ${info.index}, 尝试备选方案`);
-                  // 先滚动到大致位置，然后延迟重试
+                  // 先跳转到大致位置，然后延迟重试（使用 animated: false 避免快速滚动）
                   flatListRef.current?.scrollToOffset({
                     offset: info.averageItemLength * info.index,
-                    animated: true,
+                    animated: false,
                   });
                   // 延迟后重试 scrollToIndex
                   setTimeout(() => {
                     flatListRef.current?.scrollToIndex({
                       index: info.index,
                       viewPosition: 0,
-                      animated: true,
+                      animated: false,
                     });
                   }, 100);
                 }}
@@ -2736,11 +2744,16 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: 8, // ✅ 用户要求：减少间距（从16改为8）
   },
-  monthPickerTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#333",
+  // ✅ 标题行容器（图标 + 标题），与 ImageDiaryModal 保持一致
+  monthPickerTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
     flex: 1,
+  },
+  monthPickerTitle: {
+    ...Typography.sectionTitle, // ✅ 使用统一的 Typography，与 ImageDiaryModal 保持一致
+    color: "#1A1A1A",
   },
   monthPickerEmpty: {
     paddingVertical: 40,

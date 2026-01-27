@@ -2,7 +2,7 @@
   "expo": {
     "name": "Thankly",
     "slug": "gratitude-diary",
-    "version": "1.2.0",
+    "version": "1.2.1",
     "description": "Your personal gratitude journal with AI",
     "orientation": "portrait",
     "icon": "./assets/app-icon.png",

@@ -88,7 +88,7 @@ if [ -z "$UPDATE_MESSAGE" ]; then
   UPDATE_MESSAGE="Android hotfix v${APP_VERSION}"
 fi
 
-echo -e "${GREEN}🚀 Publishing Android OTA update${NC}"
+echo -e "${GREEN}🤖 Publishing Android OTA update${NC}"
 echo -e "${YELLOW}   Branch: ${BRANCH}${NC}"
 echo -e "${YELLOW}   Channel: ${PROD_CHANNEL}${NC}"
 echo -e "${YELLOW}   Runtime Version: ${APP_VERSION}${NC}"
