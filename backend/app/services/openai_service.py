@@ -21,10 +21,23 @@ import asyncio  # 🔥 用于并行执行
 import re  # 用于文本处理
 import traceback  # 用于错误追踪
 from typing import Dict, Optional, List, Any
-from openai import OpenAI
+from openai import OpenAI, AsyncOpenAI
 import io
 import base64
 import requests
+
+# ✅ Phase 1.4: 添加重试机制
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+    before_sleep_log,
+)
+import logging
+
+# 配置日志用于重试
+logger = logging.getLogger(__name__)
 
 from ..config import get_settings
 
@@ -95,15 +108,70 @@ class OpenAIService:
         """初始化服务客户端"""
         settings = get_settings()
         
-        # OpenAI 客户端（用于 Whisper）
+        # OpenAI 客户端（用于 Whisper 和同步调用的兼容）
         self.openai_client = OpenAI(api_key=settings.openai_api_key)
+        # ✅ Phase 1.1: 添加 AsyncOpenAI 客户端（用于异步调用，提升性能）
+        self.async_client = AsyncOpenAI(api_key=settings.openai_api_key)
         self.openai_api_key = settings.openai_api_key
         
-        print(f"✅ AI 服务初始化完成")
+        print(f"✅ AI 服务初始化完成（已启用 AsyncOpenAI + 重试机制）")
         print(f"   - Whisper: 语音转文字")
         print(f"   - gpt-4o: 润色 + 标题 (polish) - 教学级别")
-        print(f"   - gpt-4o: 情绪分析 (emotion)")
-        print(f"   - gpt-4o: AI 反馈 (feedback)")
+        print(f"   - gpt-4o: 情绪分析 (emotion) - 异步优化")
+        print(f"   - gpt-4o: AI 反馈 (feedback) - 异步优化")
+    
+    # ========================================================================
+    # ✅ Phase 1.4: 带重试的 GPT-4o 调用辅助方法
+    # ========================================================================
+    
+    @retry(
+        stop=stop_after_attempt(3),  # 最多重试 3 次
+        wait=wait_exponential(multiplier=1, min=1, max=10),  # 指数退避：1s, 2s, 4s...
+        retry=retry_if_exception_type((Exception,)),  # 重试所有异常
+        before_sleep=before_sleep_log(logger, logging.WARNING),  # 重试前记录日志
+        reraise=True  # 最终失败时重新抛出异常
+    )
+    async def _call_gpt4o_with_retry(
+        self,
+        model: str,
+        messages: list,
+        temperature: float = 0.3,
+        max_tokens: int = 2000,
+        response_format: dict = None
+    ):
+        """
+        带重试的 GPT-4o 调用
+        
+        🔥 Phase 1.4: 添加指数退避重试机制
+        - 最多重试 3 次
+        - 指数退避：1s → 2s → 4s
+        - 记录重试日志
+        
+        常见可重试错误：
+        - 网络超时
+        - API 限流 (429)
+        - 服务器错误 (5xx)
+        """
+        try:
+            if response_format:
+                response = await self.async_client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    response_format=response_format
+                )
+            else:
+                response = await self.async_client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens
+                )
+            return response
+        except Exception as e:
+            print(f"⚠️ GPT-4o 调用失败，将重试: {type(e).__name__}: {str(e)}")
+            raise  # 重新抛出，让 tenacity 处理重试
     
     # ========================================================================
     # 语音转文字（保持不变）
@@ -148,14 +216,14 @@ class OpenAIService:
             
             print(f"✅ 临时文件准备完成")
             
-            # 调用 Whisper
+            # ✅ Phase 1.1: 使用 httpx.AsyncClient 异步调用 Whisper（提升性能）
             import httpx
-            print("📤 正在识别语音（verbose_json 模式）...")
+            print("📤 正在识别语音（verbose_json 模式 - 异步）...")
             response_json = None
             try:
-                with httpx.Client(timeout=60.0) as client:
+                async with httpx.AsyncClient(timeout=60.0) as client:
                     file_stream = io.BytesIO(audio_content)
-                    response = client.post(
+                    response = await client.post(
                         "https://api.openai.com/v1/audio/transcriptions",
                         headers={
                             "Authorization": f"Bearer {self.openai_api_key}",
@@ -1108,9 +1176,8 @@ Output: {{"title": "A Visit to the Park", "polished_content": "I went to 公园 
                     {"role": "user", "content": user_prompt}
                 ]
             
-            # 使用 OpenAI client（已经在 __init__ 中初始化）
-            response = await asyncio.to_thread(
-                self.openai_client.chat.completions.create,
+            # ✅ Phase 1.1 + 1.4: 使用 AsyncOpenAI + 重试机制
+            response = await self._call_gpt4o_with_retry(
                 model=self.MODEL_CONFIG["polish"],
                 messages=messages,
                 temperature=0.3,
@@ -1412,9 +1479,9 @@ Response format (JSON ONLY):
             estimated_output_length = max_feedback_length + 200 
             max_tokens = max(300, min(estimated_output_length, 1000))
 
-            response = await asyncio.to_thread(
-                self.openai_client.chat.completions.create,
-                model=self.MODEL_CONFIG["feedback"], # gpt-4o for better empathy
+            # ✅ Phase 1.1 + 1.4: 使用 AsyncOpenAI + 重试机制
+            response = await self._call_gpt4o_with_retry(
+                model=self.MODEL_CONFIG["feedback"],  # gpt-4o for better empathy
                 messages=messages,
                 temperature=0.7,
                 max_tokens=max_tokens,
@@ -1658,13 +1725,14 @@ Response Format (JSON):
             
             messages.append({"role": "user", "content": user_prompt})
             
-            # 调用GPT-4o (质量优先 - 关键任务)
-            response = self.openai_client.chat.completions.create(
+            # ✅ Phase 1.2 + 1.4: 修复同步调用 + 添加重试机制
+            # 🔥 关键修复：之前这里是同步调用，会阻塞事件循环！
+            response = await self._call_gpt4o_with_retry(
                 model=self.MODEL_CONFIG["emotion"],  # 🔥 使用gpt-4o,准确度+10%
                 messages=messages,
                 temperature=0.3,  # ← 降低温度,提高一致性
-                response_format={"type": "json_object"},
-                max_tokens=500
+                max_tokens=500,
+                response_format={"type": "json_object"}
             )
             
             result = json.loads(response.choices[0].message.content)
@@ -1985,12 +2053,14 @@ Response Format (JSON):
         Returns:
             base64编码的图片数据
         """
+        import httpx
         try:
             print(f"📥 下载图片: {image_url[:50]}...")
             
-            # 下载图片
-            response = await asyncio.to_thread(requests.get, image_url, timeout=10)
-            response.raise_for_status()
+            # ✅ Phase 1.1: 使用 httpx.AsyncClient 异步下载（提升性能）
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(image_url)
+                response.raise_for_status()
             
             # 转换为base64
             image_base64 = base64.b64encode(response.content).decode('utf-8')
