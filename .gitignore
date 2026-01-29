@@ -48,3 +48,13 @@ build/
 PROJECT_STRUCTURE.md
 TODO.md
 .expo/
+
+# AI 生成的文档和临时文件
+.agent/
+scripts/diagnose-*.sh
+scripts/verify-*.sh
+
+# 功能开发文档（等功能完成后再提交）
+亲密圈.md
+*功能*.md
+*计划*.md
