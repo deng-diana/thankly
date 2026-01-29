@@ -1,5 +1,4 @@
 """
-亲密圈功能 - 数据库服务层
 Circle Feature - Database Service Layer
 """
 
@@ -10,25 +9,28 @@ from ..config import get_settings, get_boto3_kwargs
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class CircleDBService:
-    """圈子功能数据库服务"""
+    """Circle database service"""
     
     def __init__(self):
         try:
             settings = get_settings()
             self.dynamodb = boto3.resource("dynamodb", **get_boto3_kwargs(settings))
             
-            # 表名配置
+            # Table name configuration
             env_suffix = '-prod' if settings.environment == 'production' else '-dev'
             self.circles_table = self.dynamodb.Table(f'thankly-circles{env_suffix}')
             self.circle_members_table = self.dynamodb.Table(f'thankly-circle-members{env_suffix}')
             self.diary_shares_table = self.dynamodb.Table(f'thankly-diary-shares{env_suffix}')
             
-            print(f"✅ CircleDBService 初始化成功")
+            logger.info(f"CircleDBService initialized successfully (env: {settings.environment})")
         except Exception as e:
-            print(f"❌ CircleDBService 初始化失败: {str(e)}")
+            logger.error(f"CircleDBService initialization failed: {str(e)}", exc_info=True)
             raise
     
     def _convert_to_decimal(self, obj: Any) -> Any:
@@ -45,8 +47,9 @@ class CircleDBService:
     # 圈子管理
     # ====================================================================
     
-    def create_circle(self, user_id: str, circle_name: str, invite_code: str) -> dict:
-        """创建圈子"""
+    def create_circle(self, user_id: str, circle_name: str, invite_code: str, 
+                     user_name: str = "Owner") -> dict:
+        """Create a circle"""
         circle_id = str(uuid.uuid4())
         created_at = datetime.now(timezone.utc).isoformat()
         
@@ -62,29 +65,29 @@ class CircleDBService:
         
         try:
             self.circles_table.put_item(Item=item)
-            # 同时添加创建者为成员
+            # Add creator as member
             self.add_circle_member(
                 circle_id=circle_id,
                 user_id=user_id,
-                user_name="创建者",
+                user_name=user_name,
                 role='owner'
             )
             return item
         except Exception as e:
-            print(f"❌ 创建圈子失败: {str(e)}")
+            logger.error(f"Failed to create circle: {str(e)}", exc_info=True)
             raise
     
     def get_circle_by_id(self, circle_id: str) -> Optional[dict]:
-        """通过ID查询圈子"""
+        """Get circle by ID"""
         try:
             response = self.circles_table.get_item(Key={'circleId': circle_id})
             return response.get('Item')
         except Exception as e:
-            print(f"❌ 查询圈子失败: {str(e)}")
+            logger.error(f"Failed to get circle by ID {circle_id}: {str(e)}")
             return None
     
     def get_circle_by_invite_code(self, invite_code: str) -> Optional[dict]:
-        """通过邀请码查询圈子"""
+        """Get circle by invite code"""
         try:
             response = self.circles_table.query(
                 IndexName='inviteCode-index',
@@ -93,11 +96,11 @@ class CircleDBService:
             items = response.get('Items', [])
             return items[0] if items else None
         except Exception as e:
-            print(f"❌ 查询邀请码失败: {str(e)}")
+            logger.error(f"Failed to query invite code {invite_code}: {str(e)}")
             return None
     
     def get_user_circles(self, user_id: str) -> List[dict]:
-        """获取用户加入的所有圈子"""
+        """Get all circles user has joined (optimized with batch get)"""
         try:
             response = self.circle_members_table.query(
                 IndexName='userId-joinedAt-index',
@@ -105,28 +108,46 @@ class CircleDBService:
             )
             
             member_records = response.get('Items', [])
-            circles = []
+            if not member_records:
+                return []
             
-            # 查询每个圈子的详细信息
+            # Batch get circle details to avoid N+1 queries
+            circle_ids = [record['circleId'] for record in member_records]
+            
+            # DynamoDB BatchGetItem (max 100 items per request)
+            keys = [{'circleId': cid} for cid in circle_ids]
+            batch_response = self.dynamodb.batch_get_item(
+                RequestItems={
+                    self.circles_table.name: {
+                        'Keys': keys
+                    }
+                }
+            )
+            
+            # Build circle dict for O(1) lookup
+            circles_dict = {
+                circle['circleId']: circle 
+                for circle in batch_response.get('Responses', {}).get(self.circles_table.name, [])
+            }
+            
+            # Merge member info with circle info
+            circles = []
             for record in member_records:
-                circle = self.circles_table.get_item(
-                    Key={'circleId': record['circleId']}
-                ).get('Item')
-                
+                circle = circles_dict.get(record['circleId'])
                 if circle:
                     circle['role'] = record['role']
                     circle['joinedAt'] = record['joinedAt']
                     circles.append(circle)
             
-            # 按加入时间倒序排列
+            # Sort by join time (newest first)
             circles.sort(key=lambda x: x['joinedAt'], reverse=True)
             return circles
         except Exception as e:
-            print(f"❌ 查询用户圈子失败: {str(e)}")
+            logger.error(f"Failed to get user circles for {user_id}: {str(e)}")
             return []
     
     def update_circle_member_count(self, circle_id: str, delta: int):
-        """更新圈子成员数量"""
+        """Update circle member count"""
         try:
             self.circles_table.update_item(
                 Key={'circleId': circle_id},
@@ -137,10 +158,10 @@ class CircleDBService:
                 }
             )
         except Exception as e:
-            print(f"❌ 更新成员数量失败: {str(e)}")
+            logger.error(f"Failed to update member count for circle {circle_id}: {str(e)}")
     
     def count_user_owned_circles(self, user_id: str) -> int:
-        """统计用户创建的圈子数量"""
+        """Count circles owned by user"""
         try:
             response = self.circles_table.query(
                 IndexName='userId-createdAt-index',
@@ -149,7 +170,7 @@ class CircleDBService:
             )
             return response['Count']
         except Exception as e:
-            print(f"❌ 统计圈子数量失败: {str(e)}")
+            logger.error(f"Failed to count circles for user {user_id}: {str(e)}")
             return 0
     
     # ====================================================================
@@ -159,7 +180,7 @@ class CircleDBService:
     def add_circle_member(self, circle_id: str, user_id: str,
                          user_name: str = "", user_avatar: str = "",
                          role: str = 'member') -> dict:
-        """添加圈子成员"""
+        """Add circle member"""
         joined_at = datetime.now(timezone.utc).isoformat()
         
         item = {
@@ -179,43 +200,43 @@ class CircleDBService:
                 self.update_circle_member_count(circle_id, 1)
             return item
         except Exception as e:
-            print(f"❌ 添加圈子成员失败: {str(e)}")
+            logger.error(f"Failed to add circle member: {str(e)}", exc_info=True)
             raise
     
     def remove_circle_member(self, circle_id: str, user_id: str):
-        """移除圈子成员（并清理其分享的日记）"""
+        """Remove circle member and cleanup their shares"""
         try:
-            # 删除成员记录
+            # Delete member record
             self.circle_members_table.delete_item(
                 Key={
                     'circleId': circle_id,
                     'userId': user_id
                 }
             )
-            # 更新成员数量
+            # Update member count
             self.update_circle_member_count(circle_id, -1)
-            # 清理该用户在此圈子的分享记录
+            # Cleanup user's shares in this circle
             self.cleanup_user_shares_in_circle(user_id, circle_id)
         except Exception as e:
-            print(f"❌ 移除圈子成员失败: {str(e)}")
+            logger.error(f"Failed to remove circle member: {str(e)}", exc_info=True)
             raise
     
     def get_circle_members(self, circle_id: str) -> List[dict]:
-        """获取圈子所有成员"""
+        """Get all members of a circle"""
         try:
             response = self.circle_members_table.query(
                 KeyConditionExpression=Key('circleId').eq(circle_id)
             )
             members = response.get('Items', [])
-            # owner 排在最前面
+            # Owner listed first
             members.sort(key=lambda x: (x['role'] != 'owner', x['joinedAt']))
             return members
         except Exception as e:
-            print(f"❌ 查询圈子成员失败: {str(e)}")
+            logger.error(f"Failed to get circle members for {circle_id}: {str(e)}")
             return []
     
     def is_circle_member(self, circle_id: str, user_id: str) -> bool:
-        """检查用户是否为圈子成员"""
+        """Check if user is a circle member"""
         try:
             response = self.circle_members_table.get_item(
                 Key={
@@ -225,11 +246,11 @@ class CircleDBService:
             )
             return 'Item' in response
         except Exception as e:
-            print(f"❌ 检查成员身份失败: {str(e)}")
+            logger.error(f"Failed to check membership: {str(e)}")
             return False
     
     def get_member_role(self, circle_id: str, user_id: str) -> Optional[str]:
-        """获取成员角色"""
+        """Get member role"""
         try:
             response = self.circle_members_table.get_item(
                 Key={
@@ -240,7 +261,7 @@ class CircleDBService:
             item = response.get('Item')
             return item['role'] if item else None
         except Exception as e:
-            print(f"❌ 查询成员角色失败: {str(e)}")
+            logger.error(f"Failed to get member role: {str(e)}")
             return None
     
     # ====================================================================
@@ -278,13 +299,13 @@ class CircleDBService:
             self.diary_shares_table.put_item(Item=item)
             return item
         except Exception as e:
-            print(f"❌ 分享日记失败: {str(e)}")
+            logger.error(f"Failed to share diary: {str(e)}", exc_info=True)
             raise
     
     def unshare_diary_from_circle(self, diary_id: str, circle_id: str):
-        """取消日记分享"""
+        """Unshare diary from circle"""
         try:
-            # 查询 shareId
+            # Query shareId
             response = self.diary_shares_table.query(
                 IndexName='diaryId-index',
                 KeyConditionExpression=Key('diaryId').eq(diary_id),
@@ -297,11 +318,11 @@ class CircleDBService:
                     Key={'shareId': item['shareId']}
                 )
         except Exception as e:
-            print(f"❌ 取消分享失败: {str(e)}")
+            logger.error(f"Failed to unshare diary: {str(e)}", exc_info=True)
             raise
     
     def get_diary_shares(self, diary_id: str) -> List[dict]:
-        """查询日记分享到哪些圈子"""
+        """Get diary share status"""
         try:
             response = self.diary_shares_table.query(
                 IndexName='diaryId-index',
@@ -309,12 +330,12 @@ class CircleDBService:
             )
             return response.get('Items', [])
         except Exception as e:
-            print(f"❌ 查询日记分享状态失败: {str(e)}")
+            logger.error(f"Failed to get diary shares: {str(e)}")
             return []
     
     def get_circle_feed(self, circle_id: str, limit: int = 20,
                        last_key: Optional[dict] = None) -> dict:
-        """获取圈子动态流（已优化，使用冗余字段）"""
+        """Get circle feed (optimized with denormalized fields)"""
         try:
             query_params = {
                 'IndexName': 'circleId-sharedAt-index',
@@ -333,11 +354,11 @@ class CircleDBService:
                 'last_key': response.get('LastEvaluatedKey')
             }
         except Exception as e:
-            print(f"❌ 查询圈子动态失败: {str(e)}")
+            logger.error(f"Failed to get circle feed: {str(e)}")
             return {'items': [], 'last_key': None}
     
     def is_diary_shared_to_circle(self, diary_id: str, circle_id: str) -> bool:
-        """检查日记是否已分享到指定圈子（防止重复分享）"""
+        """Check if diary is already shared to circle (prevent duplicates)"""
         try:
             response = self.diary_shares_table.query(
                 IndexName='diaryId-index',
@@ -346,13 +367,13 @@ class CircleDBService:
             )
             return len(response.get('Items', [])) > 0
         except Exception as e:
-            print(f"❌ 检查分享状态失败: {str(e)}")
+            logger.error(f"Failed to check share status: {str(e)}")
             return False
     
     def cleanup_user_shares_in_circle(self, user_id: str, circle_id: str):
-        """清理用户在特定圈子的所有分享（退出圈子时调用）"""
+        """Cleanup user's shares in circle (called when leaving circle)"""
         try:
-            # 查询该用户在此圈子的所有分享
+            # Query all shares from this user in this circle
             response = self.diary_shares_table.query(
                 IndexName='circleId-sharedAt-index',
                 KeyConditionExpression=Key('circleId').eq(circle_id),
@@ -365,18 +386,18 @@ class CircleDBService:
                     Key={'shareId': item['shareId']}
                 )
             
-            print(f"✅ 清理了 {len(items)} 条分享记录")
+            logger.info(f"Cleaned up {len(items)} share records for user {user_id} in circle {circle_id}")
         except Exception as e:
-            print(f"❌ 清理分享记录失败: {str(e)}")
+            logger.error(f"Failed to cleanup shares: {str(e)}")
     
     def cleanup_diary_shares(self, diary_id: str):
-        """清理日记的所有分享记录（删除日记时调用）"""
+        """Cleanup all shares of a diary (called when deleting diary)"""
         try:
             shares = self.get_diary_shares(diary_id)
             for share in shares:
                 self.diary_shares_table.delete_item(
                     Key={'shareId': share['shareId']}
                 )
-            print(f"✅ 清理了 {len(shares)} 条分享记录")
+            logger.info(f"Cleaned up {len(shares)} share records for diary {diary_id}")
         except Exception as e:
-            print(f"❌ 清理日记分享失败: {str(e)}")
+            logger.error(f"Failed to cleanup diary shares: {str(e)}")

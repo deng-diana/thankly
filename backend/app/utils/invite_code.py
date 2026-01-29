@@ -70,25 +70,6 @@ def generate_unique_invite_code(check_exists_func) -> str:
         if not check_exists_func(code):
             return code
     
-    # 如果10次都重复，增加长度重试
+    # If 10 attempts all collide, increase length and retry
     code = generate_invite_code(length=8)
     return code
-
-
-# 示例用法
-if __name__ == '__main__':
-    # 测试生成
-    for i in range(10):
-        code = generate_invite_code()
-        print(f"邀请码 {i+1}: {code}")
-    
-    # 测试验证
-    print("\n格式验证测试:")
-    print(f"A3F9K2: {validate_invite_code_format('A3F9K2')}")  # True
-    print(f"abc123: {validate_invite_code_format('abc123')}")  # False (小写)
-    print(f"12345: {validate_invite_code_format('12345')}")    # False (长度)
-    
-    # 测试标准化
-    print("\n标准化测试:")
-    print(f"a3f9k2 -> {normalize_invite_code('a3f9k2')}")     # A3F9K2
-    print(f" A3 F9K2  -> {normalize_invite_code(' A3 F9K2 ')}")  # A3F9K2

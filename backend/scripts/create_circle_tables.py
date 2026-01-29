@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-创建亲密圈功能的 DynamoDB 表
-执行: python backend/scripts/create_circle_tables.py
+Create DynamoDB tables for Circle feature
+Usage: python backend/scripts/create_circle_tables.py
 """
 
 import boto3
@@ -33,25 +33,17 @@ def create_circles_table(dynamodb, table_name: str):
                         {'AttributeName': 'userId', 'KeyType': 'HASH'},
                         {'AttributeName': 'createdAt', 'KeyType': 'RANGE'}
                     ],
-                    'Projection': {'ProjectionType': 'ALL'},
-                    'ProvisionedThroughput': {
-                        'ReadCapacityUnits': 5,
-                        'WriteCapacityUnits': 5
-                    }
+                    'Projection': {'ProjectionType': 'ALL'}
                 },
                 {
                     'IndexName': 'inviteCode-index',
                     'KeySchema': [
                         {'AttributeName': 'inviteCode', 'KeyType': 'HASH'}
                     ],
-                    'Projection': {'ProjectionType': 'ALL'},
-                    'ProvisionedThroughput': {
-                        'ReadCapacityUnits': 5,
-                        'WriteCapacityUnits': 5
-                    }
+                    'Projection': {'ProjectionType': 'ALL'}
                 }
             ],
-            BillingMode='PAY_PER_REQUEST',  # 按需计费
+            BillingMode='PAY_PER_REQUEST',  # On-demand billing (no provisioned throughput needed)
             Tags=[
                 {'Key': 'Project', 'Value': 'Thankly'},
                 {'Key': 'Feature', 'Value': 'IntimateCircle'}
@@ -66,7 +58,7 @@ def create_circles_table(dynamodb, table_name: str):
 
 
 def create_circle_members_table(dynamodb, table_name: str):
-    """创建 circle_members 表（圈子成员关系）"""
+    """Create circle_members table (member relationships)"""
     try:
         table = dynamodb.create_table(
             TableName=table_name,
@@ -86,11 +78,7 @@ def create_circle_members_table(dynamodb, table_name: str):
                         {'AttributeName': 'userId', 'KeyType': 'HASH'},
                         {'AttributeName': 'joinedAt', 'KeyType': 'RANGE'}
                     ],
-                    'Projection': {'ProjectionType': 'ALL'},
-                    'ProvisionedThroughput': {
-                        'ReadCapacityUnits': 5,
-                        'WriteCapacityUnits': 5
-                    }
+                    'Projection': {'ProjectionType': 'ALL'}
                 }
             ],
             BillingMode='PAY_PER_REQUEST',
@@ -108,7 +96,7 @@ def create_circle_members_table(dynamodb, table_name: str):
 
 
 def create_diary_shares_table(dynamodb, table_name: str):
-    """创建 diary_shares 表（日记分享关系 + 冗余字段优化）"""
+    """Create diary_shares table (diary sharing + denormalized fields)"""
     try:
         table = dynamodb.create_table(
             TableName=table_name,
@@ -127,11 +115,7 @@ def create_diary_shares_table(dynamodb, table_name: str):
                     'KeySchema': [
                         {'AttributeName': 'diaryId', 'KeyType': 'HASH'}
                     ],
-                    'Projection': {'ProjectionType': 'ALL'},
-                    'ProvisionedThroughput': {
-                        'ReadCapacityUnits': 5,
-                        'WriteCapacityUnits': 5
-                    }
+                    'Projection': {'ProjectionType': 'ALL'}
                 },
                 {
                     'IndexName': 'circleId-sharedAt-index',
@@ -139,11 +123,7 @@ def create_diary_shares_table(dynamodb, table_name: str):
                         {'AttributeName': 'circleId', 'KeyType': 'HASH'},
                         {'AttributeName': 'sharedAt', 'KeyType': 'RANGE'}
                     ],
-                    'Projection': {'ProjectionType': 'ALL'},
-                    'ProvisionedThroughput': {
-                        'ReadCapacityUnits': 5,
-                        'WriteCapacityUnits': 5
-                    }
+                    'Projection': {'ProjectionType': 'ALL'}
                 }
             ],
             BillingMode='PAY_PER_REQUEST',
@@ -161,13 +141,13 @@ def create_diary_shares_table(dynamodb, table_name: str):
 
 
 def main():
-    """主函数"""
-    print("🚀 开始创建亲密圈 DynamoDB 表...\n")
+    """Main function"""
+    print("🚀 Creating Circle feature DynamoDB tables...\n")
     
     settings = get_settings()
     dynamodb = boto3.resource('dynamodb', region_name=settings.aws_region)
     
-    # 表名配置
+    # Table name configuration
     env_suffix = '-prod' if settings.environment == 'production' else '-dev'
     
     tables = [
@@ -176,13 +156,13 @@ def main():
         (f'thankly-diary-shares{env_suffix}', create_diary_shares_table)
     ]
     
-    # 创建所有表
+    # Create all tables
     for table_name, create_func in tables:
-        print(f"\n📋 创建表: {table_name}")
+        print(f"\n📋 Creating table: {table_name}")
         create_func(dynamodb, table_name)
     
-    print("\n✅ 所有表创建完成！")
-    print("\n📊 表结构总览:")
+    print("\n✅ All tables created successfully!")
+    print("\n📊 Table structure overview:")
     print("  1. thankly-circles: 圈子基本信息（主键: circleId）")
     print("     - GSI: userId-createdAt-index (查询用户创建的圈子)")
     print("     - GSI: inviteCode-index (邀请码查询)")

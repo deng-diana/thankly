@@ -9,7 +9,7 @@ S3文件上传服务
 
 import boto3
 from ..config import get_settings, get_boto3_kwargs
-from urllib.parse import urlparse
+from urllib.parse import urlparse, unquote
 from typing import List
 import uuid
 from typing import BinaryIO
@@ -258,6 +258,47 @@ class S3Service:
 
         if not keys:
             return
+
+    def download_object_by_url(self, url: str) -> bytes:
+        """
+        从S3直接下载对象（内网路径），避免走公网URL。
+        支持:
+        - https://{bucket}.s3.amazonaws.com/{key}
+        - https://s3.amazonaws.com/{bucket}/{key}
+        - 自定义域名包含 bucket 名称的URL
+        """
+        parsed = urlparse(url)
+        host = parsed.netloc
+        path = parsed.path.lstrip("/")
+
+        bucket = None
+        key = None
+
+        # 1) 虚拟主机风格: bucket.s3.amazonaws.com/key
+        if host.startswith(f"{self.bucket_name}."):
+            bucket = self.bucket_name
+            key = path
+
+        # 2) 路径风格: s3.amazonaws.com/bucket/key
+        if bucket is None and (host == "s3.amazonaws.com" or host.endswith(".s3.amazonaws.com")):
+            parts = path.split("/", 1)
+            if len(parts) == 2:
+                bucket = parts[0]
+                key = parts[1]
+
+        # 3) 自定义域名（URL中包含 bucket 名称）
+        if bucket is None:
+            marker = f"{self.bucket_name}/"
+            if marker in url:
+                bucket = self.bucket_name
+                key = url.split(marker, 1)[1]
+
+        if not bucket or not key:
+            raise ValueError("S3_URL_PARSE_FAILED")
+
+        key = unquote(key)
+        response = self.s3_client.get_object(Bucket=bucket, Key=key)
+        return response["Body"].read()
 
         # S3 批量删除每次最多1000个对象
         chunk_size = 1000

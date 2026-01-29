@@ -1,20 +1,23 @@
 """
-限流服务 - Rate Limiter Service
-使用 DynamoDB 实现（未来可迁移到 Redis）
+Rate Limiter Service
+Using DynamoDB implementation (can migrate to Redis in future)
 """
 
 import boto3
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 from ..config import get_settings, get_boto3_kwargs
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class RateLimiter:
     """
-    限流器（基于 DynamoDB TTL）
-    用途：
-    1. 邀请码尝试次数限制（10次/天/用户）
-    2. 推送通知频率限制（3条/天/圈子）
+    Rate limiter (based on DynamoDB TTL)
+    Purpose:
+    1. Invite code attempt limit (10/day/user)
+    2. Push notification frequency limit (3/day/circle)
     """
     
     def __init__(self):
@@ -22,12 +25,12 @@ class RateLimiter:
             settings = get_settings()
             self.dynamodb = boto3.resource("dynamodb", **get_boto3_kwargs(settings))
             
-            # 使用现有的 diaries 表（复用，添加 itemType='RATE_LIMIT'）
+            # Reuse existing diaries table (with itemType='RATE_LIMIT')
             self.table = self.dynamodb.Table(settings.dynamodb_table_name)
             
-            print(f"✅ RateLimiter 初始化成功")
+            logger.info("RateLimiter initialized successfully")
         except Exception as e:
-            print(f"❌ RateLimiter 初始化失败: {str(e)}")
+            logger.error(f"RateLimiter initialization failed: {str(e)}", exc_info=True)
             raise
     
     def _get_today_key(self, prefix: str, identifier: str) -> str:
@@ -100,8 +103,8 @@ class RateLimiter:
             }
         
         except Exception as e:
-            print(f"❌ 检查邀请码尝试次数失败: {str(e)}")
-            # 失败时允许尝试（降级策略）
+            logger.error(f"Failed to check invite attempts: {str(e)}")
+            # Allow attempt on failure (degradation strategy)
             return {'allowed': True, 'remaining': max_attempts, 'retry_after': 0}
     
     def record_invite_attempt(self, user_id: str, success: bool = False):
@@ -113,7 +116,7 @@ class RateLimiter:
             success: 是否成功（成功则不计数）
         """
         if success:
-            # 成功加入，清空计数
+            # Success, clear counter
             key = self._get_today_key('INVITE_ATTEMPT', user_id)
             try:
                 self.table.delete_item(
@@ -122,8 +125,8 @@ class RateLimiter:
                         'createdAt': key
                     }
                 )
-            except:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to clear rate limit counter: {str(e)}")
             return
         
         # 失败，增加计数
@@ -144,7 +147,7 @@ class RateLimiter:
                 }
             )
         except Exception as e:
-            print(f"❌ 记录邀请码尝试失败: {str(e)}")
+            logger.error(f"Failed to record invite attempt: {str(e)}")
     
     # ====================================================================
     # 推送通知频率限制
@@ -189,7 +192,7 @@ class RateLimiter:
             }
         
         except Exception as e:
-            print(f"❌ 检查推送限制失败: {str(e)}")
+            logger.error(f"Failed to check push limit: {str(e)}")
             return {'allowed': True, 'remaining': max_pushes}
     
     def record_push(self, circle_id: str):
@@ -212,46 +215,27 @@ class RateLimiter:
                 }
             )
         except Exception as e:
-            print(f"❌ 记录推送失败: {str(e)}")
+            logger.error(f"Failed to record push: {str(e)}")
     
     # ====================================================================
     # 推送静音时段检查
     # ====================================================================
     
     @staticmethod
-    def is_quiet_hours() -> bool:
+    def is_quiet_hours(user_timezone_offset: int = 8) -> bool:
         """
-        检查是否在静音时段（22:00 - 08:00 UTC+8）
+        Check if currently in quiet hours (22:00 - 08:00)
+        
+        Args:
+            user_timezone_offset: User's timezone offset from UTC (default: 8 for UTC+8/China)
         
         Returns:
-            是否在静音时段
+            Whether it's quiet hours
         """
         now = datetime.now(timezone.utc)
-        # 转换为UTC+8（中国时区）
-        china_time = now + timedelta(hours=8)
-        hour = china_time.hour
+        # Convert to user's timezone
+        user_time = now + timedelta(hours=user_timezone_offset)
+        hour = user_time.hour
         
-        # 22:00 到次日 08:00
+        # 22:00 to 08:00 next day
         return hour >= 22 or hour < 8
-
-
-# 使用示例
-if __name__ == '__main__':
-    limiter = RateLimiter()
-    
-    # 测试邀请码限制
-    user_id = "test_user_123"
-    
-    print("测试邀请码尝试限制:")
-    for i in range(12):
-        result = limiter.check_invite_attempts(user_id)
-        print(f"尝试 {i+1}: {result}")
-        
-        if result['allowed']:
-            limiter.record_invite_attempt(user_id, success=False)
-        else:
-            print(f"⛔ 已达限制，需等待 {result['retry_after']} 秒")
-            break
-    
-    # 测试静音时段
-    print(f"\n当前是否静音时段: {RateLimiter.is_quiet_hours()}")

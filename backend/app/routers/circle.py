@@ -88,10 +88,12 @@ async def create_circle(
     
     # Create circle
     try:
+        # Note: user_name should be fetched from user service in Phase 2
         circle = circle_service.create_circle(
             user_id=user_id,
             circle_name=request.circle_name,
-            invite_code=invite_code
+            invite_code=invite_code,
+            user_name="Owner"  # Phase 2: Get from user profile service
         )
         
         return CircleResponse(
@@ -103,7 +105,7 @@ async def create_circle(
             created_at=circle['createdAt']
         )
     except Exception as e:
-        print(f"❌ Create circle failed: {str(e)}")
+        # Error already logged in service layer
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create circle"
@@ -176,10 +178,11 @@ async def join_circle(
     
     # Join circle
     try:
+        # Note: user_name should be fetched from user service in Phase 2
         circle_service.add_circle_member(
             circle_id=circle_id,
             user_id=user_id,
-            user_name="Member",  # TODO: Get real name from user service
+            user_name="Member",  # Phase 2: Get from user profile service
             role='member'
         )
         
@@ -201,7 +204,7 @@ async def join_circle(
             )
         }
     except Exception as e:
-        print(f"❌ Join circle failed: {str(e)}")
+        # Error already logged in service layer
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to join circle"
@@ -305,7 +308,7 @@ async def leave_circle(
         circle_service.remove_circle_member(circle_id, user_id)
         return {"message": "Successfully left the circle"}
     except Exception as e:
-        print(f"❌ Leave circle failed: {str(e)}")
+        # Error already logged in service layer
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to leave circle"

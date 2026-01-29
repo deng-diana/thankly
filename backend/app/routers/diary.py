@@ -1041,15 +1041,23 @@ async def process_pure_voice_diary_with_url_async(
 ):
     """优化版纯语音日记处理函数 - 使用已上传URL"""
     try:
-        # 下载音频内容用于转录
-        import httpx
+        # 下载音频内容用于转录（优先S3内网下载）
         download_start = time.perf_counter()
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            print(f"📥 [Task:{task_id}] 正在获取音频内容: {audio_url}", flush=True)
-            response = await client.get(audio_url)
-            response.raise_for_status()
-            audio_content = response.content
-        _log_timing("下载音频完成(纯语音URL)", download_start, task_id)
+        print(f"📥 [Task:{task_id}] 正在获取音频内容: {audio_url}", flush=True)
+        try:
+            audio_content = await asyncio.to_thread(
+                s3_service.download_object_by_url,
+                audio_url
+            )
+            _log_timing("下载音频完成(纯语音URL,S3内网)", download_start, task_id)
+        except Exception as e:
+            print(f"⚠️ [Task:{task_id}] S3内网下载失败，降级公网URL: {type(e).__name__}: {e}")
+            import httpx
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.get(audio_url)
+                response.raise_for_status()
+                audio_content = response.content
+            _log_timing("下载音频完成(纯语音URL,公网)", download_start, task_id)
         
         # 调用核心处理函数
         await process_pure_voice_diary_async(
@@ -1079,15 +1087,23 @@ async def process_voice_diary_with_url_async(
     """优化版混合媒体处理函数 - 使用已上传URL"""
     try:
         update_task_progress(task_id, "processing", 18, 1, "下载资源", "正在获取音频...", user_id=user["user_id"])
-        import httpx
-        timeout = httpx.Timeout(30.0, connect=10.0)
         download_start = time.perf_counter()
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            print(f"📥 [Task:{task_id}] 正在下载音频: {audio_url}", flush=True)
-            response = await client.get(audio_url)
-            response.raise_for_status()
-            audio_content = response.content
-        _log_timing("下载音频完成(混合URL)", download_start, task_id)
+        print(f"📥 [Task:{task_id}] 正在下载音频: {audio_url}", flush=True)
+        try:
+            audio_content = await asyncio.to_thread(
+                s3_service.download_object_by_url,
+                audio_url
+            )
+            _log_timing("下载音频完成(混合URL,S3内网)", download_start, task_id)
+        except Exception as e:
+            print(f"⚠️ [Task:{task_id}] S3内网下载失败，降级公网URL: {type(e).__name__}: {e}")
+            import httpx
+            timeout = httpx.Timeout(30.0, connect=10.0)
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.get(audio_url)
+                response.raise_for_status()
+                audio_content = response.content
+            _log_timing("下载音频完成(混合URL,公网)", download_start, task_id)
         await process_voice_diary_async(
             task_id=task_id, audio_content=audio_content, audio_filename="recording.m4a",
             audio_content_type="audio/m4a", duration=duration, user=user,
