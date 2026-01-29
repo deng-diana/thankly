@@ -21,6 +21,7 @@ from ..models.diary import DiaryCreate, DiaryResponse, DiaryUpdate, ImageOnlyDia
 from ..services.openai_service import OpenAIService
 from ..services.dynamodb_service import DynamoDBService
 from ..services.s3_service import S3Service
+from ..services.circle_service import CircleDBService
 from ..utils.cognito_auth import get_current_user
 from ..utils.transcription import validate_audio_quality, validate_transcription
 from boto3.dynamodb.conditions import Attr  # ✅ 用于DynamoDB条件表达式
@@ -32,6 +33,7 @@ from boto3.dynamodb.conditions import Attr  # ✅ 用于DynamoDB条件表达式
 router = APIRouter()
 db_service = DynamoDBService()
 s3_service = S3Service()
+circle_service = CircleDBService()
 
 # ============================================================================
 # 任务进度存储（内存存储，生产环境建议使用Redis）
@@ -2529,10 +2531,14 @@ async def delete_diary(
     try:
         print(f"🗑️ 删除日记请求 - ID: {diary_id}, 用户: {user['user_id']}")
         
+        # Delete diary
         db_service.delete_diary(
             diary_id=diary_id,
             user_id=user['user_id']
         )
+        
+        # Cascade delete: cleanup all shares of this diary
+        circle_service.cleanup_diary_shares(diary_id)
         
         print(f"✅ 日记删除成功 - ID: {diary_id}")
         return {
@@ -2618,4 +2624,180 @@ async def search_diaries(
         raise HTTPException(
             status_code=500,
             detail=f"搜索失败: {str(e)}"
+        )
+
+
+# ============================================================================
+# 日记分享 API (Intimate Circle Feature)
+# ============================================================================
+
+@router.post("/{diary_id}/share", summary="分享日记到圈子")
+async def share_diary(
+    diary_id: str,
+    circle_id: str = Body(..., embed=True),
+    user: Dict = Depends(get_current_user)
+):
+    """
+    Share a diary to a circle
+    
+    Args:
+        diary_id: Diary ID
+        circle_id: Target circle ID
+        user: Current user
+    
+    Returns:
+        Share record with shareId
+    """
+    try:
+        user_id = user['user_id']
+        
+        # 1. Check if user is circle member
+        if not circle_service.is_circle_member(circle_id, user_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Only circle members can share diaries"
+            )
+        
+        # 2. Check if diary exists and belongs to user
+        diary = db_service.get_diary_by_id(diary_id)
+        if not diary:
+            raise HTTPException(status_code=404, detail="Diary not found")
+        
+        if diary.get('user_id') != user_id:
+            raise HTTPException(
+                status_code=403,
+                detail="You can only share your own diaries"
+            )
+        
+        # 3. Check if already shared (prevent duplicates)
+        if circle_service.is_diary_shared_to_circle(diary_id, circle_id):
+            raise HTTPException(
+                status_code=400,
+                detail="Diary already shared to this circle"
+            )
+        
+        # 4. Share diary (with denormalized fields for performance)
+        share_record = circle_service.share_diary_to_circle(
+            diary_id=diary_id,
+            circle_id=circle_id,
+            user_id=user_id,
+            diary_data=diary
+        )
+        
+        return {
+            "message": "Diary shared successfully",
+            "share": share_record
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Failed to share diary: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to share diary: {str(e)}"
+        )
+
+
+@router.delete("/{diary_id}/share/{circle_id}", summary="取消分享日记")
+async def unshare_diary(
+    diary_id: str,
+    circle_id: str,
+    user: Dict = Depends(get_current_user)
+):
+    """
+    Unshare a diary from a circle
+    
+    Args:
+        diary_id: Diary ID
+        circle_id: Circle ID
+        user: Current user
+    """
+    try:
+        user_id = user['user_id']
+        
+        # 1. Verify diary ownership
+        diary = db_service.get_diary_by_id(diary_id)
+        if not diary:
+            raise HTTPException(status_code=404, detail="Diary not found")
+        
+        if diary.get('user_id') != user_id:
+            raise HTTPException(
+                status_code=403,
+                detail="You can only unshare your own diaries"
+            )
+        
+        # 2. Unshare
+        circle_service.unshare_diary_from_circle(diary_id, circle_id)
+        
+        return {
+            "message": "Diary unshared successfully",
+            "diary_id": diary_id,
+            "circle_id": circle_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Failed to unshare diary: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to unshare diary: {str(e)}"
+        )
+
+
+@router.get("/{diary_id}/shares", summary="查询日记分享状态")
+async def get_diary_shares(
+    diary_id: str,
+    user: Dict = Depends(get_current_user)
+):
+    """
+    Get diary share status (which circles it's shared to)
+    
+    Args:
+        diary_id: Diary ID
+        user: Current user
+    
+    Returns:
+        List of circles the diary is shared to
+    """
+    try:
+        user_id = user['user_id']
+        
+        # 1. Verify diary ownership
+        diary = db_service.get_diary_by_id(diary_id)
+        if not diary:
+            raise HTTPException(status_code=404, detail="Diary not found")
+        
+        if diary.get('user_id') != user_id:
+            raise HTTPException(
+                status_code=403,
+                detail="You can only view share status of your own diaries"
+            )
+        
+        # 2. Get share records
+        shares = circle_service.get_diary_shares(diary_id)
+        
+        # 3. Extract circle info
+        circles = []
+        for share in shares:
+            circles.append({
+                "circle_id": share.get('circleId'),
+                "shared_at": share.get('sharedAt'),
+                "share_id": share.get('shareId')
+            })
+        
+        return {
+            "diary_id": diary_id,
+            "shared_to_circles": circles,
+            "count": len(circles)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Failed to get diary shares: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get diary shares: {str(e)}"
         )
