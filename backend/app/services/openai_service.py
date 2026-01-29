@@ -26,6 +26,7 @@ import io
 import base64
 import requests
 import httpx  # ✅ 统一导入，用于异步 HTTP 请求
+import time as time_module
 
 # ✅ Phase 1.4: 添加重试机制
 from tenacity import (
@@ -136,6 +137,10 @@ class OpenAIService:
         print(f"   - gpt-4o-mini: 润色 + 标题 (polish) - 优化提示词")
         print(f"   - gpt-4o: 情绪分析 (emotion) - 准确度优先")
         print(f"   - gpt-4o-mini: AI 反馈 (feedback) - 简短有力")
+
+    def _log_timing(self, label: str, start_time: float) -> None:
+        elapsed = time_module.perf_counter() - start_time
+        print(f"⏱️ {label}: {elapsed:.2f} 秒")
     
     # ========================================================================
     # ✅ Phase 1.4: 带重试的 GPT-4o 调用辅助方法
@@ -171,6 +176,7 @@ class OpenAIService:
         - 服务器错误 (5xx)
         """
         try:
+            call_start = time_module.perf_counter()
             if response_format:
                 response = await self.async_client.chat.completions.create(
                     model=model,
@@ -186,6 +192,7 @@ class OpenAIService:
                     temperature=temperature,
                     max_tokens=max_tokens
                 )
+            self._log_timing(f"GPT 调用完成 ({model})", call_start)
             return response
         except Exception as e:
             print(f"⚠️ GPT-4o 调用失败，将重试: {type(e).__name__}: {str(e)}")
@@ -241,6 +248,8 @@ class OpenAIService:
             max_retries = 3
             retry_delay = 2  # 秒
             
+            whisper_start_time = time_module.time()
+            
             for attempt in range(max_retries):
                 try:
                     # ✅ 增加超时时间到120秒，适应慢网络
@@ -263,6 +272,8 @@ class OpenAIService:
                         )
                         response.raise_for_status()
                         response_json = response.json()
+                        whisper_elapsed = time_module.time() - whisper_start_time
+                        print(f"⏱️ Whisper 转录完成，耗时: {whisper_elapsed:.2f} 秒")
                         break  # 成功，退出重试循环
                         
                 except httpx.HTTPStatusError as http_err:
@@ -563,6 +574,8 @@ class OpenAIService:
         - 更温暖：AI 回应"真实的你"而不是"完美的文字"
         """
         try:
+            ai_total_start = time_module.time()
+            
             # ✅ 修复 #10 (2026-01-27): 移除硬编码的长度检查
             # 原因：
             # 1. "我好累呀" (4 字) 是完全有效的日记内容，不应被拒绝
@@ -760,11 +773,13 @@ class OpenAIService:
             # 质量检查 - ✅ 修复: 传递 user_name 以支持反馈降级时添加用户称呼
             result = self._validate_and_fix_result(result, text, user_name=user_name)
             
+            ai_total_elapsed = time_module.time() - ai_total_start
             print(f"✅ 处理完成:")
             print(f"  - 标题: {result['title']}")
             print(f"  - 内容长度: {len(result['polished_content'])} 字")
             print(f"  - 反馈长度: {len(result['feedback'])} 字")
             print(f"  - 情绪: {result.get('emotion_data', {}).get('emotion', 'Unknown')}")
+            print(f"  ⏱️ AI 总耗时: {ai_total_elapsed:.2f} 秒")
             
             return result
         

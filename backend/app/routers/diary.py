@@ -41,6 +41,13 @@ s3_service = S3Service()
 # 这是为了解决 Lambda 多实例导致内存不冲突、任务 404 的问题
 task_progress = {}
 
+def _log_timing(label: str, start_time: float, task_id: Optional[str] = None) -> None:
+    elapsed = time.perf_counter() - start_time
+    if task_id:
+        print(f"⏱️ [Task:{task_id}] {label}: {elapsed:.2f} 秒")
+    else:
+        print(f"⏱️ {label}: {elapsed:.2f} 秒")
+
 def get_display_name(user: Dict, request: Request = None) -> Optional[str]:
     """
     统一获取用户显示名称的逻辑
@@ -179,6 +186,7 @@ async def create_text_diary(
     2. 保存到 DynamoDB
     """
     try:
+        total_start = time.perf_counter()
         openai_service = get_openai_service()
         
         # ✅ 修复：添加 await
@@ -476,12 +484,15 @@ async def process_pure_voice_diary_async(
         async def upload_to_s3_async():
             if audio_url:
                 return audio_url
-            return await asyncio.to_thread(
+            s3_start = time.perf_counter()
+            result = await asyncio.to_thread(
                 s3_service.upload_audio,
                 file_content=audio_content,
                 file_name=audio_filename,
                 content_type=audio_content_type
             )
+            _log_timing("S3 上传完成", s3_start, task_id)
+            return result
         
         # 🚀 优化：增加虚拟进度，防止转录期间卡死
         async def transcribe_with_progress():
@@ -514,11 +525,14 @@ async def process_pure_voice_diary_async(
             
             progress_task = asyncio.create_task(smooth_progress())
             try:
-                return await openai_service.transcribe_audio(
+                transcribe_start = time.perf_counter()
+                result = await openai_service.transcribe_audio(
                     audio_content,
                     audio_filename,
                     expected_duration=duration
                 )
+                _log_timing("Whisper 转录完成(含重试)", transcribe_start, task_id)
+                return result
             finally:
                 progress_task.cancel()
 
@@ -558,6 +572,7 @@ async def process_pure_voice_diary_async(
         async def ai_with_progress():
             # 使用 nonlocal 变量跟踪当前进度，便于在 finally 中获取
             current_progress = 60
+            ai_start = time.perf_counter()
             
             async def smooth_ai_progress():
                 nonlocal current_progress
@@ -601,6 +616,7 @@ async def process_pure_voice_diary_async(
                 )
             finally:
                 progress_task.cancel()
+                _log_timing("AI 处理完成(润色/反馈/情绪)", ai_start, task_id)
                 # ✅ 确保最终进度被持久化（防止AI处理太快导致进度没更新）
                 final_progress = max(current_progress, 85)  # 至少到85%
                 print(f"📊 [Progress] AI处理完成，最终虚拟进度: {final_progress}%")
@@ -645,6 +661,7 @@ async def process_pure_voice_diary_async(
         # 93%: 写入数据库
         update_task_progress(task_id, "processing", 93, 3, "保存中", "写入数据库...", user_id=user['user_id'])
 
+        db_start = time.perf_counter()
         diary_obj = db_service.create_diary(
             user_id=user['user_id'],
             original_content=transcription,
@@ -656,6 +673,7 @@ async def process_pure_voice_diary_async(
             audio_duration=duration,
             emotion_data=final_emotion_data
         )
+        _log_timing("DynamoDB 写入完成", db_start, task_id)
         
         # 96%: 数据库写入完成
         update_task_progress(task_id, "processing", 96, 3, "保存中", "数据保存成功...", user_id=user['user_id'])
@@ -670,6 +688,7 @@ async def process_pure_voice_diary_async(
         # ============================================
         print(f"📊 [Progress] 任务完成: {task_id}")
         update_task_progress(task_id, "completed", 100, 4, "完成", "日记创建成功", diary=diary_obj, user_id=user['user_id'])
+        _log_timing("纯语音全流程完成", total_start, task_id)
         
     except HTTPException as e:
         update_task_progress(task_id, "failed", 0, 0, "错误", str(e.detail), error=str(e.detail), user_id=user['user_id'])
@@ -694,6 +713,7 @@ async def process_voice_diary_async(
 ):
     """异步处理语音日记（后台任务）"""
     try:
+        total_start = time.perf_counter()
         openai_service = get_openai_service()
         
         # ✅ 专家优化：进度对齐 (前端上传完音频已经是 20%)
@@ -714,12 +734,15 @@ async def process_voice_diary_async(
         async def upload_to_s3_async():
             if audio_url:
                 return audio_url
-            return await asyncio.to_thread(
+            s3_start = time.perf_counter()
+            result = await asyncio.to_thread(
                 s3_service.upload_audio,
                 file_content=audio_content,
                 file_name=audio_filename,
                 content_type=audio_content_type
             )
+            _log_timing("S3 上传完成", s3_start, task_id)
+            return result
         
         # 启动上传任务
         s3_upload_task = asyncio.create_task(upload_to_s3_async())
@@ -783,11 +806,13 @@ async def process_voice_diary_async(
             
             progress_task = asyncio.create_task(smooth_progress())
             try:
+                transcribe_start = time.perf_counter()
                 transcription_result = await openai_service.transcribe_audio(
                     audio_content,
                     audio_filename,
                     expected_duration=duration
                 )
+                _log_timing("Whisper 转录完成(含重试)", transcribe_start, task_id)
                 # 🔥 提取转录文本和检测到的语言
                 text = transcription_result["text"]
                 detected_lang = transcription_result.get("detected_language")
@@ -812,8 +837,10 @@ async def process_voice_diary_async(
             combined = text
             if content and content.strip():
                 combined = f"{content.strip()}\n{text}"
-                
+            
+            polish_start = time.perf_counter()
             res = await openai_service._call_gpt4o_for_polish_and_title(combined, lang, None)
+            _log_timing("AI 润色+标题完成", polish_start, task_id)
             update_task_progress(task_id, "processing", 75, 3, "文字美化", "文字美化已完成", user_id=user['user_id'])
             return res
 
@@ -828,8 +855,10 @@ async def process_voice_diary_async(
             combined = text
             if content and content.strip():
                 combined = f"{content.strip()}\n{text}"
-                
+            
+            emotion_start = time.perf_counter()
             res = await openai_service.analyze_emotion_only(combined, lang, None)
+            _log_timing("情绪分析完成", emotion_start, task_id)
             update_task_progress(task_id, "processing", 78, 3, "情绪感应", "情绪感应已完成", user_id=user['user_id'])
             return res
 
@@ -844,8 +873,10 @@ async def process_voice_diary_async(
             combined = text
             if content and content.strip():
                 combined = f"{content.strip()}\n{text}"
-                
+            
+            feedback_start = time.perf_counter()
             res = await openai_service._call_gpt4o_for_feedback(combined, lang, user_display_name, None)
+            _log_timing("AI 反馈完成", feedback_start, task_id)
             update_task_progress(task_id, "processing", 80, 4, "生成回应", "温暖回应已准备就绪", user_id=user['user_id'])
             return res
 
@@ -969,6 +1000,7 @@ async def process_voice_diary_async(
         print(f"📸 保存日记，图片数量: {len(final_image_urls)}, URLs: {final_image_urls}")
         
         # 保存到数据库
+        db_start = time.perf_counter()
         diary_obj = db_service.create_diary(
             user_id=user['user_id'],
             original_content=transcription_final,
@@ -981,6 +1013,7 @@ async def process_voice_diary_async(
             image_urls=final_image_urls,  # ✅ 使用最终图片URL（确保是列表）
             emotion_data=ai_result["emotion_data"] # ✅ 传递情绪数据
         )
+        _log_timing("DynamoDB 写入完成", db_start, task_id)
         
         # 更新进度：完成（分两步，让进度更平滑）
         update_task_progress(task_id, "processing", 96, 5, "保存数据", "数据保存中...", user_id=user['user_id'])
@@ -988,6 +1021,7 @@ async def process_voice_diary_async(
         update_task_progress(task_id, "processing", 98, 5, "完成", "数据保存成功", user_id=user['user_id'])
         await asyncio.sleep(0.2)
         update_task_progress(task_id, "completed", 100, 5, "完成", "日记创建成功", diary=diary_obj, user_id=user['user_id'])
+        _log_timing("混合流程全流程完成", total_start, task_id)
         
     except HTTPException as e:
         update_task_progress(task_id, "failed", 0, 0, "错误", str(e.detail), error=str(e.detail), user_id=user['user_id'])
@@ -1009,11 +1043,13 @@ async def process_pure_voice_diary_with_url_async(
     try:
         # 下载音频内容用于转录
         import httpx
+        download_start = time.perf_counter()
         async with httpx.AsyncClient(timeout=60.0) as client:
             print(f"📥 [Task:{task_id}] 正在获取音频内容: {audio_url}", flush=True)
             response = await client.get(audio_url)
             response.raise_for_status()
             audio_content = response.content
+        _log_timing("下载音频完成(纯语音URL)", download_start, task_id)
         
         # 调用核心处理函数
         await process_pure_voice_diary_async(
@@ -1045,11 +1081,13 @@ async def process_voice_diary_with_url_async(
         update_task_progress(task_id, "processing", 18, 1, "下载资源", "正在获取音频...", user_id=user["user_id"])
         import httpx
         timeout = httpx.Timeout(30.0, connect=10.0)
+        download_start = time.perf_counter()
         async with httpx.AsyncClient(timeout=timeout) as client:
             print(f"📥 [Task:{task_id}] 正在下载音频: {audio_url}", flush=True)
             response = await client.get(audio_url)
             response.raise_for_status()
             audio_content = response.content
+        _log_timing("下载音频完成(混合URL)", download_start, task_id)
         await process_voice_diary_async(
             task_id=task_id, audio_content=audio_content, audio_filename="recording.m4a",
             audio_content_type="audio/m4a", duration=duration, user=user,
@@ -1878,6 +1916,7 @@ async def complete_chunk_upload(
         task_id 和状态信息
     """
     try:
+        total_start = time.perf_counter()
         print(f"🔀 [ChunkComplete] 开始处理: session={session_id}, chunks={chunk_count}, duration={duration}s")
         print(f"   - user_id: {user.get('user_id')}")
         print(f"   - x_user_name: {x_user_name}")
@@ -1887,11 +1926,13 @@ async def complete_chunk_upload(
         
         # Step 1: 合并 chunks
         print(f"📦 [ChunkComplete] Step 1: 合并 chunks...")
+        merge_start = time.perf_counter()
         merged_audio_url = s3_service.merge_chunks(
             session_id=session_id,
             chunk_count=chunk_count,
             output_filename="recording.m4a"
         )
+        _log_timing("合并 chunks 完成", merge_start)
         print(f"✅ [ChunkComplete] 音频合并完成: {merged_audio_url}")
         
         # Step 2: 创建任务 ID
@@ -1968,6 +2009,7 @@ async def complete_chunk_upload(
             )
         
         print(f"✅ [ChunkComplete] 分块上传任务创建成功: task_id={task_id}")
+        _log_timing("分块合并入口完成", total_start)
         
         return {
             "task_id": task_id,
