@@ -29,6 +29,8 @@ import type { RootStackParamList } from '../navigation/AppNavigator';
 
 // Components
 import CircleOnboarding from '../components/CircleOnboarding';
+import CreateCircleModal from '../components/CreateCircleModal';
+import JoinCircleModal from '../components/JoinCircleModal';
 
 // Services & Utils
 import { t } from '../i18n';
@@ -52,6 +54,8 @@ export default function CircleListScreen() {
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showJoinModal, setShowJoinModal] = useState(false);
 
   // ========== 首次引导逻辑 ==========
   useEffect(() => {
@@ -114,13 +118,16 @@ export default function CircleListScreen() {
 
   // ========== 操作处理 ==========
   const handleCreateCircle = () => {
-    // TODO: Open CreateCircleModal
-    Alert.alert(t('circle.create.title'), 'CreateCircleModal - To be implemented');
+    setShowCreateModal(true);
   };
 
   const handleJoinCircle = () => {
-    // TODO: Open JoinCircleModal
-    Alert.alert(t('circle.join.title'), 'JoinCircleModal - To be implemented');
+    setShowJoinModal(true);
+  };
+
+  const handleModalSuccess = () => {
+    // Refresh circle list after creating or joining
+    loadCircles();
   };
 
   const handleCirclePress = (circle: Circle) => {
@@ -347,6 +354,20 @@ export default function CircleListScreen() {
           completeOnboarding();
           handleJoinCircle();
         }}
+      />
+
+      {/* Create Circle Modal */}
+      <CreateCircleModal
+        visible={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onSuccess={handleModalSuccess}
+      />
+
+      {/* Join Circle Modal */}
+      <JoinCircleModal
+        visible={showJoinModal}
+        onClose={() => setShowJoinModal(false)}
+        onSuccess={handleModalSuccess}
       />
     </SafeAreaView>
   );

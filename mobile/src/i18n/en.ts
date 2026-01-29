@@ -26,6 +26,8 @@ export default {
     saving: "Saving...",
     useTextInput: "Use Text Input",
     show: "Show",
+    error: "Error",
+    success: "Success",
   },
 
   // Onboarding流程
@@ -1446,6 +1448,7 @@ export default {
     create: {
       title: "Create Circle",
       button: "Create Circle",
+      subtitle: "Give your circle a warm name",
     },
     createCircle: "Create Circle",
     circleName: "Circle Name",
@@ -1462,6 +1465,8 @@ export default {
     join: {
       title: "Join Circle",
       button: "Join Circle",
+      subtitle: "Enter the invite code shared by your friend",
+      successHint: "You can now share diaries in this circle",
     },
     joinCircle: "Join Circle",
     enterInviteCode: "Enter Invite Code",
@@ -1538,10 +1543,13 @@ export default {
     errors: {
       loadFailed: "Failed to load",
       networkError: "Network error, please try again later",
+      emptyName: "Please enter a circle name",
+      emptyInviteCode: "Please enter invite code",
       limitExceeded: "Free users can create up to 3 circles",
-      tooManyAttempts: "Too many attempts, please try again later",
-      invalidCodeFormat: "Invalid invite code format",
-      codeNotFound: "Invite code not found",
+      tooManyAttempts: "Too many attempts",
+      rateLimitHint: "For security, please try again later. If you forgot the code, ask your friend to share it again.",
+      invalidCodeFormat: "Invalid code format (6 characters)",
+      codeNotFound: "Invite code not found or expired",
       alreadyMember: "You're already a member",
       ownerCannotLeave: "Owner cannot leave the circle",
       notMember: "You're not a member of this circle",

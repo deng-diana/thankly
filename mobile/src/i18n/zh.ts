@@ -25,6 +25,8 @@ export default {
     saving: "保存中...",
     useTextInput: "改用文字输入",
     show: "显示",
+    error: "错误",
+    success: "成功",
   },
 
   // Onboarding流程
@@ -1409,6 +1411,7 @@ export default {
     create: {
       title: "创建圈子",
       button: "创建圈子",
+      subtitle: "为你的圈子起个温暖的名字",
     },
     createCircle: "创建圈子",
     circleName: "圈子名称",
@@ -1425,6 +1428,8 @@ export default {
     join: {
       title: "加入圈子",
       button: "加入圈子",
+      subtitle: "输入朋友分享给你的邀请码",
+      successHint: "你现在可以在这个圈子中分享日记啦",
     },
     joinCircle: "加入圈子",
     enterInviteCode: "输入邀请码",
@@ -1501,10 +1506,13 @@ export default {
     errors: {
       loadFailed: "加载失败",
       networkError: "网络错误，请稍后重试",
+      emptyName: "请输入圈子名称",
+      emptyInviteCode: "请输入邀请码",
       limitExceeded: "免费用户最多创建3个圈子",
-      tooManyAttempts: "尝试次数过多，请稍后再试",
-      invalidCodeFormat: "邀请码格式不正确",
-      codeNotFound: "邀请码不存在",
+      tooManyAttempts: "尝试次数过多",
+      rateLimitHint: "为了安全，请稍后再试。如果忘记邀请码，请向朋友重新索要。",
+      invalidCodeFormat: "邀请码格式不正确（6位字母或数字）",
+      codeNotFound: "邀请码不存在或已失效",
       alreadyMember: "你已经是圈子成员了",
       ownerCannotLeave: "圈主不能退出圈子",
       notMember: "你不是圈子成员",
