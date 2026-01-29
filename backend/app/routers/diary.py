@@ -480,6 +480,7 @@ async def process_pure_voice_diary_async(
     2. AI 处理：润色 + 反馈 (50% → 85%)
     3. 保存到数据库 (85% → 100%)
     """
+    total_start = time.perf_counter()
     try:
         openai_service = get_openai_service()
         
