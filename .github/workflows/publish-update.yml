@@ -9,22 +9,7 @@ name: Publish OTA Update
 # - eas update = Publishes OTA update (for existing installed apps)
 
 on:
-  # Trigger on push to main/master (for OTA updates)
-  push:
-    branches:
-      - main
-      - master
-    paths:
-      # Only trigger if mobile code changes (not native config)
-      - 'mobile/**'
-      - '.github/workflows/publish-update.yml'
-    paths-ignore:
-      # Don't trigger on native build config changes (those need new builds)
-      - 'mobile/app.json'
-      - 'mobile/eas.json'
-      - 'mobile/package.json'
-
-  # Manual trigger for emergency updates
+  # Manual trigger for emergency updates (no auto OTA)
   workflow_dispatch:
     inputs:
       message:
