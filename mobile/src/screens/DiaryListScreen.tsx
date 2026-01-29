@@ -1857,8 +1857,8 @@ export default function DiaryListScreen() {
     <View style={styles.screenBackground}>
     <SafeAreaView 
       style={styles.safeAreaContainer} 
-      edges={["top", "bottom"]}
-      // ✅ 让 SafeArea 覆盖底部，避免系统留白
+      edges={["top"]}
+      // ✅ 方案28: 只处理顶部安全区域，底部由 bottomActionBar 自己处理
     >
       {/* 动态内容更新提示区域 */}
       <View
@@ -1951,7 +1951,7 @@ export default function DiaryListScreen() {
                 style={[
                   styles.flatListFill,
                   {
-                    // ✅ 小步试验：把列表向下“拉”到工具栏下方，消除等高空白
+                    // ✅ 负边距让 FlatList 布局延伸到操作栏区域
                     marginBottom: -BOTTOM_BAR_HEIGHT,
                   },
                 ]}
@@ -1987,8 +1987,8 @@ export default function DiaryListScreen() {
                 contentContainerStyle={[
                   styles.listContent,
                   {
-                    // ✅ 由外层 mainContentWrap 统一预留空间
-                    paddingBottom: 0,
+                    // ✅ 只为操作栏留出最小必要的滚动空间
+                    paddingBottom: BOTTOM_BAR_HEIGHT + insets.bottom,
                   },
                 ]}
                 // ✅ 2026-01-27 优化：只传递当前播放项的进度，避免整个 Map 触发所有卡片重渲染
@@ -2134,74 +2134,47 @@ export default function DiaryListScreen() {
       )}
     </SafeAreaView>
     
-    {/* ✅ 方案31: 将底部操作栏放在 SafeAreaView 外部，但在 screenBackground 内部
-     * 这样它会相对于整个屏幕定位，正确覆盖 home indicator 区域
-     * ✅ 方案32: 当详情页、录音弹窗等显示时，隐藏工具栏
-     */}
+    {/* ✅ 底部操作栏 - 沉浸式设计，背景色自然延伸到屏幕底部 */}
     {!loading && !diaryDetailVisible && !recordingModalVisible && !textInputModalVisible && !imageDiaryModalVisible && (
       <View
         style={[
-          styles.bottomInsetCover,
+          styles.bottomActionBar,
           {
-            // ✅ 使用真实安全区高度，避免残留小条
-            height: Math.max(insets.bottom, 0) + 4, // 反方向缩小覆盖范围
-            transform: [{ translateY: -2 }], // 轻微向上覆盖
+            // ✅ 恢复工具栏位置
+            bottom: insets.bottom + 24,
           },
         ]}
-        pointerEvents="none"
-      />
-    )}
-    
-    {!loading && !diaryDetailVisible && !recordingModalVisible && !textInputModalVisible && !imageDiaryModalVisible && (
-      <View
-        style={[
-          styles.bottomActionBarWrapper,
-          {
-            height: BOTTOM_BAR_HEIGHT + insets.bottom,
-          },
-        ]}
-        pointerEvents="box-none"
       >
-        <View
-          style={[
-            styles.bottomActionBar,
-            {
-              // ✅ 保持工具栏位置不变
-              bottom: insets.bottom + 4,
-            },
-          ]}
+        <TouchableOpacity
+          style={styles.actionButton}
+          onPress={handleImageUpload}
+          activeOpacity={0.7}
+          accessibilityLabel={t("home.addImageButton")}
+          accessibilityHint={t("accessibility.button.recordHint")}
+          accessibilityRole="button"
         >
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={handleImageUpload}
-            activeOpacity={0.7}
-            accessibilityLabel={t("home.addImageButton")}
-            accessibilityHint={t("accessibility.button.recordHint")}
-            accessibilityRole="button"
-          >
-            <ImageInputIcon width={32} height={32} fill={"#332824"} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.recordButton}
-            onPress={handleVoiceRecord}
-            activeOpacity={0.8}
-            accessibilityLabel={t("home.recordVoiceButton")}
-            accessibilityHint={t("accessibility.button.recordHint")}
-            accessibilityRole="button"
-          >
-            <MicIcon width={26} height={26} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={handleTextInput}
-            activeOpacity={0.7}
-            accessibilityLabel={t("home.writeTextButton")}
-            accessibilityHint={t("accessibility.button.continueHint")}
-            accessibilityRole="button"
-          >
-            <TextInputIcon width={32} height={32} fill={"#332824"} />
-          </TouchableOpacity>
-        </View>
+          <ImageInputIcon width={32} height={32} fill={"#332824"} />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.recordButton}
+          onPress={handleVoiceRecord}
+          activeOpacity={0.8}
+          accessibilityLabel={t("home.recordVoiceButton")}
+          accessibilityHint={t("accessibility.button.recordHint")}
+          accessibilityRole="button"
+        >
+          <MicIcon width={26} height={26} />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.actionButton}
+          onPress={handleTextInput}
+          activeOpacity={0.7}
+          accessibilityLabel={t("home.writeTextButton")}
+          accessibilityHint={t("accessibility.button.continueHint")}
+          accessibilityRole="button"
+        >
+          <TextInputIcon width={32} height={32} fill={"#332824"} />
+        </TouchableOpacity>
       </View>
     )}
     </View>
@@ -2391,11 +2364,11 @@ const styles = StyleSheet.create({
     shadowColor: "#FFD1B0",
     shadowOffset: {
       width: 0,
-      height: 2, // 更小的偏移
+      height: 1, // 更小的偏移
     },
-    shadowOpacity: 0.14, // ✅ 更浅阴影
-    shadowRadius: 4, // ✅ 更小扩散
-    elevation: 1, // ✅ Android 阴影更轻
+    shadowOpacity: 0.15, // ✅ 降低透明度（从0.3改为0.15）
+    shadowRadius: 4, // ✅ 减小半径（从8改为4），让阴影更弱
+    elevation: 1, // ✅ Android 阴影也降低（从2改为1）
   },
   compactSearchIcon: {
     marginRight: 6,
@@ -2410,18 +2383,10 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,  // 圆形 (36/2)，与搜索栏高度一致
-    backgroundColor: '#FFFFFF',  // ✅ 与搜索框一致的浅色底
+    backgroundColor: 'transparent',  // ✅ 去掉白色背景
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 12,  // ✅ 距离搜索框12px（从8px改为12px）
-    shadowColor: "#FFD1B0",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.24,
-    shadowRadius: 7,
-    elevation: 3,
   },
   searchingIndicator: {
     flexDirection: 'row',
@@ -3042,24 +3007,6 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 6,
     zIndex: 100,
-  },
-  bottomActionBarWrapper: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "transparent", // ✅ 取消遮罩背景色
-    overflow: "visible", // ✅ 不裁切工具栏阴影
-    zIndex: 95,
-  },
-  bottomInsetCover: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0, // ✅ 取消向下延伸
-    height: 0, // ✅ 实际高度由 insets.bottom 动态注入
-    backgroundColor: "transparent", // ✅ 透明，不再制造色块
-    zIndex: 0, // ✅ 放在最底层
   },
 
   actionButton: {

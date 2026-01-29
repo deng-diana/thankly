@@ -51,7 +51,13 @@ const MainStack = createNativeStackNavigator<RootStackParamList>();
 
 const MainStackNavigator = () => (
   <MainStack.Navigator screenOptions={{ headerShown: false }}>
-    <MainStack.Screen name="DiaryList" component={DiaryListScreen} />
+    <MainStack.Screen
+      name="DiaryList"
+      component={DiaryListScreen}
+      options={{
+        contentStyle: { backgroundColor: "#FAF6ED" },
+      }}
+    />
     <MainStack.Screen 
       name="Search" 
       component={SearchScreen}
