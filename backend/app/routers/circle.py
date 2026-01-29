@@ -3,9 +3,13 @@ Circle Feature - API Router
 亲密圈功能 - API路由
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import BaseModel, Field
 from typing import List, Optional
+import json
+import base64
+import logging
+
 from ..utils.auth import get_current_user_id
 from ..services.circle_service import CircleDBService
 from ..services.rate_limiter import RateLimiter
@@ -14,6 +18,8 @@ from ..utils.invite_code import (
     validate_invite_code_format,
     normalize_invite_code
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/circle", tags=["Circle"])
 
@@ -318,7 +324,7 @@ async def leave_circle(
 @router.get("/{circle_id}/feed", summary="Get circle feed")
 async def get_circle_feed(
     circle_id: str,
-    limit: int = 20,
+    limit: int = Query(20, ge=1, le=100, description="Items per page (1-100)"),
     last_key: Optional[str] = None,
     user_id: str = Depends(get_current_user_id),
     circle_service: CircleDBService = Depends(get_circle_service)
@@ -326,18 +332,27 @@ async def get_circle_feed(
     """
     Get circle feed (shared diaries)
     
-    - Only members can view
+    **Access Control**:
+    - Only circle members can view the feed
+    
+    **Features**:
     - Sorted by share time (newest first)
-    - Pagination support
-    - Uses denormalized fields for performance
+    - Pagination support via cursor
+    - Uses denormalized fields for performance (no JOIN queries)
     
-    Query parameters:
-        - limit: Number of items per page (default 20)
-        - last_key: Pagination cursor (from previous response)
+    **Query Parameters**:
+    - limit: Number of items per page (1-100, default 20)
+    - last_key: Base64-encoded pagination cursor from previous response
     
-    Returns:
-        - items: List of shared diaries with full details
-        - last_key: Cursor for next page (null if no more)
+    **Returns**:
+    - items: List of shared diaries with full details
+    - last_key: Cursor for next page (null if no more items)
+    - count: Number of items in current page
+    
+    **Error Codes**:
+    - 403: Not a circle member
+    - 400: Invalid pagination cursor
+    - 500: Server error
     """
     # Check permission
     if not circle_service.is_circle_member(circle_id, user_id):
@@ -350,11 +365,10 @@ async def get_circle_feed(
         # Parse last_key from string if provided
         decoded_last_key = None
         if last_key:
-            import json
-            import base64
             try:
                 decoded_last_key = json.loads(base64.b64decode(last_key))
-            except Exception:
+            except (ValueError, json.JSONDecodeError) as e:
+                logger.warning(f"Invalid pagination cursor from user {user_id}: {e}")
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Invalid pagination cursor"
@@ -370,8 +384,6 @@ async def get_circle_feed(
         # Encode last_key for response
         encoded_last_key = None
         if result['last_key']:
-            import json
-            import base64
             encoded_last_key = base64.b64encode(
                 json.dumps(result['last_key']).encode()
             ).decode()
@@ -386,7 +398,7 @@ async def get_circle_feed(
     except HTTPException:
         raise
     except Exception as e:
-        # Error already logged in service layer
+        logger.error(f"Failed to get circle feed for {circle_id}: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get circle feed"

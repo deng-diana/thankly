@@ -15,7 +15,10 @@ import re
 import json
 import uuid
 import time
+import logging
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 from ..models.diary import DiaryCreate, DiaryResponse, DiaryUpdate, ImageOnlyDiaryCreate, PresignedUrlRequest
 from ..services.openai_service import OpenAIService
@@ -2516,47 +2519,53 @@ async def update_diary(
 
 
 
-@router.delete("/{diary_id}", summary="删除日记")
+@router.delete("/{diary_id}", summary="Delete diary")
 async def delete_diary(
     diary_id: str,
     user: Dict = Depends(get_current_user)
 ):
     """
-    删除一篇日记
+    Delete a diary entry
+    
+    **Cascade Operations**:
+    - Cleanup all share records in intimate circles
+    - Delete diary entry from database
     
     Args:
-        diary_id: 日记 ID
-        user: 当前登录用户
+        diary_id: Diary ID
+        user: Current authenticated user
     """
     try:
-        print(f"🗑️ 删除日记请求 - ID: {diary_id}, 用户: {user['user_id']}")
+        user_id = user['user_id']
+        logger.info(f"Delete diary request: diary_id={diary_id}, user_id={user_id}")
         
-        # Delete diary
-        db_service.delete_diary(
-            diary_id=diary_id,
-            user_id=user['user_id']
-        )
-        
-        # Cascade delete: cleanup all shares of this diary
+        # Cascade delete: cleanup shares first (before diary deletion)
+        # This ensures orphaned share records are avoided
         circle_service.cleanup_diary_shares(diary_id)
         
-        print(f"✅ 日记删除成功 - ID: {diary_id}")
+        # Delete diary entry
+        db_service.delete_diary(
+            diary_id=diary_id,
+            user_id=user_id
+        )
+        
+        logger.info(f"Diary deleted successfully: diary_id={diary_id}")
         return {
-            "message": "日记删除成功",
+            "message": "Diary deleted successfully",
             "diary_id": diary_id
         }
         
     except ValueError as e:
-        print(f"❌ 删除日记失败（不存在）: {str(e)}")
+        logger.warning(f"Diary not found or unauthorized: diary_id={diary_id}, error={str(e)}")
         raise HTTPException(
             status_code=404,
             detail=str(e)
         )
     except Exception as e:
-        print(f"❌ 删除日记失败: {str(e)}")
+        logger.error(f"Failed to delete diary: diary_id={diary_id}, error={str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"删除日记失败: {str(e)}"
+            detail=f"Failed to delete diary: {str(e)}"
         )
 
 
@@ -2628,25 +2637,39 @@ async def search_diaries(
 
 
 # ============================================================================
-# 日记分享 API (Intimate Circle Feature)
+# Diary Sharing API (Intimate Circle Feature)
 # ============================================================================
 
-@router.post("/{diary_id}/share", summary="分享日记到圈子")
+@router.post("/{diary_id}/share", summary="Share diary to circle")
 async def share_diary(
     diary_id: str,
     circle_id: str = Body(..., embed=True),
     user: Dict = Depends(get_current_user)
 ):
     """
-    Share a diary to a circle
+    Share a diary to an intimate circle
     
-    Args:
-        diary_id: Diary ID
-        circle_id: Target circle ID
-        user: Current user
+    **Business Rules**:
+    - User must be a member of the target circle
+    - Only diary owner can share their own diary
+    - Cannot share same diary twice to same circle
+    - Writes denormalized fields for feed performance
     
-    Returns:
-        Share record with shareId
+    **Request Body**:
+    ```json
+    {
+        "circle_id": "uuid-string"
+    }
+    ```
+    
+    **Returns**:
+    - share: Share record with shareId, timestamps, and metadata
+    
+    **Error Codes**:
+    - 403: Not a circle member OR not diary owner
+    - 404: Diary not found
+    - 400: Already shared to this circle
+    - 500: Server error
     """
     try:
         user_id = user['user_id']
@@ -2684,6 +2707,9 @@ async def share_diary(
             diary_data=diary
         )
         
+        # Audit log for security tracking
+        logger.info(f"Diary shared: user_id={user_id}, diary_id={diary_id}, circle_id={circle_id}, share_id={share_record.get('shareId')}")
+        
         return {
             "message": "Diary shared successfully",
             "share": share_record
@@ -2692,26 +2718,34 @@ async def share_diary(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"❌ Failed to share diary: {str(e)}")
+        logger.error(f"Failed to share diary: user_id={user_id}, diary_id={diary_id}, circle_id={circle_id}, error={str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"Failed to share diary: {str(e)}"
         )
 
 
-@router.delete("/{diary_id}/share/{circle_id}", summary="取消分享日记")
+@router.delete("/{diary_id}/share/{circle_id}", summary="Unshare diary from circle")
 async def unshare_diary(
     diary_id: str,
     circle_id: str,
     user: Dict = Depends(get_current_user)
 ):
     """
-    Unshare a diary from a circle
+    Unshare a diary from an intimate circle
     
-    Args:
-        diary_id: Diary ID
-        circle_id: Circle ID
-        user: Current user
+    **Business Rules**:
+    - Only diary owner can unshare
+    - Removes share record from circle feed
+    
+    **Path Parameters**:
+    - diary_id: Diary ID to unshare
+    - circle_id: Circle ID to remove from
+    
+    **Error Codes**:
+    - 403: Not diary owner
+    - 404: Diary not found
+    - 500: Server error
     """
     try:
         user_id = user['user_id']
@@ -2730,6 +2764,9 @@ async def unshare_diary(
         # 2. Unshare
         circle_service.unshare_diary_from_circle(diary_id, circle_id)
         
+        # Audit log for security tracking
+        logger.info(f"Diary unshared: user_id={user_id}, diary_id={diary_id}, circle_id={circle_id}")
+        
         return {
             "message": "Diary unshared successfully",
             "diary_id": diary_id,
@@ -2739,14 +2776,14 @@ async def unshare_diary(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"❌ Failed to unshare diary: {str(e)}")
+        logger.error(f"Failed to unshare diary: user_id={user_id}, diary_id={diary_id}, circle_id={circle_id}, error={str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"Failed to unshare diary: {str(e)}"
         )
 
 
-@router.get("/{diary_id}/shares", summary="查询日记分享状态")
+@router.get("/{diary_id}/shares", summary="Get diary share status")
 async def get_diary_shares(
     diary_id: str,
     user: Dict = Depends(get_current_user)
@@ -2754,12 +2791,35 @@ async def get_diary_shares(
     """
     Get diary share status (which circles it's shared to)
     
-    Args:
-        diary_id: Diary ID
-        user: Current user
+    **Usage**:
+    - Used by frontend to display share status in diary detail
+    - Shows which circles the diary is currently shared to
     
-    Returns:
-        List of circles the diary is shared to
+    **Business Rules**:
+    - Only diary owner can view share status
+    
+    **Path Parameters**:
+    - diary_id: Diary ID to query
+    
+    **Returns**:
+    ```json
+    {
+        "diary_id": "uuid",
+        "shared_to_circles": [
+            {
+                "circle_id": "uuid",
+                "shared_at": "ISO8601",
+                "share_id": "uuid"
+            }
+        ],
+        "count": 2
+    }
+    ```
+    
+    **Error Codes**:
+    - 403: Not diary owner
+    - 404: Diary not found
+    - 500: Server error
     """
     try:
         user_id = user['user_id']
@@ -2796,7 +2856,7 @@ async def get_diary_shares(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"❌ Failed to get diary shares: {str(e)}")
+        logger.error(f"Failed to get diary shares: user_id={user_id}, diary_id={diary_id}, error={str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"Failed to get diary shares: {str(e)}"
