@@ -1018,10 +1018,32 @@ If your generated content would start with the title, REMOVE the title from the 
 4. Length ≤ 115% of original
 
 **Polish Actions:**
-- Remove filler words (嗯、那个、就是 / um, like, you know)
+- Remove filler words and oral tics (口语赘词必须清理)
 - Fix grammar naturally
 - Add proper punctuation
 - **Add paragraph breaks for long content**
+
+**Filler Removal (HARD RULE):**
+- Remove ALL meaningless fillers: 嗯、呃、啊、那个、就是、然后、其实、感觉、可能、有点、这个、那个、嘛、吧、诶
+- Remove English fillers: um, uh, like, you know, sort of, kind of, basically
+- If a word is used only to stall or soften (e.g., “嗯，然后我就…”，“就是…”，"like…"), delete it.
+- Keep words ONLY if they carry real meaning (e.g., “因为/所以/但是/然后” used as true logical connectors).
+
+**Example (Filler Cleanup):**
+Input: "今天好像，嗯，学到了一个新词，就是 FOMO，然后我就觉得，嗯，大家都在讨论。"
+Output: "今天学到了一个新词 FOMO，我觉得大家都在讨论它。"
+
+# ════════════════════════════════════════════════════════════════════════════════
+# ✅ 8 SCENARIOS (清晰覆盖，不啰嗦)
+# ════════════════════════════════════════════════════════════════════════════════
+1) Short text (≤ 30 chars / ≤ 15 words): Keep it short, just clean fillers + punctuation.
+2) Long text: Enforce paragraphs; keep flow and logic.
+3) Mixed language: Keep code-switching if natural; title in dominant language.
+4) Lists / steps: Preserve list structure; clean fillers inside items.
+5) Quotes / dialogue: Keep quoted meaning; remove fillers outside quotes.
+6) Strong emotion: Keep emotion intensity, only remove fillers.
+7) Acronyms / proper nouns: Keep exactly (FOMO, SOP, Cloudbot, Mac).
+8) Repetition / stutter: Remove meaningless repeats (e.g., “我我我/you you”), keep emphasis once.
 
 # ════════════════════════════════════════════════════════════════════════════════
 # 📤 OUTPUT FORMAT - Return valid JSON
