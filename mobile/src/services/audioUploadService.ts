@@ -194,6 +194,8 @@ export async function uploadAudioAndCreateTask(
   console.log("📤 使用单次直传（文件 <= 1MB）");
   
   try {
+    const FAST_PATH_MAX_BYTES = 5 * 1024 * 1024; // 5MB
+
     // ✅ 优化 (2026-01-27): 并行执行预签名URL获取和文件读取
     // 原来是串行: 获取URL → 读取文件 → 上传
     // 现在是并行: [获取URL + 读取文件] → 上传
@@ -263,6 +265,21 @@ export async function uploadAudioAndCreateTask(
     formData.append("audio_url", presignedData.final_url); // ✅ 使用已上传的URL
     formData.append("duration", duration.toString());
 
+    // ✅ 快速通道：小文件可直接传音频内容，避免后端二次下载
+    if (audioBlob.size > 0 && audioBlob.size <= FAST_PATH_MAX_BYTES) {
+      try {
+        const base64Audio = await blobToBase64(audioBlob);
+        formData.append("audio_content_base64", base64Audio);
+        formData.append("audio_content_type", "audio/m4a");
+        formData.append("audio_filename", "recording.m4a");
+        console.log(`🚀 快速通道启用: base64大小=${(base64Audio.length / 1024 / 1024).toFixed(2)}MB`);
+      } catch (e) {
+        console.log(`⚠️ 快速通道失败，降级为URL下载: ${(e as Error).message}`);
+      }
+    } else {
+      console.log("ℹ️ 文件较大，使用URL下载路径");
+    }
+
     if (content && content.trim()) {
       formData.append("content", content.trim());
     }
@@ -296,6 +313,19 @@ export async function uploadAudioAndCreateTask(
     console.error("❌ 优化版音频上传失败:", error);
     throw error;
   }
+}
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("AUDIO_BASE64_READ_FAILED"));
+    reader.onloadend = () => {
+      const result = reader.result as string;
+      const base64 = result.includes(",") ? result.split(",")[1] : result;
+      resolve(base64);
+    };
+    reader.readAsDataURL(blob);
+  });
 }
 
 /**
