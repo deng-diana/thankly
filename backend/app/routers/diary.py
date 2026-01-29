@@ -15,12 +15,16 @@ import re
 import json
 import uuid
 import time
+import logging
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 from ..models.diary import DiaryCreate, DiaryResponse, DiaryUpdate, ImageOnlyDiaryCreate, PresignedUrlRequest
 from ..services.openai_service import OpenAIService
 from ..services.dynamodb_service import DynamoDBService
 from ..services.s3_service import S3Service
+from ..services.circle_service import CircleDBService
 from ..utils.cognito_auth import get_current_user
 from ..utils.transcription import validate_audio_quality, validate_transcription
 from boto3.dynamodb.conditions import Attr  # ✅ 用于DynamoDB条件表达式
@@ -32,6 +36,7 @@ from boto3.dynamodb.conditions import Attr  # ✅ 用于DynamoDB条件表达式
 router = APIRouter()
 db_service = DynamoDBService()
 s3_service = S3Service()
+circle_service = CircleDBService()
 
 # ============================================================================
 # 任务进度存储（内存存储，生产环境建议使用Redis）
@@ -185,8 +190,8 @@ async def create_text_diary(
     1. AI 多语言处理（检测语言、润色、生成标题和反馈）
     2. 保存到 DynamoDB
     """
-    total_start = time.perf_counter()
     try:
+        total_start = time.perf_counter()
         openai_service = get_openai_service()
         
         # ✅ 修复：添加 await
@@ -459,7 +464,6 @@ async def process_pure_voice_diary_async(
     2. AI 处理：润色 + 反馈 (50% → 85%)
     3. 保存到数据库 (85% → 100%)
     """
-    total_start = time.perf_counter()
     try:
         openai_service = get_openai_service()
         
@@ -713,8 +717,8 @@ async def process_voice_diary_async(
     audio_url: Optional[str] = None
 ):
     """异步处理语音日记（后台任务）"""
-    total_start = time.perf_counter()
     try:
+        total_start = time.perf_counter()
         openai_service = get_openai_service()
         
         # ✅ 专家优化：进度对齐 (前端上传完音频已经是 20%)
@@ -1042,15 +1046,23 @@ async def process_pure_voice_diary_with_url_async(
 ):
     """优化版纯语音日记处理函数 - 使用已上传URL"""
     try:
-        # 下载音频内容用于转录
-        import httpx
+        # 下载音频内容用于转录（优先S3内网下载）
         download_start = time.perf_counter()
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            print(f"📥 [Task:{task_id}] 正在获取音频内容: {audio_url}", flush=True)
-            response = await client.get(audio_url)
-            response.raise_for_status()
-            audio_content = response.content
-        _log_timing("下载音频完成(纯语音URL)", download_start, task_id)
+        print(f"📥 [Task:{task_id}] 正在获取音频内容: {audio_url}", flush=True)
+        try:
+            audio_content = await asyncio.to_thread(
+                s3_service.download_object_by_url,
+                audio_url
+            )
+            _log_timing("下载音频完成(纯语音URL,S3内网)", download_start, task_id)
+        except Exception as e:
+            print(f"⚠️ [Task:{task_id}] S3内网下载失败，降级公网URL: {type(e).__name__}: {e}")
+            import httpx
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.get(audio_url)
+                response.raise_for_status()
+                audio_content = response.content
+            _log_timing("下载音频完成(纯语音URL,公网)", download_start, task_id)
         
         # 调用核心处理函数
         await process_pure_voice_diary_async(
@@ -1080,15 +1092,23 @@ async def process_voice_diary_with_url_async(
     """优化版混合媒体处理函数 - 使用已上传URL"""
     try:
         update_task_progress(task_id, "processing", 18, 1, "下载资源", "正在获取音频...", user_id=user["user_id"])
-        import httpx
-        timeout = httpx.Timeout(30.0, connect=10.0)
         download_start = time.perf_counter()
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            print(f"📥 [Task:{task_id}] 正在下载音频: {audio_url}", flush=True)
-            response = await client.get(audio_url)
-            response.raise_for_status()
-            audio_content = response.content
-        _log_timing("下载音频完成(混合URL)", download_start, task_id)
+        print(f"📥 [Task:{task_id}] 正在下载音频: {audio_url}", flush=True)
+        try:
+            audio_content = await asyncio.to_thread(
+                s3_service.download_object_by_url,
+                audio_url
+            )
+            _log_timing("下载音频完成(混合URL,S3内网)", download_start, task_id)
+        except Exception as e:
+            print(f"⚠️ [Task:{task_id}] S3内网下载失败，降级公网URL: {type(e).__name__}: {e}")
+            import httpx
+            timeout = httpx.Timeout(30.0, connect=10.0)
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.get(audio_url)
+                response.raise_for_status()
+                audio_content = response.content
+            _log_timing("下载音频完成(混合URL,公网)", download_start, task_id)
         await process_voice_diary_async(
             task_id=task_id, audio_content=audio_content, audio_filename="recording.m4a",
             audio_content_type="audio/m4a", duration=duration, user=user,
@@ -1479,6 +1499,9 @@ async def create_voice_diary_async(
 async def create_voice_diary_async_with_url(
     audio_url: str = Form(...),  # ✅ 接收已上传到S3的音频URL
     duration: int = Form(...),
+    audio_content_base64: Optional[str] = Form(None),  # ✅ 可选：直接传音频内容（避免二次下载）
+    audio_content_type: Optional[str] = Form("audio/m4a"),
+    audio_filename: Optional[str] = Form("recording.m4a"),
     image_urls: Optional[str] = Form(None),
     content: Optional[str] = Form(None),
     expect_images: bool = Form(False),
@@ -1564,6 +1587,19 @@ async def create_voice_diary_async_with_url(
         db_service.save_task_progress(task_id, task_data, user_id=user['user_id'])
         task_progress[task_id] = task_data
         
+        # ✅ 如果前端提供音频内容，优先使用（避免二次下载）
+        audio_content = None
+        if audio_content_base64:
+            try:
+                import base64
+                audio_content = base64.b64decode(audio_content_base64)
+                print(f"✅ 使用直传音频内容，大小: {len(audio_content) / 1024:.1f} KB")
+                user_lang = get_user_language(request)
+                validate_audio_quality(duration, len(audio_content), language=user_lang)
+            except Exception as e:
+                print(f"⚠️ 解析 audio_content_base64 失败，将降级为URL下载: {type(e).__name__}: {e}")
+                audio_content = None
+
         # 启动后台异步任务
         has_images = parsed_image_urls and len(parsed_image_urls) > 0
         has_text_content = content and content.strip()
@@ -1572,29 +1608,59 @@ async def create_voice_diary_async_with_url(
         if has_images or has_text_content or pending_images:
             # 混合媒体模式
             print(f"📸 混合媒体模式 - 图片: {len(parsed_image_urls) if parsed_image_urls else 0}, 文字: {bool(has_text_content)}, 等待图片: {pending_images}")
-            asyncio.create_task(
-                process_voice_diary_with_url_async(
-                    task_id=task_id,
-                    audio_url=audio_url,
-                    duration=duration,
-                    user=user,
-                    request=request,
-                    image_urls=parsed_image_urls,
-                    content=content
+            if audio_content:
+                asyncio.create_task(
+                    process_voice_diary_async(
+                        task_id=task_id,
+                        audio_content=audio_content,
+                        audio_filename=audio_filename or "recording.m4a",
+                        audio_content_type=audio_content_type or "audio/m4a",
+                        duration=duration,
+                        user=user,
+                        request=request,
+                        image_urls=parsed_image_urls,
+                        content=content,
+                        audio_url=audio_url
+                    )
                 )
-            )
+            else:
+                asyncio.create_task(
+                    process_voice_diary_with_url_async(
+                        task_id=task_id,
+                        audio_url=audio_url,
+                        duration=duration,
+                        user=user,
+                        request=request,
+                        image_urls=parsed_image_urls,
+                        content=content
+                    )
+                )
         else:
             # 纯语音模式
             print(f"🎤 纯语音模式 - 使用快速通道")
-            asyncio.create_task(
-                process_pure_voice_diary_with_url_async(
-                    task_id=task_id,
-                    audio_url=audio_url,
-                    duration=duration,
-                    user=user,
-                    request=request
+            if audio_content:
+                asyncio.create_task(
+                    process_pure_voice_diary_async(
+                        task_id=task_id,
+                        audio_content=audio_content,
+                        audio_filename=audio_filename or "recording.m4a",
+                        audio_content_type=audio_content_type or "audio/m4a",
+                        duration=duration,
+                        user=user,
+                        request=request,
+                        audio_url=audio_url
+                    )
                 )
-            )
+            else:
+                asyncio.create_task(
+                    process_pure_voice_diary_with_url_async(
+                        task_id=task_id,
+                        audio_url=audio_url,
+                        duration=duration,
+                        user=user,
+                        request=request
+                    )
+                )
         
         print(f"✅ 优化版任务已创建: {task_id}")
         
@@ -1916,8 +1982,8 @@ async def complete_chunk_upload(
     Returns:
         task_id 和状态信息
     """
-    total_start = time.perf_counter()
     try:
+        total_start = time.perf_counter()
         print(f"🔀 [ChunkComplete] 开始处理: session={session_id}, chunks={chunk_count}, duration={duration}s")
         print(f"   - user_id: {user.get('user_id')}")
         print(f"   - x_user_name: {x_user_name}")
@@ -2499,43 +2565,53 @@ async def update_diary(
 
 
 
-@router.delete("/{diary_id}", summary="删除日记")
+@router.delete("/{diary_id}", summary="Delete diary")
 async def delete_diary(
     diary_id: str,
     user: Dict = Depends(get_current_user)
 ):
     """
-    删除一篇日记
+    Delete a diary entry
+    
+    **Cascade Operations**:
+    - Cleanup all share records in intimate circles
+    - Delete diary entry from database
     
     Args:
-        diary_id: 日记 ID
-        user: 当前登录用户
+        diary_id: Diary ID
+        user: Current authenticated user
     """
     try:
-        print(f"🗑️ 删除日记请求 - ID: {diary_id}, 用户: {user['user_id']}")
+        user_id = user['user_id']
+        logger.info(f"Delete diary request: diary_id={diary_id}, user_id={user_id}")
         
+        # Cascade delete: cleanup shares first (before diary deletion)
+        # This ensures orphaned share records are avoided
+        circle_service.cleanup_diary_shares(diary_id)
+        
+        # Delete diary entry
         db_service.delete_diary(
             diary_id=diary_id,
-            user_id=user['user_id']
+            user_id=user_id
         )
         
-        print(f"✅ 日记删除成功 - ID: {diary_id}")
+        logger.info(f"Diary deleted successfully: diary_id={diary_id}")
         return {
-            "message": "日记删除成功",
+            "message": "Diary deleted successfully",
             "diary_id": diary_id
         }
         
     except ValueError as e:
-        print(f"❌ 删除日记失败（不存在）: {str(e)}")
+        logger.warning(f"Diary not found or unauthorized: diary_id={diary_id}, error={str(e)}")
         raise HTTPException(
             status_code=404,
             detail=str(e)
         )
     except Exception as e:
-        print(f"❌ 删除日记失败: {str(e)}")
+        logger.error(f"Failed to delete diary: diary_id={diary_id}, error={str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"删除日记失败: {str(e)}"
+            detail=f"Failed to delete diary: {str(e)}"
         )
 
 
@@ -2603,4 +2679,231 @@ async def search_diaries(
         raise HTTPException(
             status_code=500,
             detail=f"搜索失败: {str(e)}"
+        )
+
+
+# ============================================================================
+# Diary Sharing API (Intimate Circle Feature)
+# ============================================================================
+
+@router.post("/{diary_id}/share", summary="Share diary to circle")
+async def share_diary(
+    diary_id: str,
+    circle_id: str = Body(..., embed=True),
+    user: Dict = Depends(get_current_user)
+):
+    """
+    Share a diary to an intimate circle
+    
+    **Business Rules**:
+    - User must be a member of the target circle
+    - Only diary owner can share their own diary
+    - Cannot share same diary twice to same circle
+    - Writes denormalized fields for feed performance
+    
+    **Request Body**:
+    ```json
+    {
+        "circle_id": "uuid-string"
+    }
+    ```
+    
+    **Returns**:
+    - share: Share record with shareId, timestamps, and metadata
+    
+    **Error Codes**:
+    - 403: Not a circle member OR not diary owner
+    - 404: Diary not found
+    - 400: Already shared to this circle
+    - 500: Server error
+    """
+    try:
+        user_id = user['user_id']
+        
+        # 1. Check if user is circle member
+        if not circle_service.is_circle_member(circle_id, user_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Only circle members can share diaries"
+            )
+        
+        # 2. Check if diary exists and belongs to user
+        diary = db_service.get_diary_by_id(diary_id)
+        if not diary:
+            raise HTTPException(status_code=404, detail="Diary not found")
+        
+        if diary.get('user_id') != user_id:
+            raise HTTPException(
+                status_code=403,
+                detail="You can only share your own diaries"
+            )
+        
+        # 3. Check if already shared (prevent duplicates)
+        if circle_service.is_diary_shared_to_circle(diary_id, circle_id):
+            raise HTTPException(
+                status_code=400,
+                detail="Diary already shared to this circle"
+            )
+        
+        # 4. Share diary (with denormalized fields for performance)
+        share_record = circle_service.share_diary_to_circle(
+            diary_id=diary_id,
+            circle_id=circle_id,
+            user_id=user_id,
+            diary_data=diary
+        )
+        
+        # Audit log for security tracking
+        logger.info(f"Diary shared: user_id={user_id}, diary_id={diary_id}, circle_id={circle_id}, share_id={share_record.get('shareId')}")
+        
+        return {
+            "message": "Diary shared successfully",
+            "share": share_record
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to share diary: user_id={user_id}, diary_id={diary_id}, circle_id={circle_id}, error={str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to share diary: {str(e)}"
+        )
+
+
+@router.delete("/{diary_id}/share/{circle_id}", summary="Unshare diary from circle")
+async def unshare_diary(
+    diary_id: str,
+    circle_id: str,
+    user: Dict = Depends(get_current_user)
+):
+    """
+    Unshare a diary from an intimate circle
+    
+    **Business Rules**:
+    - Only diary owner can unshare
+    - Removes share record from circle feed
+    
+    **Path Parameters**:
+    - diary_id: Diary ID to unshare
+    - circle_id: Circle ID to remove from
+    
+    **Error Codes**:
+    - 403: Not diary owner
+    - 404: Diary not found
+    - 500: Server error
+    """
+    try:
+        user_id = user['user_id']
+        
+        # 1. Verify diary ownership
+        diary = db_service.get_diary_by_id(diary_id)
+        if not diary:
+            raise HTTPException(status_code=404, detail="Diary not found")
+        
+        if diary.get('user_id') != user_id:
+            raise HTTPException(
+                status_code=403,
+                detail="You can only unshare your own diaries"
+            )
+        
+        # 2. Unshare
+        circle_service.unshare_diary_from_circle(diary_id, circle_id)
+        
+        # Audit log for security tracking
+        logger.info(f"Diary unshared: user_id={user_id}, diary_id={diary_id}, circle_id={circle_id}")
+        
+        return {
+            "message": "Diary unshared successfully",
+            "diary_id": diary_id,
+            "circle_id": circle_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to unshare diary: user_id={user_id}, diary_id={diary_id}, circle_id={circle_id}, error={str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to unshare diary: {str(e)}"
+        )
+
+
+@router.get("/{diary_id}/shares", summary="Get diary share status")
+async def get_diary_shares(
+    diary_id: str,
+    user: Dict = Depends(get_current_user)
+):
+    """
+    Get diary share status (which circles it's shared to)
+    
+    **Usage**:
+    - Used by frontend to display share status in diary detail
+    - Shows which circles the diary is currently shared to
+    
+    **Business Rules**:
+    - Only diary owner can view share status
+    
+    **Path Parameters**:
+    - diary_id: Diary ID to query
+    
+    **Returns**:
+    ```json
+    {
+        "diary_id": "uuid",
+        "shared_to_circles": [
+            {
+                "circle_id": "uuid",
+                "shared_at": "ISO8601",
+                "share_id": "uuid"
+            }
+        ],
+        "count": 2
+    }
+    ```
+    
+    **Error Codes**:
+    - 403: Not diary owner
+    - 404: Diary not found
+    - 500: Server error
+    """
+    try:
+        user_id = user['user_id']
+        
+        # 1. Verify diary ownership
+        diary = db_service.get_diary_by_id(diary_id)
+        if not diary:
+            raise HTTPException(status_code=404, detail="Diary not found")
+        
+        if diary.get('user_id') != user_id:
+            raise HTTPException(
+                status_code=403,
+                detail="You can only view share status of your own diaries"
+            )
+        
+        # 2. Get share records
+        shares = circle_service.get_diary_shares(diary_id)
+        
+        # 3. Extract circle info
+        circles = []
+        for share in shares:
+            circles.append({
+                "circle_id": share.get('circleId'),
+                "shared_at": share.get('sharedAt'),
+                "share_id": share.get('shareId')
+            })
+        
+        return {
+            "diary_id": diary_id,
+            "shared_to_circles": circles,
+            "count": len(circles)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get diary shares: user_id={user_id}, diary_id={diary_id}, error={str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get diary shares: {str(e)}"
         )
