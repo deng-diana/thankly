@@ -24,7 +24,11 @@ from ..models.diary import DiaryCreate, DiaryResponse, DiaryUpdate, ImageOnlyDia
 from ..services.openai_service import OpenAIService
 from ..services.dynamodb_service import DynamoDBService
 from ..services.s3_service import S3Service
-from ..services.circle_service import CircleDBService
+try:
+    from ..services.circle_service import CircleDBService
+except Exception:
+    CircleDBService = None
+    print("⚠️ circle_service 不可用：circle 功能将被禁用（缺少 app.services.circle_service）")
 from ..utils.cognito_auth import get_current_user
 from ..utils.transcription import validate_audio_quality, validate_transcription
 from boto3.dynamodb.conditions import Attr  # ✅ 用于DynamoDB条件表达式
@@ -36,7 +40,19 @@ from boto3.dynamodb.conditions import Attr  # ✅ 用于DynamoDB条件表达式
 router = APIRouter()
 db_service = DynamoDBService()
 s3_service = S3Service()
-circle_service = CircleDBService()
+if CircleDBService:
+    circle_service = CircleDBService()
+else:
+    class _CircleServiceStub:
+        def _disabled(self):
+            raise HTTPException(status_code=503, detail="Circle service not available")
+        def cleanup_diary_shares(self, *args, **kwargs): return self._disabled()
+        def is_circle_member(self, *args, **kwargs): return self._disabled()
+        def is_diary_shared_to_circle(self, *args, **kwargs): return self._disabled()
+        def share_diary_to_circle(self, *args, **kwargs): return self._disabled()
+        def unshare_diary_from_circle(self, *args, **kwargs): return self._disabled()
+        def get_diary_shares(self, *args, **kwargs): return self._disabled()
+    circle_service = _CircleServiceStub()
 
 # ============================================================================
 # 任务进度存储（内存存储，生产环境建议使用Redis）
