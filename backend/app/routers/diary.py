@@ -185,8 +185,8 @@ async def create_text_diary(
     1. AI 多语言处理（检测语言、润色、生成标题和反馈）
     2. 保存到 DynamoDB
     """
+    total_start = time.perf_counter()
     try:
-        total_start = time.perf_counter()
         openai_service = get_openai_service()
         
         # ✅ 修复：添加 await
@@ -459,6 +459,7 @@ async def process_pure_voice_diary_async(
     2. AI 处理：润色 + 反馈 (50% → 85%)
     3. 保存到数据库 (85% → 100%)
     """
+    total_start = time.perf_counter()
     try:
         openai_service = get_openai_service()
         
@@ -712,8 +713,8 @@ async def process_voice_diary_async(
     audio_url: Optional[str] = None
 ):
     """异步处理语音日记（后台任务）"""
+    total_start = time.perf_counter()
     try:
-        total_start = time.perf_counter()
         openai_service = get_openai_service()
         
         # ✅ 专家优化：进度对齐 (前端上传完音频已经是 20%)
@@ -1915,8 +1916,8 @@ async def complete_chunk_upload(
     Returns:
         task_id 和状态信息
     """
+    total_start = time.perf_counter()
     try:
-        total_start = time.perf_counter()
         print(f"🔀 [ChunkComplete] 开始处理: session={session_id}, chunks={chunk_count}, duration={duration}s")
         print(f"   - user_id: {user.get('user_id')}")
         print(f"   - x_user_name: {x_user_name}")
