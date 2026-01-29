@@ -71,6 +71,7 @@ class OpenAIService:
         # 策略: 速度敏感任务用 mini，准确度敏感任务用 4o
         "polish": "gpt-4o-mini",         # 润色 + 标题: 速度优先，优化提示词保证质量
         "emotion": "gpt-4o",             # 🔥 情绪分析: 准确度优先（影响情绪日历/幸福罐）
+        "emotion_fast": "gpt-4o-mini",   # ✅ 情绪分析快速模型（低置信度再用 gpt-4o 复核）
         "feedback": "gpt-4o-mini",       # 温暖反馈: 速度优先，优化提示词保证温度
         
         # 🎤 为什么 Whisper？
@@ -141,6 +142,17 @@ class OpenAIService:
     def _log_timing(self, label: str, start_time: float) -> None:
         elapsed = time_module.perf_counter() - start_time
         print(f"⏱️ {label}: {elapsed:.2f} 秒")
+
+    def _log_usage(self, response, label: str) -> None:
+        try:
+            usage = getattr(response, "usage", None)
+            if usage:
+                prompt_tokens = getattr(usage, "prompt_tokens", None)
+                completion_tokens = getattr(usage, "completion_tokens", None)
+                total_tokens = getattr(usage, "total_tokens", None)
+                print(f"📊 {label} token 用量: prompt={prompt_tokens}, completion={completion_tokens}, total={total_tokens}")
+        except Exception:
+            pass
     
     # ========================================================================
     # ✅ Phase 1.4: 带重试的 GPT-4o 调用辅助方法
@@ -193,6 +205,7 @@ class OpenAIService:
                     max_tokens=max_tokens
                 )
             self._log_timing(f"GPT 调用完成 ({model})", call_start)
+            self._log_usage(response, f"{model}")
             return response
         except Exception as e:
             print(f"⚠️ GPT-4o 调用失败，将重试: {type(e).__name__}: {str(e)}")
@@ -225,7 +238,7 @@ class OpenAIService:
         try:
             # 检查音频大小
             audio_size_kb = len(audio_content) / 1024
-            print(f"🎤 收到音频: {filename}, 大小: {audio_size_kb:.1f} KB")
+            print(f"🎤 收到音频: {filename}, 大小: {audio_size_kb:.1f} KB, 期望时长: {expected_duration}s")
             
             if audio_size_kb < 1:
                 raise ValueError("音频文件太小，请说长一点")
@@ -1490,139 +1503,57 @@ Return JSON only:
             }
         """
         try:
-            print(f"🎯 Emotion Agent: 开始专业情绪分析...")
-            
-            # ✅ Phase 1-3 优化: 对比表格 + 边缘案例 + Few-Shot + 温度0.3 + gpt-4o
-            system_prompt = f"""You are an expert emotion analyst specializing in psychological assessment.
+            print(f"🎯 Emotion Agent: 开始情绪分析（两段式）...")
 
-Your ONLY task: Analyze the user's emotion from their text with MAXIMUM ACCURACY.
+            # ✅ 精简版提示词（mini优先）
+            fast_prompt = """You are an expert emotion analyst. Return the MOST specific emotion with a confidence score.
 
-🎯 EMOTION CATEGORIES (24 emotions):
+EMOTIONS (24):
+Positive: Joyful, Grateful, Fulfilled, Proud, Surprised, Excited, Loved, Peaceful, Hopeful
+Neutral: Thoughtful, Reflective, Intentional, Inspired, Curious, Nostalgic, Calm
+Negative: Uncertain, Misunderstood, Lonely, Down, Anxious, Overwhelmed, Venting, Frustrated
 
-**Positive (9)**: Joyful, Grateful, Fulfilled, Proud, Surprised, Excited, Loved, Peaceful, Hopeful
-**Neutral (7)**: Thoughtful, Reflective, Intentional, Inspired, Curious, Nostalgic, Calm
-**Negative (8)**: Uncertain, Misunderstood, Lonely, Down, Anxious, Overwhelmed, Venting, Frustrated
+Rules:
+1) Choose most specific emotion
+2) If unclear → Thoughtful (0.4-0.6)
+3) Short text → conservative
+4) Mixed emotions → pick dominant (>60%)
+5) Use keywords + context
 
-🔍 EMOTION COMPARISON TABLE (Critical - Study Carefully):
+Key pairs:
+- Fulfilled=achievement, Joyful=pure happiness
+- Loved=receiving love, Grateful=expressing thanks
+- Anxious=future worry, Overwhelmed=too much now
 
-| Emotion Pair | Key Difference | Example |
-|--------------|----------------|---------|  
-| **Fulfilled vs Joyful** | Fulfilled=Achievement, Joyful=Pure Happiness | "完成项目"→Fulfilled, "和朋友玩"→Joyful |
-| **Loved vs Grateful** | Loved=Feeling Cherished, Grateful=Thankfulness | "被深深地挂念着"→Loved, "感谢朋友帮忙"→Grateful |
-| **Anxious vs Overwhelmed** | Anxious=Worry future, Overwhelmed=Too much NOW | "担心面试"→Anxious, "工作太多"→Overwhelmed |
-| **Reflective vs Thoughtful** | Reflective=Looking back, Thoughtful=Pondering | "回想往事"→Reflective, "在想问题"→Thoughtful |
-| **Proud vs Fulfilled** | Proud=Pride, Fulfilled=Completion | "为自己骄傲"→Proud, "完成目标"→Fulfilled |
-| **Excited vs Hopeful** | Excited=Near future, Hopeful=Distant | "明天旅行"→Excited, "希望未来"→Hopeful |
-| **Down vs Frustrated** | Down=Sadness, Frustrated=Anger | "很失落"→Down, "总不顺"→Frustrated |
+Return JSON:
+{"emotion":"Fulfilled","confidence":0.85,"rationale":"..."}"""
 
-📋 EDGE CASE HANDLING:
+            # ✅ 高精度提示词（4o兜底，保持策略但缩短）
+            system_prompt = """You are an expert emotion analyst specializing in psychological assessment.
+Your ONLY task: Analyze the user's emotion with MAXIMUM accuracy.
 
-1. **Very Short Text** (<10 words):
-   - Default "Thoughtful" (0.4-0.6)
-   - Only specific emotion if keywords CRYSTAL CLEAR
-   - Example: "累" → Thoughtful (0.5), NOT Overwhelmed
-   - Example: "超级开心" → Joyful (0.8)
+EMOTIONS (24):
+Positive: Joyful, Grateful, Fulfilled, Proud, Surprised, Excited, Loved, Peaceful, Hopeful
+Neutral: Thoughtful, Reflective, Intentional, Inspired, Curious, Nostalgic, Calm
+Negative: Uncertain, Misunderstood, Lonely, Down, Anxious, Overwhelmed, Venting, Frustrated
 
-2. **Mixed Emotions**:
-   - Choose DOMINANT (>60%)
-   - No clear dominant → "Reflective" (0.5-0.6)
-   - Example: "开心但累" → Joyful (0.6) if happiness dominates
+Rules:
+1) Choose most specific emotion
+2) Fulfilled≠Joyful, Anxious≠Overwhelmed, Loved≠Grateful
+3) If unclear → Thoughtful (0.4-0.6)
+4) Mixed → pick dominant (>60%)
+5) Short text → conservative
 
-3. **Neutral Recording**:
-   - "今天去公园" → Thoughtful (0.5)
-   - "记录一下" → Intentional (0.6)
+Key definitions:
+Loved=receiving love/care; Grateful=expressing thanks
+Fulfilled=completion/achievement; Joyful=pure happiness
+Anxious=future worry; Overwhelmed=too much now
 
-📊 CONFIDENCE SCORING (Detailed):
+Return JSON:
+{"emotion":"Fulfilled","confidence":0.92,"rationale":"..."}"""
 
-**0.9-1.0 (Very High):**
-- Multiple EXPLICIT keywords
-- Strong context, ZERO ambiguity
-- Example: "超级开心，笑得肚子疼" → Joyful (0.95)
-
-**0.7-0.9 (High):**
-- Clear keywords, context supports
-- Minor ambiguity
-- Example: "完成项目，有成就感" → Fulfilled (0.85)
-
-**0.5-0.7 (Moderate):**
-- Implicit emotion, context suggests
-- Some ambiguity
-- Example: "天气好，去公园" → Peaceful (0.6)
-
-**0.4-0.5 (Low):**
-- Very ambiguous/neutral
-- Default Thoughtful
-- Example: "记录今天" → Thoughtful (0.45)
-
-**<0.4: DO NOT USE** (use 0.4-0.5 instead)
-
-🎯 KEY DEFINITIONS (Enhanced):
-
-**Loved (被爱着)** - PRIORITY: RECEIVING love/care from others (PASSIVE)
-- Keywords: "被爱", "被爱着", "感觉到爱", "感受到爱", "被关心", "被挂念", "无条件的爱", "温暖"
-- 🔥 IF "被爱" OR "感觉到爱" → 95% is Loved, NOT Grateful!
-- Example: "感觉到深深地被爱" → Loved ✅
-
-**Grateful (感恩)** - EXPRESSING thanks for actions (ACTIVE)
-- Keywords: "感谢", "感恩", "谢谢", "grateful", "thankful"
-- Example: "感谢朋友的帮助" → Grateful ✅
-
-**Fulfilled**: "完成","达成","成就" | Achievement/Completion
-**Joyful**: "开心","快乐","笑" | Pure Happiness (NOT achievement)
-**Anxious**: "焦虑","担心","紧张" | Worry FUTURE
-**Overwhelmed**: "压力大","崩溃","撑不住" | Too much NOW
-**Thoughtful**: DEFAULT when unclear
-**Excited**: "期待","等待" | Anticipation (near)
-**Down**: "难过","失落" | Sadness
-**Proud**: "骄傲","自豪" | Pride
-**Reflective**: "回想","回顾" | Looking back
-
-📚 FEW-SHOT EXAMPLES:
-
-1. "感觉到深深地被爱，爸爸一直关心我" → Loved (0.95)
-   Rationale: "被爱"+"被关心"=receiving love (PASSIVE), NOT expressing thanks
-
-2. "今天完成了项目，终于松口气" → Fulfilled (0.9)
-   Rationale: "完成"=achievement, "松口气"=relief
-
-3. "和朋友聚会，笑得肚子疼" → Joyful (0.95)
-   Rationale: "笑"+"聚会"=pure happiness, NOT achievement
-
-4. "感谢朋友一直陪伴我" → Grateful (0.85)
-   Rationale: "感谢"=expressing thanks (ACTIVE), NOT receiving love
-
-5. "明天面试，有点紧张" → Anxious (0.85)
-   Rationale: "紧张"=worry about FUTURE event
-
-6. "今天去了公园" → Thoughtful (0.5)
-   Rationale: No emotion keywords, neutral recording
-
-7. "工作太多，压力大，要崩溃" → Overwhelmed (0.95)
-   Rationale: "压力大"+"崩溃"=too much pressure NOW
-
-8. "完成任务，开心但累" → Fulfilled (0.75)
-   Rationale: "完成"=dominant (~70%), tired=minor
-
-⚠️ CRITICAL RULES:
-1. Choose MOST SPECIFIC emotion
-2. Fulfilled≠Joyful, Anxious≠Overwhelmed
-3. When doubt → Thoughtful (0.4-0.6)
-4. Keywords + Context (both matter)
-5. Short text → conservative
-6. Mixed → choose dominant (>60%)
-
-Response Format (JSON):
-{{
-    "emotion": "Fulfilled",
-    "confidence": 0.92,
-    "rationale": "用户完成了项目,明确表达了成就感。使用了'完成'这个关键词,且语境是工作成果,因此判断为Fulfilled而非Joyful。"
-}}
-"""
-
-            # 构建消息
-            messages = [
-                {"role": "system", "content": system_prompt}
-            ]
+            # 构建消息（mini）
+            fast_messages = [{"role": "system", "content": fast_prompt}]
             
             # 构建用户消息
             user_content = []
@@ -1646,27 +1577,37 @@ Response Format (JSON):
                 user_prompt = user_content
             else:
                 user_prompt = f"请分析以下内容的情绪:\\n\\n{text}"
-            
-            messages.append({"role": "user", "content": user_prompt})
-            
-            # ✅ Phase 1.2 + 1.4: 修复同步调用 + 添加重试机制
-            # 🔥 关键修复：之前这里是同步调用，会阻塞事件循环！
-            response = await self._call_gpt4o_with_retry(
-                model=self.MODEL_CONFIG["emotion"],  # 🔥 使用gpt-4o,准确度+10%
-                messages=messages,
-                temperature=0.3,  # ← 降低温度,提高一致性
-                max_tokens=500,
+
+            fast_messages.append({"role": "user", "content": user_prompt})
+
+            # 1) 先用 mini
+            fast_response = await self._call_gpt4o_with_retry(
+                model=self.MODEL_CONFIG["emotion_fast"],
+                messages=fast_messages,
+                temperature=0.3,
+                max_tokens=400,
                 response_format={"type": "json_object"}
             )
-            
-            result = json.loads(response.choices[0].message.content)
-            
-            print(f"✅ Emotion Agent 分析完成:")
-            print(f"   - 情绪: {result.get('emotion')}")
-            print(f"   - 置信度: {result.get('confidence')}")
-            print(f"   - 理由: {result.get('rationale')[:50]}...")
-            
-            return result
+            fast_result = json.loads(fast_response.choices[0].message.content)
+            fast_conf = float(fast_result.get("confidence") or 0.0)
+            print(f"✅ Emotion(micro) 完成: {fast_result.get('emotion')} (置信度: {fast_conf})")
+
+            # 2) 低置信度再用 4o 复核
+            if fast_conf < 0.75:
+                print(f"⚠️ 情绪置信度低，启用 gpt-4o 复核")
+                messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
+                response = await self._call_gpt4o_with_retry(
+                    model=self.MODEL_CONFIG["emotion"],
+                    messages=messages,
+                    temperature=0.3,
+                    max_tokens=500,
+                    response_format={"type": "json_object"}
+                )
+                result = json.loads(response.choices[0].message.content)
+                print(f"✅ Emotion(4o) 完成: {result.get('emotion')} (置信度: {result.get('confidence')})")
+                return result
+
+            return fast_result
             
         except Exception as e:
             print(f"❌ Emotion Agent 失败: {str(e)}")
