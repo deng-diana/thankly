@@ -870,8 +870,7 @@ export default function RecordingModal({
       currentProgressRef.current = 5; 
       const uploadInterval = setInterval(() => {
         const next = Math.min(currentProgressRef.current + 2, 15); // 慢速递增到 15%
-        currentProgressRef.current = next;
-        setProcessingProgress(next);
+        smoothUpdateProgress(next);
       }, 800);
 
       let taskId: string;
@@ -953,8 +952,7 @@ export default function RecordingModal({
         smoothUpdateProgress(20); 
         const transitionInterval = setInterval(() => {
           const next = Math.min(currentProgressRef.current + 1.2, 32); 
-          currentProgressRef.current = next;
-          setProcessingProgress(next);
+          smoothUpdateProgress(next);
         }, 800);
 
         // ✅ 步骤2: 轮询任务进度
@@ -1879,8 +1877,7 @@ export default function RecordingModal({
                         currentProgressRef.current = 5;
                         const uploadInterval = setInterval(() => {
                           const next = Math.min(currentProgressRef.current + 2, 15);
-                          currentProgressRef.current = next;
-                          setProcessingProgress(next);
+                          smoothUpdateProgress(next);
                         }, 800);
 
                         let taskId: string;
@@ -1946,8 +1943,7 @@ export default function RecordingModal({
                         smoothUpdateProgress(20); 
                         const transitionInterval = setInterval(() => {
                           const next = Math.min(currentProgressRef.current + 1.2, 32); 
-                          currentProgressRef.current = next;
-                          setProcessingProgress(next);
+                          smoothUpdateProgress(next);
                         }, 800);
 
                         const progressCallback: ProgressCallback = (progressData) => {
