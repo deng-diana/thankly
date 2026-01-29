@@ -648,14 +648,15 @@ class OpenAIService:
             
             print(f"🌍 最终使用语言: {detected_lang}")
             
-            # 🔥 关键改动：最优Agent Orchestration架构
-            # 策略: Polish独立并行 | (Emotion → Feedback) 组内串行
+            # 🔥 关键改动：Agent Orchestration架构
+            # 策略: Polish独立并行 | Emotion & Feedback 并行
             print(f"🚀 启动最优Agent并行架构...")
             if image_urls and len(image_urls) > 0:
                 print(f"   - 检测到 {len(image_urls)} 张图片，将使用 Vision 能力分析图片+文字")
             print(f"   - 并行组1: Polish Agent (独立运行)")
-            print(f"   - 并行组2: Emotion Agent → Feedback Agent (串行)")
-            print(f"   - 🎯 两组并行,总耗时 = max(Polish, Emotion+Feedback)")
+            print(f"   - 并行组2: Emotion Agent (独立)")
+            print(f"   - 并行组3: Feedback Agent (独立)")
+            print(f"   - 🎯 三组并行,总耗时 = max(Polish, Emotion, Feedback)")
             
             # 🔥 性能优化：预先下载并编码所有图片，避免在并行任务中重复下载
             encoded_images = []
@@ -670,54 +671,34 @@ class OpenAIService:
                     else:
                         encoded_images.append(img_data)
             
-            # 🔥 定义并行组2: Emotion → Feedback (组内串行)
-            async def emotion_feedback_pipeline():
-                """
-                Emotion和Feedback的串行流水线
-                
-                🔥 为什么串行?
-                - Feedback 需要知道 Emotion 结果
-                - 避免重复分析情绪（省时间、省 Token）
-                - 生成更精准、更贴切的反馈
-                """
-                # 步骤1: Emotion分析 (GPT-4o，准确度优先)
-                emotion_result = await self.analyze_emotion_only(text, detected_lang, encoded_images)
-                print(f"   ✅ Emotion Agent完成: {emotion_result.get('emotion')} (置信度: {emotion_result.get('confidence')})")
-                
-                # 步骤2: 基于Emotion生成Feedback (GPT-4o-mini，速度优先)
-                # 🔥 关键优化：传入 emotion_hint，让 Feedback Agent 知道情绪结果
-                feedback_data = await self._call_gpt4o_for_feedback(
-                    text,
-                    detected_lang,
-                    user_name,
-                    encoded_images,
-                    emotion_hint=emotion_result  # 🔥 传入 Emotion Agent 的分析结果
-                )
-                print(f"   ✅ Feedback Agent完成")
-                
-                return emotion_result, feedback_data
-            
             # 🔥 并行组1: Polish (独立)
             polish_task = self._call_gpt4o_for_polish_and_title(text, detected_lang, encoded_images)
             
-            # 🔥 并行组2: Emotion → Feedback (组内串行)
-            emotion_feedback_task = emotion_feedback_pipeline()
+            # 🔥 并行组2: Emotion (独立)
+            emotion_task = self.analyze_emotion_only(text, detected_lang, encoded_images)
+
+            # 🔥 并行组3: Feedback (独立，不等待Emotion)
+            feedback_task = self._call_gpt4o_for_feedback(
+                text,
+                detected_lang,
+                user_name,
+                encoded_images,
+                emotion_hint=None  # 并行模式：先不等待情绪
+            )
             
-            # 🔥 两组并行执行 - ✅ 关键修复：添加 return_exceptions=True
-            print(f"   🚀 启动两组并行...")
+            # 🔥 三组并行执行 - ✅ 关键修复：添加 return_exceptions=True
+            print(f"   🚀 启动三组并行...")
             results = await asyncio.gather(
                 polish_task,                # 组1: Polish独立
-                emotion_feedback_task,      # 组2: Emotion → Feedback
+                emotion_task,               # 组2: Emotion
+                feedback_task,              # 组3: Feedback
                 return_exceptions=True      # ✅ 防止单个失败导致整体失败
             )
             
             # ✅ 检查每个结果，提供兜底值
             polish_result = results[0]
-            emotion_feedback_result = results[1]
-            
-            # 🔥 关键修复：提前初始化变量，防止NameError
-            emotion_result = None
-            feedback_data = None
+            emotion_result = results[1]
+            feedback_data = results[2]
             
             # 处理Polish结果
             if isinstance(polish_result, Exception):
@@ -729,20 +710,20 @@ class OpenAIService:
                     "polished_content": text
                 }
             
-            # 处理Emotion+Feedback结果
-            if isinstance(emotion_feedback_result, Exception):
-                print(f"❌ Emotion+Feedback Agent失败: {emotion_feedback_result}")
-                print(f"   使用兜底：默认情绪 + 简单反馈")
+            # 处理Emotion结果
+            if isinstance(emotion_result, Exception):
+                print(f"❌ Emotion Agent失败: {emotion_result}")
                 emotion_result = {"emotion": "Thoughtful", "confidence": 0.5, "rationale": "默认情绪"}
+
+            # 处理Feedback结果
+            if isinstance(feedback_data, Exception):
+                print(f"❌ Feedback Agent失败: {feedback_data}")
                 feedback_data = "感谢分享你的故事。" if detected_lang == "Chinese" else "Thanks for sharing your story."
                 if user_name:
                     separator = "，" if detected_lang == "Chinese" else ", "
                     feedback_data = f"{user_name}{separator}{feedback_data}"
-            else:
-                emotion_result, feedback_data = emotion_feedback_result
 
-            
-            print(f"✅ 两组并行完成")
+            print(f"✅ 三组并行完成")
             
             # 🔥 最终兜底检查：确保变量不为None
             if emotion_result is None:
@@ -1260,8 +1241,12 @@ Output: {{"title": "Tired but Determined", "polished_content": "Today I was real
         """
         try:
             # 🔥 使用来自 Emotion Agent 的情绪分析结果
-            emotion_from_agent = emotion_hint.get("emotion", "Thoughtful") if emotion_hint else "Thoughtful"
-            emotion_rationale = emotion_hint.get("rationale", "") if emotion_hint else ""
+            if emotion_hint:
+                emotion_from_agent = emotion_hint.get("emotion", "Thoughtful")
+                emotion_rationale = emotion_hint.get("rationale", "")
+            else:
+                emotion_from_agent = "Auto"
+                emotion_rationale = ""
             
             print(f"💬 GPT-4o-mini: 开始生成反馈...")
             print(f"👤 用户名字: {user_name if user_name else '未提供'}")
@@ -1272,20 +1257,19 @@ Output: {{"title": "Tired but Determined", "polished_content": "Today I was real
             # ============================================================================
             user_text_length = len(text.strip())
             
-            # 🔥 动态长度策略 v2：温暖但不啰嗦
-            # 调整：降低各档位的句子数，避免回复过长
+            # 🔥 动态长度策略 v3：更简洁但保持温度
             if user_text_length < 50:
                 length_guidance = "SHORT"
                 length_desc = "1 sentence only"
-            elif user_text_length < 150:
+            elif user_text_length < 200:
                 length_guidance = "MEDIUM"
                 length_desc = "1-2 sentences"
-            elif user_text_length < 400:
+            elif user_text_length < 600:
                 length_guidance = "LONG"
-                length_desc = "2-3 sentences max"
+                length_desc = "2 sentences max"
             else:
                 length_guidance = "EXTENDED"
-                length_desc = "3-4 sentences max, no more"
+                length_desc = "2-3 sentences max"
             
             print(f"📏 用户输入长度: {user_text_length} 字符 → 反馈策略: {length_guidance} ({length_desc})")
             
@@ -1307,92 +1291,22 @@ Output: {{"title": "Tired but Determined", "polished_content": "Today I was real
             #
             # ============================================================================
             
-            system_prompt = f"""You are a warm, empathetic companion - like a caring friend who truly listens.
+            system_prompt = f"""You are a warm, empathetic companion. Be concise and specific.
 
-# ════════════════════════════════════════════════════════════════════════════════
-# 🎯 CONTEXT
-# ════════════════════════════════════════════════════════════════════════════════
+Context:
+- Emotion: {emotion_from_agent}{f" (Why: {emotion_rationale})" if emotion_rationale else ""}
+- If Emotion is "Auto", infer from the user's text.
+- Response mode: {length_guidance} → {length_desc}
 
-**User's Emotion:** {emotion_from_agent}
-{f'**Why:** {emotion_rationale}' if emotion_rationale else ''}
-**User Input Length:** {user_text_length} characters → **Response Mode: {length_guidance}**
+Rules:
+- Same language as user (fallback: {language})
+- {("Start with '"+user_name+("，" if language=="Chinese" else ", ")+"'") if user_name else "Start directly"}
+- No questions
+- Be specific to what they said
+- Stay within the sentence limit
 
-# ════════════════════════════════════════════════════════════════════════════════
-# 🚨 CORE PRINCIPLE: WARMTH OVER BREVITY (温度优先)
-# ════════════════════════════════════════════════════════════════════════════════
-
-Your goal is to make the user feel HEARD and UNDERSTOOD.
-- If they shared a lot, acknowledge the depth of what they shared
-- If they're going through something difficult, offer genuine support
-- If they achieved something, celebrate with authentic enthusiasm
-- NEVER give a generic, cold, or dismissive response
-
-# ════════════════════════════════════════════════════════════════════════════════
-# 📏 DYNAMIC LENGTH GUIDE
-# ════════════════════════════════════════════════════════════════════════════════
-
-Based on user input length ({user_text_length} chars), use **{length_guidance}** mode:
-
-| Mode | User Input | Your Response | ⚠️ HARD LIMIT |
-|------|-----------|---------------|---------------|
-| SHORT | <50 chars | 1 sentence only | MAX 1 sentence |
-| MEDIUM | 50-150 chars | 1-2 sentences | MAX 2 sentences |
-| LONG | 150-400 chars | 2-3 sentences | MAX 3 sentences |
-| EXTENDED | >400 chars | 3-4 sentences | MAX 4 sentences |
-
-🚨 **CRITICAL: DO NOT exceed the sentence limit for your mode. Warmth ≠ Length.**
-
-**Current Mode: {length_guidance} → Target: {length_desc}**
-
-# ════════════════════════════════════════════════════════════════════════════════
-# 💝 EMOTION-SPECIFIC WARMTH GUIDE
-# ════════════════════════════════════════════════════════════════════════════════
-
-**{emotion_from_agent}** detected. Tailor your warmth:
-
-| Emotion Type | How to Respond |
-|--------------|----------------|
-| Joyful/Grateful/Fulfilled/Proud | Celebrate! Amplify their joy. Share in their happiness. |
-| Excited/Hopeful/Intentional | Encourage their enthusiasm. Support their plans. |
-| Peaceful/Calm | Acknowledge the serenity. Appreciate the moment with them. |
-| Thoughtful/Reflective | Validate their introspection. Honor their depth. |
-| Inspired/Curious | Support their exploration. Fan the flame of discovery. |
-| Anxious/Uncertain | Offer gentle reassurance. Be their calm anchor. |
-| Down/Lonely/Overwhelmed | Show deep understanding. Be present. No judgment. |
-| Frustrated/Venting | Acknowledge their feelings completely. Let them feel heard. |
-
-# ════════════════════════════════════════════════════════════════════════════════
-# 📝 RESPONSE RULES
-# ════════════════════════════════════════════════════════════════════════════════
-
-- **Language:** Same as user's input (fallback: {language})
-- **Greeting:** {"Start with '" + user_name + (", " if language == "English" else "，") + "'" if user_name else "Start directly with warmth"}
-- **NO questions** - Don't ask "How are you?" or similar
-- **Be specific** - Reference something they actually said, not generic platitudes
-- **End with warmth** - Leave them feeling supported
-
-# ════════════════════════════════════════════════════════════════════════════════
-# 📤 OUTPUT FORMAT
-# ════════════════════════════════════════════════════════════════════════════════
-
-Return JSON only:
-{{"reply": "Your warm, {length_desc} response here"}}
-
-# ════════════════════════════════════════════════════════════════════════════════
-# 📚 EXAMPLES BY LENGTH
-# ════════════════════════════════════════════════════════════════════════════════
-
-**SHORT (1 sentence max):**
-{{"reply": "Boss，这份快乐真好。"}}
-
-**MEDIUM (2 sentences max):**
-{{"reply": "Boss，完成重要项目的感觉真棒！好好享受这份成就感。"}}
-
-**LONG (3 sentences max):**
-{{"reply": "Boss，听你分享今天的经历，能感受到你付出了很多。你的努力和勇气值得被看见，好好休息。"}}
-
-**EXTENDED (4 sentences max):**
-{{"reply": "Boss，谢谢你分享这么多。今天确实不容易，但你对明天的期待很让人感动。好好休息，明天会更好。加油！"}}"""
+Output JSON only:
+{{"reply":"Warm, concise response ({length_desc})"}}"""
 
 
             # 构建消息
@@ -1410,8 +1324,8 @@ Return JSON only:
 
             # 增加 max_tokens 以容纳 JSON
             # 🔥 修复：使用 user_text_length 替代已删除的 max_feedback_length
-            estimated_output_length = user_text_length + 200 
-            max_tokens = max(300, min(estimated_output_length, 1000))
+            estimated_output_length = user_text_length + 120
+            max_tokens = max(200, min(estimated_output_length, 500))
 
             # ✅ Phase 1.1 + 1.4: 使用 AsyncOpenAI + 重试机制
             # 🔥 2026-01-27 优化: 温度从 0.7 降至 0.5，平衡温暖度与一致性
