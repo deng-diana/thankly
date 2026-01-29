@@ -277,13 +277,7 @@ export default function AppDrawerContent(props: DrawerContentComponentProps) {
         style={styles.item}
         onPress={() => {
           closeDrawer();
-          // TODO: Navigate to CircleListScreen when created
-          // navigation.navigate("Home", { screen: "CircleList" });
-          Alert.alert(
-            t("circle.myCircles"),
-            t("circle.entryHint"),
-            [{ text: t("common.ok") }]
-          );
+          navigation.navigate("Home", { screen: "CircleList" });
         }}
         accessibilityLabel={t("circle.myCircles")}
         accessibilityHint={t("circle.entryHint")}

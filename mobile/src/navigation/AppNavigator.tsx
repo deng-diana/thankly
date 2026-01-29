@@ -24,9 +24,9 @@ import DiaryListScreen from "../screens/DiaryListScreen";
 import SearchScreen from "../screens/SearchScreen";
 import HappinessJarScreen from "../screens/HappinessJarScreen";
 import MoodCalendarScreen from "../screens/MoodCalendarScreen";
-// Circle feature screens (to be created)
-// import CircleListScreen from "../screens/CircleListScreen";
-// import CircleFeedScreen from "../screens/CircleFeedScreen";
+// Circle feature screens
+import CircleListScreen from "../screens/CircleListScreen";
+// import CircleFeedScreen from "../screens/CircleFeedScreen"; // TODO: Week 2 Day 5
 
 export type RootStackParamList = {
   Welcome: undefined;
@@ -102,7 +102,7 @@ const MainStackNavigator = () => (
       component={TermsOfServiceScreen}
       options={{ presentation: "modal" }}
     />
-    {/* Circle feature routes - Uncomment when screens are created
+    {/* Circle feature routes */}
     <MainStack.Screen
       name="CircleList"
       component={CircleListScreen}
@@ -112,6 +112,7 @@ const MainStackNavigator = () => (
         contentStyle: { backgroundColor: "#FAF6ED" },
       }}
     />
+    {/* TODO: Week 2 Day 5 - Uncomment when CircleFeedScreen is created
     <MainStack.Screen
       name="CircleFeed"
       component={CircleFeedScreen}

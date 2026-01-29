@@ -1432,7 +1432,21 @@ export default {
     owner: "Owner",
     member: "Member",
     
+    common: {
+      members: "members",
+      owner: "Owner",
+      today: "Today",
+      yesterday: "Yesterday",
+      daysAgo: "{{count}}d ago",
+      weeksAgo: "{{count}}w ago",
+      monthsAgo: "{{count}}mo ago",
+    },
+    
     // Create Circle
+    create: {
+      title: "Create Circle",
+      button: "Create Circle",
+    },
     createCircle: "Create Circle",
     circleName: "Circle Name",
     circleNamePlaceholder: "e.g., My Family",
@@ -1445,6 +1459,10 @@ export default {
     shareCodeHint: "Share this code with friends to invite them",
     
     // Join Circle
+    join: {
+      title: "Join Circle",
+      button: "Join Circle",
+    },
     joinCircle: "Join Circle",
     enterInviteCode: "Enter Invite Code",
     inviteCodePlaceholder: "6-digit code",
@@ -1453,6 +1471,11 @@ export default {
     joinSuccess: "Successfully joined!",
     
     // Circle List
+    list: {
+      title: "Intimate Circle",
+      emptyTitle: "No circles yet",
+      emptyHint: "Create or join a circle to\nstart sharing moments",
+    },
     noCircles: "No circles yet",
     noCirclesHint: "Create or join a circle to start sharing moments",
     createFirst: "Create my first circle",
@@ -1513,6 +1536,8 @@ export default {
     
     // Errors
     errors: {
+      loadFailed: "Failed to load",
+      networkError: "Network error, please try again later",
       limitExceeded: "Free users can create up to 3 circles",
       tooManyAttempts: "Too many attempts, please try again later",
       invalidCodeFormat: "Invalid invite code format",

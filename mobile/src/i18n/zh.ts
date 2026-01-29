@@ -1395,7 +1395,21 @@ export default {
     owner: "圈主",
     member: "成员",
     
+    common: {
+      members: "位成员",
+      owner: "圈主",
+      today: "今天",
+      yesterday: "昨天",
+      daysAgo: "{{count}} 天前",
+      weeksAgo: "{{count}} 周前",
+      monthsAgo: "{{count}} 个月前",
+    },
+    
     // 创建圈子
+    create: {
+      title: "创建圈子",
+      button: "创建圈子",
+    },
     createCircle: "创建圈子",
     circleName: "圈子名称",
     circleNamePlaceholder: "例如：我的家人",
@@ -1408,6 +1422,10 @@ export default {
     shareCodeHint: "将邀请码分享给朋友，让他们加入你的圈子",
     
     // 加入圈子
+    join: {
+      title: "加入圈子",
+      button: "加入圈子",
+    },
     joinCircle: "加入圈子",
     enterInviteCode: "输入邀请码",
     inviteCodePlaceholder: "6位字母或数字",
@@ -1416,6 +1434,11 @@ export default {
     joinSuccess: "成功加入圈子！",
     
     // 圈子列表
+    list: {
+      title: "亲密圈",
+      emptyTitle: "还没有圈子",
+      emptyHint: "创建或加入一个圈子\n开始分享你的生活点滴",
+    },
     noCircles: "还没有圈子",
     noCirclesHint: "创建或加入一个圈子，开始分享你的生活点滴",
     createFirst: "创建我的第一个圈子",
@@ -1476,6 +1499,8 @@ export default {
     
     // 错误提示
     errors: {
+      loadFailed: "加载失败",
+      networkError: "网络错误，请稍后重试",
       limitExceeded: "免费用户最多创建3个圈子",
       tooManyAttempts: "尝试次数过多，请稍后再试",
       invalidCodeFormat: "邀请码格式不正确",

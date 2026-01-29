@@ -1288,13 +1288,7 @@ export default function DiaryListScreen() {
         <TouchableOpacity
           style={styles.circleEntryButton}
           onPress={() => {
-            // TODO: Navigate to CircleListScreen when created
-            // navigation.navigate("CircleList");
-            Alert.alert(
-              t("circle.myCircles"),
-              t("circle.entryHint"),
-              [{ text: t("common.ok") }]
-            );
+            navigation.navigate("CircleList");
           }}
           accessibilityLabel={t("circle.myCircles")}
           accessibilityRole="button"
