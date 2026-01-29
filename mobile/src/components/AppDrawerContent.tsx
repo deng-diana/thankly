@@ -272,6 +272,40 @@ export default function AppDrawerContent(props: DrawerContentComponentProps) {
         </Text>
       </TouchableOpacity>
 
+      {/* 亲密圈 */}
+      <TouchableOpacity
+        style={styles.item}
+        onPress={() => {
+          closeDrawer();
+          // TODO: Navigate to CircleListScreen when created
+          // navigation.navigate("Home", { screen: "CircleList" });
+          Alert.alert(
+            t("circle.myCircles"),
+            t("circle.entryHint"),
+            [{ text: t("common.ok") }]
+          );
+        }}
+        accessibilityLabel={t("circle.myCircles")}
+        accessibilityHint={t("circle.entryHint")}
+        accessibilityRole="button"
+      >
+        <Ionicons name="people-outline" size={20} color="#332824" />
+        <Text
+          style={[
+            styles.itemText,
+            typography.body,
+            {
+              fontFamily: getFontFamilyForText(
+                t("circle.myCircles"),
+                "regular"
+              ),
+            },
+          ]}
+        >
+          {t("circle.myCircles")}
+        </Text>
+      </TouchableOpacity>
+
       {/* 情绪日历 */}
       <TouchableOpacity
         style={styles.item}

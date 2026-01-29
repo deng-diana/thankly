@@ -24,6 +24,9 @@ import DiaryListScreen from "../screens/DiaryListScreen";
 import SearchScreen from "../screens/SearchScreen";
 import HappinessJarScreen from "../screens/HappinessJarScreen";
 import MoodCalendarScreen from "../screens/MoodCalendarScreen";
+// Circle feature screens (to be created)
+// import CircleListScreen from "../screens/CircleListScreen";
+// import CircleFeedScreen from "../screens/CircleFeedScreen";
 
 export type RootStackParamList = {
   Welcome: undefined;
@@ -42,6 +45,9 @@ export type RootStackParamList = {
   CreateDiary: { inputMode?: "voice" | "text" };
   Test: undefined;
   MainDrawer: undefined;
+  // Circle feature routes
+  CircleList: undefined;
+  CircleFeed: { circleId: string; circleName: string };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -96,6 +102,26 @@ const MainStackNavigator = () => (
       component={TermsOfServiceScreen}
       options={{ presentation: "modal" }}
     />
+    {/* Circle feature routes - Uncomment when screens are created
+    <MainStack.Screen
+      name="CircleList"
+      component={CircleListScreen}
+      options={{
+        headerShown: false,
+        animation: "slide_from_right",
+        contentStyle: { backgroundColor: "#FAF6ED" },
+      }}
+    />
+    <MainStack.Screen
+      name="CircleFeed"
+      component={CircleFeedScreen}
+      options={{
+        headerShown: false,
+        animation: "slide_from_right",
+        contentStyle: { backgroundColor: "#FAF6ED" },
+      }}
+    />
+    */}
   </MainStack.Navigator>
 );
 

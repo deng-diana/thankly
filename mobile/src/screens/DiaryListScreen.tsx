@@ -1284,6 +1284,28 @@ export default function DiaryListScreen() {
           </TouchableOpacity>
         )}
 
+        {/* ✅ 亲密圈入口 - 显示在搜索框和 Profile 之间 */}
+        <TouchableOpacity
+          style={styles.circleEntryButton}
+          onPress={() => {
+            // TODO: Navigate to CircleListScreen when created
+            // navigation.navigate("CircleList");
+            Alert.alert(
+              t("circle.myCircles"),
+              t("circle.entryHint"),
+              [{ text: t("common.ok") }]
+            );
+          }}
+          accessibilityLabel={t("circle.myCircles")}
+          accessibilityRole="button"
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          {/* Temporary icon - will be replaced with SVG */}
+          <View style={styles.circleIcon}>
+            <Text style={styles.circleIconText}>👥</Text>
+          </View>
+        </TouchableOpacity>
+
         {/* ✅ Profile 头像入口 - 可爱笑脸，比汉堡菜单更有温度 */}
         <TouchableOpacity
           style={styles.compactMenuButton}
@@ -2387,6 +2409,27 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 12,  // ✅ 距离搜索框12px（从8px改为12px）
+  },
+  // Circle entry button
+  circleEntryButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'transparent',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 12,
+  },
+  circleIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#FFE699',  // Warm yellow background
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  circleIconText: {
+    fontSize: 20,
   },
   searchingIndicator: {
     flexDirection: 'row',
