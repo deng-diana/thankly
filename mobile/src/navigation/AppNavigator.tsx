@@ -26,7 +26,7 @@ import HappinessJarScreen from "../screens/HappinessJarScreen";
 import MoodCalendarScreen from "../screens/MoodCalendarScreen";
 // Circle feature screens
 import CircleListScreen from "../screens/CircleListScreen";
-// import CircleFeedScreen from "../screens/CircleFeedScreen"; // TODO: Week 2 Day 5
+import CircleFeedScreen from "../screens/CircleFeedScreen";
 
 export type RootStackParamList = {
   Welcome: undefined;
@@ -112,7 +112,6 @@ const MainStackNavigator = () => (
         contentStyle: { backgroundColor: "#FAF6ED" },
       }}
     />
-    {/* TODO: Week 2 Day 5 - Uncomment when CircleFeedScreen is created
     <MainStack.Screen
       name="CircleFeed"
       component={CircleFeedScreen}
@@ -122,7 +121,6 @@ const MainStackNavigator = () => (
         contentStyle: { backgroundColor: "#FAF6ED" },
       }}
     />
-    */}
   </MainStack.Navigator>
 );
 

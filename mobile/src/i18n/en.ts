@@ -1489,6 +1489,12 @@ export default {
     
     // Circle Feed
     circleFeed: "Circle Feed",
+    feed: {
+      justNow: "Just now",
+      minutesAgo: "{{count}}m ago",
+      hoursAgo: "{{count}}h ago",
+      daysAgo: "{{count}}d ago",
+    },
     noFeed: "No posts yet",
     noFeedHint: "Share diaries to let friends see your updates",
     loadingFeed: "Loading...",

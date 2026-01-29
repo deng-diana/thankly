@@ -1452,6 +1452,12 @@ export default {
     
     // 圈子动态流
     circleFeed: "圈子动态",
+    feed: {
+      justNow: "刚刚",
+      minutesAgo: "{{count}} 分钟前",
+      hoursAgo: "{{count}} 小时前",
+      daysAgo: "{{count}} 天前",
+    },
     noFeed: "还没有动态",
     noFeedHint: "分享日记到圈子，让朋友们看到你的近况",
     loadingFeed: "加载中...",
