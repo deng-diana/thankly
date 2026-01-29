@@ -1422,4 +1422,110 @@ export default {
       "By using thankly, you acknowledge that you have read, understood, and agree to be bound by these Terms of Service.",
     ],
   },
+
+  // Intimate Circle Feature
+  circle: {
+    // Common
+    myCircles: "My Circles",
+    circleMembers: "Members",
+    memberCount: "{{count}} members",
+    owner: "Owner",
+    member: "Member",
+    
+    // Create Circle
+    createCircle: "Create Circle",
+    circleName: "Circle Name",
+    circleNamePlaceholder: "e.g., My Family",
+    create: "Create",
+    creating: "Creating...",
+    createSuccess: "Circle created!",
+    inviteCode: "Invite Code",
+    copyCode: "Copy Code",
+    codeCopied: "Code copied",
+    shareCodeHint: "Share this code with friends to invite them",
+    
+    // Join Circle
+    joinCircle: "Join Circle",
+    enterInviteCode: "Enter Invite Code",
+    inviteCodePlaceholder: "6-digit code",
+    join: "Join",
+    joining: "Joining...",
+    joinSuccess: "Successfully joined!",
+    
+    // Circle List
+    noCircles: "No circles yet",
+    noCirclesHint: "Create or join a circle to start sharing moments",
+    createFirst: "Create my first circle",
+    joinFirst: "Join a circle",
+    pullToRefresh: "Pull to refresh",
+    
+    // Circle Feed
+    circleFeed: "Circle Feed",
+    noFeed: "No posts yet",
+    noFeedHint: "Share diaries to let friends see your updates",
+    loadingFeed: "Loading...",
+    loadMore: "Load more",
+    noMoreFeed: "No more posts",
+    sharedBy: "{{userName}} shared",
+    sharedAt: "Shared {{time}}",
+    
+    // Diary Sharing
+    shareToCircle: "Share to Circle",
+    selectCircle: "Select Circle",
+    shareSuccess: "Shared successfully",
+    unshare: "Unshare",
+    unshareSuccess: "Unshared",
+    sharedToCircles: "Shared to {{count}} circles",
+    notShared: "Not shared",
+    
+    // Circle Management
+    leaveCircle: "Leave Circle",
+    leaveConfirm: "Leave \"{{name}}\"?",
+    leaveHint: "Your shared diaries will be removed from the circle",
+    leaveSuccess: "Left circle",
+    
+    // Onboarding
+    onboarding: {
+      welcome: {
+        title: "Welcome to Intimate Circle",
+        subtitle: "Share warm moments with your closest people",
+        features: [
+          "Create private circles",
+          "Share your diaries",
+          "See friends' updates",
+        ],
+        continue: "Get Started",
+      },
+      createOrJoin: {
+        title: "Start Your First Circle",
+        subtitle: "Choose a way to begin",
+        createOption: "Create Circle",
+        createHint: "Invite family and friends",
+        joinOption: "Join Circle",
+        joinHint: "Enter a friend's invite code",
+      },
+      complete: {
+        title: "All Set!",
+        subtitle: "You can now start sharing diaries",
+        start: "Enter Circle",
+      },
+    },
+    
+    // Errors
+    errors: {
+      limitExceeded: "Free users can create up to 3 circles",
+      tooManyAttempts: "Too many attempts, please try again later",
+      invalidCodeFormat: "Invalid invite code format",
+      codeNotFound: "Invite code not found",
+      alreadyMember: "You're already a member",
+      ownerCannotLeave: "Owner cannot leave the circle",
+      notMember: "You're not a member of this circle",
+      alreadyShared: "Already shared to this circle",
+      forbidden: "Permission denied",
+      notFound: "Circle not found",
+    },
+    
+    // Entry Hint
+    entryHint: "Tap top right to enter Intimate Circle",
+  },
 };

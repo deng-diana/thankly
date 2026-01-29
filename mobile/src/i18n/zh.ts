@@ -1385,4 +1385,110 @@ export default {
     ],
     closing: ["使用 thankly 即表示您已阅读、理解并同意遵守本服务条款。"],
   },
+
+  // 亲密圈功能
+  circle: {
+    // 通用
+    myCircles: "我的圈子",
+    circleMembers: "圈子成员",
+    memberCount: "{{count}} 位成员",
+    owner: "圈主",
+    member: "成员",
+    
+    // 创建圈子
+    createCircle: "创建圈子",
+    circleName: "圈子名称",
+    circleNamePlaceholder: "例如：我的家人",
+    create: "创建",
+    creating: "创建中...",
+    createSuccess: "创建成功！",
+    inviteCode: "邀请码",
+    copyCode: "复制邀请码",
+    codeCopied: "邀请码已复制",
+    shareCodeHint: "将邀请码分享给朋友，让他们加入你的圈子",
+    
+    // 加入圈子
+    joinCircle: "加入圈子",
+    enterInviteCode: "输入邀请码",
+    inviteCodePlaceholder: "6位字母或数字",
+    join: "加入",
+    joining: "加入中...",
+    joinSuccess: "成功加入圈子！",
+    
+    // 圈子列表
+    noCircles: "还没有圈子",
+    noCirclesHint: "创建或加入一个圈子，开始分享你的生活点滴",
+    createFirst: "创建我的第一个圈子",
+    joinFirst: "加入一个圈子",
+    pullToRefresh: "下拉刷新",
+    
+    // 圈子动态流
+    circleFeed: "圈子动态",
+    noFeed: "还没有动态",
+    noFeedHint: "分享日记到圈子，让朋友们看到你的近况",
+    loadingFeed: "加载中...",
+    loadMore: "加载更多",
+    noMoreFeed: "没有更多了",
+    sharedBy: "{{userName}} 分享了",
+    sharedAt: "分享于 {{time}}",
+    
+    // 日记分享
+    shareToCircle: "分享到圈子",
+    selectCircle: "选择圈子",
+    shareSuccess: "分享成功",
+    unshare: "取消分享",
+    unshareSuccess: "已取消分享",
+    sharedToCircles: "已分享到 {{count}} 个圈子",
+    notShared: "未分享",
+    
+    // 圈子管理
+    leaveCircle: "退出圈子",
+    leaveConfirm: "确定要退出「{{name}}」吗？",
+    leaveHint: "退出后，你分享的日记会从圈子中移除",
+    leaveSuccess: "已退出圈子",
+    
+    // 首次引导
+    onboarding: {
+      welcome: {
+        title: "欢迎来到亲密圈",
+        subtitle: "和最亲近的人，分享生活中的温暖时刻",
+        features: [
+          "创建私密圈子",
+          "分享你的日记",
+          "看见朋友的近况",
+        ],
+        continue: "开始使用",
+      },
+      createOrJoin: {
+        title: "开始你的第一个圈子",
+        subtitle: "选择一个方式开始",
+        createOption: "创建圈子",
+        createHint: "邀请家人和朋友加入",
+        joinOption: "加入圈子",
+        joinHint: "输入朋友分享的邀请码",
+      },
+      complete: {
+        title: "一切就绪！",
+        subtitle: "现在你可以开始分享日记啦",
+        start: "进入圈子",
+      },
+    },
+    
+    // 错误提示
+    errors: {
+      limitExceeded: "免费用户最多创建3个圈子",
+      tooManyAttempts: "尝试次数过多，请稍后再试",
+      invalidCodeFormat: "邀请码格式不正确",
+      codeNotFound: "邀请码不存在",
+      alreadyMember: "你已经是圈子成员了",
+      ownerCannotLeave: "圈主不能退出圈子",
+      notMember: "你不是圈子成员",
+      alreadyShared: "已经分享到这个圈子了",
+      forbidden: "没有权限",
+      notFound: "圈子不存在",
+    },
+    
+    // 入口提示
+    entryHint: "点击右上角，进入亲密圈",
+  },
 };
