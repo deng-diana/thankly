@@ -58,7 +58,7 @@ Sentry.init({
   environment: __DEV__ ? 'development' : 'production',
   
   // ✅ 添加版本信息
-  release: 'thankly@1.2.0',
+  release: 'thankly@1.3.0',
 });
 
 // ✅ 保持 splash screen，直到应用准备好再关闭

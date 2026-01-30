@@ -2,8 +2,8 @@
   "expo": {
     "name": "Thankly",
     "slug": "gratitude-diary",
-    "version": "1.2.1",
-    "description": "Your personal gratitude journal with AI",
+    "version": "1.3.0",
+    "description": "Your personal gratitude journal with AI - Now with Intimate Circles",
     "orientation": "portrait",
     "icon": "./assets/app-icon.png",
     "userInterfaceStyle": "light",
@@ -23,7 +23,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.stillkindailab.gratitudediary",
-      "buildNumber": "6",
+      "buildNumber": "7",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "We need microphone access for voice journaling.",
         "NSCameraUsageDescription": "We need camera access to take photos for your diary entries.",
@@ -37,7 +37,7 @@
       }
     },
     "android": {
-      "versionCode": 7,
+      "versionCode": 8,
       "adaptiveIcon": {
         "foregroundImage": "./assets/app-icon.png",
         "backgroundColor": "#FAF6ED"
