@@ -440,7 +440,115 @@ export const API_BASE_URL = IS_LOCAL_DEV
 | **iOS/Android 表现不一致** | 平台 API 差异 | 使用 `Platform.select()` 或 `Platform.OS` 处理 |
 | **OTA 更新不生效** | runtimeVersion 不匹配 | 检查 [app.json](mobile/app.json) 的 `runtimeVersion` 配置 |
 
-### 5.4 调试技巧
+### 5.4 Code Review 反复出现的问题 ⚠️⚠️⚠️
+
+**这些是历次 Code Review 中反复出现的问题，必须在写代码时避免！**
+
+#### **🔴 CRITICAL - React Hooks 依赖问题**
+
+| 问题 | 错误示例 | 正确做法 |
+|------|---------|---------|
+| **useFocusEffect 依赖不完整** | `useFocusEffect(React.useCallback(() => { loadData(); }, []))` | ✅ 将 `loadData` 包装在 `useCallback` 中，添加完整依赖 |
+| **useEffect 依赖缺失** | `useEffect(() => { fetch(url); }, [])` | ✅ 添加 `url` 到依赖数组，或使用 `useCallback` |
+| **useCallback 依赖不完整** | `useCallback(() => { setState(data); }, [])` | ✅ 添加 `data` 到依赖数组 |
+
+**正确示例**：
+```typescript
+// ✅ 正确：loadFeed 包装在 useCallback，依赖完整
+const loadFeed = useCallback(async (isRefresh = false) => {
+  // ... logic using circleId, hasMore, lastKey
+}, [circleId, hasMore, lastKey, navigation]); // 完整依赖
+
+useFocusEffect(
+  useCallback(() => {
+    loadFeed();
+  }, [loadFeed]) // 依赖 loadFeed
+);
+```
+
+**为什么重要**：缺少依赖会导致闭包陷阱、无限循环、状态不同步等严重 bug。
+
+---
+
+#### **🔴 CRITICAL - Memory Leak（内存泄漏）**
+
+| 问题 | 错误示例 | 正确做法 |
+|------|---------|---------|
+| **setTimeout 没有清理** | `const handleClose = () => { setTimeout(() => reset(), 300); onClose(); }` | ✅ 使用 `useEffect` + cleanup |
+| **setInterval 没有清理** | `useEffect(() => { setInterval(() => tick(), 1000); }, [])` | ✅ 返回 `clearInterval` |
+| **订阅没有取消** | `useEffect(() => { subscribe(); }, [])` | ✅ 返回 `unsubscribe` |
+
+**正确示例**：
+```typescript
+// ✅ 正确：setTimeout 在 useEffect 中，有 cleanup
+useEffect(() => {
+  if (!visible) {
+    const timer = setTimeout(() => {
+      reset();
+    }, 300);
+    return () => clearTimeout(timer); // 清理
+  }
+}, [visible]);
+```
+
+**为什么重要**：组件卸载后仍执行的代码会导致内存泄漏、崩溃、状态错乱。
+
+---
+
+#### **🟡 MEDIUM - 代码清洁度**
+
+| 问题 | 检查方法 | 修复 |
+|------|---------|-----|
+| **未使用的导入** | ESLint 会提示 | ✅ 删除未使用的 `import` |
+| **未使用的变量** | TypeScript 会提示 | ✅ 删除未使用的变量（如 `insets`, `typography`） |
+| **未使用的函数** | 搜索引用 | ✅ 删除或注释说明保留原因 |
+
+**检查清单**：
+- [ ] 所有 `import` 都被使用
+- [ ] 所有声明的变量/常量都被引用
+- [ ] 没有注释掉的大段代码（用 TODO 代替）
+
+---
+
+#### **🟡 MEDIUM - TypeScript 类型**
+
+| 问题 | 错误示例 | 正确做法 |
+|------|---------|---------|
+| **过度使用 `any`** | `catch (error: any)` | ✅ 使用 `unknown` 或具体类型 |
+| **缺少类型定义** | `const [data, setData] = useState()` | ✅ `useState<DataType>()` |
+| **忽略 null/undefined** | `item.name.toUpperCase()` | ✅ `item.name?.toUpperCase()` |
+
+**正确示例**：
+```typescript
+// ✅ 使用 unknown 而非 any
+catch (error: unknown) {
+  const message = error instanceof Error ? error.message : 'Unknown error';
+  Alert.alert(t('common.error'), message);
+}
+```
+
+---
+
+#### **📋 开发前自查清单**
+
+**每次写代码前问自己**：
+1. ✅ 确认在 `feature/*` 分支，不是 `master`？
+2. ✅ 所有 `useEffect`/`useCallback`/`useMemo` 依赖完整？
+3. ✅ 所有 `setTimeout`/`setInterval` 有 cleanup？
+4. ✅ 所有导入和变量都被使用？
+5. ✅ TypeScript 类型明确，避免 `any`？
+6. ✅ 添加了 i18n 翻译（中英双语）？
+7. ✅ 测试了双平台（iOS + Android）兼容性？
+
+**提交前自查清单**：
+1. ✅ 运行 `ReadLints` 检查错误？
+2. ✅ `git status` 确认修改的文件正确？
+3. ✅ Commit message 使用英文？
+4. ✅ 功能已手动测试验证？
+
+---
+
+### 5.5 调试技巧
 
 ```typescript
 // 1. 使用 console.log（开发环境会自动显示）
