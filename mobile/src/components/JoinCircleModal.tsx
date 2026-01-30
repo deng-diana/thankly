@@ -5,7 +5,7 @@
  * 支持邀请码格式化显示和限流错误提示
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -49,15 +49,21 @@ export default function JoinCircleModal({
   const [loading, setLoading] = useState(false);
   const [formatError, setFormatError] = useState('');
 
+  // Reset state when modal closes
+  useEffect(() => {
+    if (!visible) {
+      const timer = setTimeout(() => {
+        setStep('input');
+        setInviteCode('');
+        setCircleName('');
+        setLoading(false);
+        setFormatError('');
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [visible]);
+
   const handleClose = () => {
-    // Reset state when closing
-    setTimeout(() => {
-      setStep('input');
-      setInviteCode('');
-      setCircleName('');
-      setLoading(false);
-      setFormatError('');
-    }, 300);
     onClose();
   };
 

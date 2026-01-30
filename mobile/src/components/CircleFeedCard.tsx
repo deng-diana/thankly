@@ -16,14 +16,13 @@ import {
   Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { t, getCurrentLocale } from '../i18n';
-import { getFontFamilyForText, detectTextLanguage } from '../styles/typography';
+import { t } from '../i18n';
+import { getFontFamilyForText } from '../styles/typography';
 import { formatDateTime } from '../utils/dateFormat';
 import { EmotionCapsule } from './EmotionCapsule';
 import { EmotionGlow } from './EmotionGlow';
 import AudioPlayer from './AudioPlayer';
 import CalendarIcon from '../assets/icons/calendarIcon.svg';
-import TimeIcon from '../assets/icons/time.svg';
 import type { CircleFeedItem } from '../types/circle';
 
 interface CircleFeedCardProps {
@@ -57,6 +56,7 @@ export default function CircleFeedCard({ item }: CircleFeedCardProps) {
   };
 
   // ======== 图片网格渲染 ========
+  // TODO: Week 3 - Add image preview functionality
   const renderImageGrid = (imageUrls: string[]) => {
     if (!imageUrls.length) return null;
 
@@ -206,6 +206,7 @@ export default function CircleFeedCard({ item }: CircleFeedCardProps) {
         {/* Audio Player */}
         {item.audioUrl && (
           <View style={styles.audioContainer}>
+            {/* TODO: Week 3 - Implement audio playback state management */}
             <AudioPlayer
               audioUrl={item.audioUrl}
               isPlaying={false}

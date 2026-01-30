@@ -5,7 +5,7 @@
  * 支持一键复制邀请码
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -45,14 +45,20 @@ export default function CreateCircleModal({
   const [inviteCode, setInviteCode] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Reset state when modal closes
+  useEffect(() => {
+    if (!visible) {
+      const timer = setTimeout(() => {
+        setStep('input');
+        setCircleName('');
+        setInviteCode('');
+        setLoading(false);
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [visible]);
+
   const handleClose = () => {
-    // Reset state when closing
-    setTimeout(() => {
-      setStep('input');
-      setCircleName('');
-      setInviteCode('');
-      setLoading(false);
-    }, 300);
     onClose();
   };
 

@@ -7,7 +7,7 @@
  * - 空状态引导用户分享日记
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -40,10 +40,8 @@ type CircleFeedScreenRouteProp = RouteProp<RootStackParamList, 'CircleFeed'>;
  * 圈子动态流页面组件
  */
 export default function CircleFeedScreen() {
-  const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<CircleFeedScreenRouteProp>();
-  const typography = getTypography();
 
   const { circleId, circleName } = route.params;
 
@@ -56,7 +54,7 @@ export default function CircleFeedScreen() {
   const [lastKey, setLastKey] = useState<string | undefined>(undefined);
 
   // ========== 数据加载 ==========
-  const loadFeed = async (isRefresh: boolean = false, loadMore: boolean = false) => {
+  const loadFeed = useCallback(async (isRefresh: boolean = false, loadMore: boolean = false) => {
     if (loadMore) {
       if (!hasMore || loadingMore) return;
       setLoadingMore(true);
@@ -92,13 +90,13 @@ export default function CircleFeedScreen() {
       setRefreshing(false);
       setLoadingMore(false);
     }
-  };
+  }, [circleId, hasMore, loadingMore, lastKey, navigation]);
 
   // 页面聚焦时刷新数据
   useFocusEffect(
-    React.useCallback(() => {
+    useCallback(() => {
       loadFeed();
-    }, [circleId])
+    }, [loadFeed])
   );
 
   // 下拉刷新

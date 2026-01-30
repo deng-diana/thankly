@@ -20,7 +20,7 @@ import {
   Alert,
   Dimensions,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
@@ -34,7 +34,7 @@ import JoinCircleModal from '../components/JoinCircleModal';
 
 // Services & Utils
 import { t } from '../i18n';
-import { getFontFamilyForText, getTypography } from '../styles/typography';
+import { getFontFamilyForText } from '../styles/typography';
 import { handleAuthErrorOnly } from '../utils/errorHandler';
 import { getMyCircles } from '../services/circleService';
 import type { Circle } from '../types/circle';
@@ -45,9 +45,7 @@ const { width } = Dimensions.get('window');
  * 圈子列表页面组件
  */
 export default function CircleListScreen() {
-  const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const typography = getTypography();
 
   // ========== 状态管理 ==========
   const [circles, setCircles] = useState<Circle[]>([]);
