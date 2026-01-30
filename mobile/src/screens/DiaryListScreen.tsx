@@ -28,6 +28,7 @@ import {
   detectTextLanguage, // ✅ 新增
 } from "../styles/typography";
 import ImagePreviewModal from "../components/ImagePreviewModal";
+import CircleShareSelector from "../components/CircleShareSelector";
 import React, { useState, useEffect, useRef } from "react";
 import {
   View,
@@ -185,6 +186,10 @@ export default function DiaryListScreen() {
   const [actionSheetVisible, setActionSheetVisible] = useState(false);
   const [selectedDiary, setSelectedDiary] = useState<Diary | null>(null);
   const actionSheetSlide = useRef(new Animated.Value(300)).current;
+
+  // ✅ Circle Share Selector 状态
+  const [shareCircleVisible, setShareCircleVisible] = useState(false);
+  const [diaryToShare, setDiaryToShare] = useState<Diary | null>(null);
 
   // ✅ 关键修复：ActionSheet 动画逻辑（修复点击三个点不显示菜单的问题）
   React.useEffect(() => {
@@ -611,7 +616,7 @@ export default function DiaryListScreen() {
     }
   }, [navigation]);
 
-  type DiaryAction = "copyEntry" | "delete";
+  type DiaryAction = "copyEntry" | "shareToCircle" | "delete";
 
   const getCopyText = (diary: Diary) => {
     const title = diary.title?.trim();
@@ -641,6 +646,14 @@ export default function DiaryListScreen() {
           showToast(t("success.copied"));
         }
         break;
+
+      case "shareToCircle":
+        {
+          setDiaryToShare(selectedDiary);
+          setShareCircleVisible(true);
+        }
+        break;
+
       case "delete":
         Alert.alert(t("confirm.deleteTitle"), t("confirm.deleteMessage"), [
           { text: t("common.cancel"), style: "cancel" },
@@ -982,6 +995,29 @@ export default function DiaryListScreen() {
                 </Text>
               </TouchableOpacity>
             )}
+
+            {/* 分享到圈子 */}
+            <TouchableOpacity
+              style={styles.actionSheetItem}
+              onPress={() => handleAction("shareToCircle")}
+            >
+              <View style={styles.actionIcon}>
+                <Ionicons name="people-outline" size={28} color="#332824" />
+              </View>
+              <Text
+                style={[
+                  styles.actionText,
+                  {
+                    fontFamily: getFontFamilyForText(
+                      t("circle.shareToCircle"),
+                      "regular"
+                    ),
+                  },
+                ]}
+              >
+                {t("circle.shareToCircle")}
+              </Text>
+            </TouchableOpacity>
 
             <TouchableOpacity
               style={[
@@ -2057,6 +2093,20 @@ export default function DiaryListScreen() {
 
       {/* Action Sheet */}
       {renderActionSheet()}
+
+      {/* Circle Share Selector */}
+      <CircleShareSelector
+        visible={shareCircleVisible}
+        onClose={() => {
+          setShareCircleVisible(false);
+          setDiaryToShare(null);
+        }}
+        diaryId={diaryToShare?.diary_id}
+        onShareComplete={() => {
+          showToast(t("circle.shareSuccess"));
+          setDiaryToShare(null);
+        }}
+      />
 
       {/* 月份选择器 Modal */}
       {renderMonthPickerModal()}

@@ -1475,6 +1475,12 @@ export default {
     sharedToCircles: "已分享到 {{count}} 个圈子",
     notShared: "未分享",
     
+    share: {
+      noCircles: "还没有圈子",
+      noCirclesHint: "创建或加入圈子后，即可分享日记",
+      selectedCount: "已选择 {{count}} 个圈子",
+    },
+    
     // 圈子管理
     leaveCircle: "退出圈子",
     leaveConfirm: "确定要退出「{{name}}」吗？",

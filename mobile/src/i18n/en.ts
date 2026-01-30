@@ -1512,6 +1512,12 @@ export default {
     sharedToCircles: "Shared to {{count}} circles",
     notShared: "Not shared",
     
+    share: {
+      noCircles: "No circles yet",
+      noCirclesHint: "Create or join a circle to share diaries",
+      selectedCount: "{{count}} selected",
+    },
+    
     // Circle Management
     leaveCircle: "Leave Circle",
     leaveConfirm: "Leave \"{{name}}\"?",
