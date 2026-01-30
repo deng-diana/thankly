@@ -29,7 +29,7 @@ interface CircleFeedCardProps {
   item: CircleFeedItem;
 }
 
-export default function CircleFeedCard({ item }: CircleFeedCardProps) {
+function CircleFeedCard({ item }: CircleFeedCardProps) {
   const { width: screenWidth } = Dimensions.get('window');
 
   // ======== 相对时间格式化 ========
@@ -228,6 +228,9 @@ export default function CircleFeedCard({ item }: CircleFeedCardProps) {
 }
 
 // ========== 样式 ==========
+// Memoize component to prevent unnecessary re-renders
+export default React.memo(CircleFeedCard);
+
 const styles = StyleSheet.create({
   card: {
     backgroundColor: '#FFFFFF',

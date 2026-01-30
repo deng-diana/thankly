@@ -151,8 +151,14 @@ export default function CircleFeedScreen() {
     </View>
   );
 
-  const renderFeedItem = ({ item }: { item: CircleFeedItem }) => (
-    <CircleFeedCard item={item} />
+  const renderFeedItem = useCallback(
+    ({ item }: { item: CircleFeedItem }) => <CircleFeedCard item={item} />,
+    []
+  );
+
+  const keyExtractor = useCallback(
+    (item: CircleFeedItem) => item.shareId,
+    []
   );
 
   const renderFooter = () => {
@@ -238,6 +244,10 @@ export default function CircleFeedScreen() {
           onEndReached={handleLoadMore}
           onEndReachedThreshold={0.5}
           showsVerticalScrollIndicator={false}
+          removeClippedSubviews={true}
+          maxToRenderPerBatch={10}
+          initialNumToRender={10}
+          windowSize={10}
         />
       )}
     </SafeAreaView>
