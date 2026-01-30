@@ -25,6 +25,7 @@ from ..services.openai_service import OpenAIService
 from ..services.dynamodb_service import DynamoDBService
 from ..services.s3_service import S3Service
 from ..services.circle_service import CircleDBService
+from ..services.notification_service import notification_service
 from ..utils.cognito_auth import get_current_user
 from ..utils.transcription import validate_audio_quality, validate_transcription
 from boto3.dynamodb.conditions import Attr  # ✅ 用于DynamoDB条件表达式
@@ -2709,6 +2710,26 @@ async def share_diary(
         
         # Audit log for security tracking
         logger.info(f"Diary shared: user_id={user_id}, diary_id={diary_id}, circle_id={circle_id}, share_id={share_record.get('shareId')}")
+        
+        # 5. Send push notification (non-blocking, failures don't affect share operation)
+        try:
+            circle = circle_service.get_circle_by_id(circle_id)
+            members = circle_service.get_circle_members(circle_id)
+            member_ids = [m['userId'] for m in members]
+            
+            notification_result = notification_service.send_diary_shared_notification(
+                circle_id=circle_id,
+                sharer_user_id=user_id,
+                sharer_name=diary.get('user_name', 'Someone'),
+                circle_name=circle['name'],
+                diary_title=diary.get('title', ''),
+                member_user_ids=member_ids,
+            )
+            
+            logger.info(f"Push notification result: {notification_result}")
+        except Exception as notify_error:
+            # Log but don't fail the share operation
+            logger.warning(f"Failed to send push notification (non-critical): {notify_error}")
         
         return {
             "message": "Diary shared successfully",

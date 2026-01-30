@@ -27,6 +27,8 @@ import { navigate } from "./src/navigation/navigationRef";
 import {
   maybeAutoEnableReminderOnLaunch,
   refreshDailyReminderIfEnabled,
+  setupCircleNotificationHandlers,
+  registerPushToken,
 } from "./src/services/notificationService";
 import { ensureNotificationChannel } from "./src/services/notificationService";
 import * as SecureStore from "expo-secure-store";
@@ -102,6 +104,13 @@ export default function App() {
     // 这确保即使用户在系统设置中删除了渠道，也能重新创建
     ensureNotificationChannel().catch(() => {});
     
+    // Setup circle notification handlers
+    setupCircleNotificationHandlers();
+    
+    // Register push token for circle notifications (after user login)
+    // This will silently fail if user not logged in, which is expected
+    registerPushToken().catch(() => {});
+    
     refreshDailyReminderIfEnabled().catch(() => {});
     SecureStore.getItemAsync("hasCompletedOnboarding")
       .then((completed) =>
@@ -110,7 +119,27 @@ export default function App() {
       .catch(() => {});
 
     const handleNavigation = (data: any) => {
-      if (!data?.screen) return;
+      if (!data) return;
+      
+      // Handle circle notification (diary shared)
+      if (data.type === 'diary_shared' && data.circleId && data.circleName) {
+        setTimeout(() => {
+          navigate("MainDrawer", {
+            screen: "Home",
+            params: {
+              screen: "CircleFeed",
+              params: {
+                circleId: data.circleId,
+                circleName: data.circleName,
+              },
+            },
+          });
+        }, 300);
+        return;
+      }
+      
+      // Handle legacy notifications
+      if (!data.screen) return;
       const params = data.inputMode ? { inputMode: data.inputMode } : undefined;
       setTimeout(() => {
         if (data.screen === "DiaryList") {

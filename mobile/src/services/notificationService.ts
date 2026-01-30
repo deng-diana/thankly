@@ -1,9 +1,11 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Notifications from "expo-notifications";
+import * as Device from "expo-device";
 import { PermissionStatus } from "expo-modules-core";
 import { Platform } from "react-native";
 import { getCurrentLocale } from "../i18n";
 import { getCurrentUser } from "./authService";
+import { apiService } from "./apiService";
 
 const REMINDER_SETTINGS_KEY = "dailyReminderSettings";
 const REMINDER_NOTIFICATION_ID_KEY = "dailyReminderNotificationId";
@@ -306,4 +308,105 @@ export const sendTestNotification = async () => {
     console.error("Test notification failed:", error);
     throw error;
   }
+};
+
+// ========== Push Token Registration for Circle Notifications ==========
+
+const PUSH_TOKEN_KEY = "circle_push_token";
+
+/**
+ * Get Expo push token for circle notifications
+ */
+export const getExpoPushToken = async (): Promise<string | null> => {
+  try {
+    // Check if device can receive push notifications
+    if (!Device.isDevice) {
+      console.log("⚠️ Push notifications not supported on simulator");
+      return null;
+    }
+
+    // Request permission
+    const granted = await requestNotificationPermission();
+    if (!granted) {
+      console.log("⚠️ Push notification permission denied");
+      return null;
+    }
+
+    // Get Expo push token
+    const tokenData = await Notifications.getExpoPushTokenAsync();
+    const token = tokenData.data;
+
+    console.log("✅ Expo push token obtained:", token);
+    return token;
+  } catch (error) {
+    console.error("❌ Failed to get Expo push token:", error);
+    return null;
+  }
+};
+
+/**
+ * Register push token with backend for circle notifications
+ */
+export const registerPushToken = async (): Promise<boolean> => {
+  try {
+    // Get push token
+    const pushToken = await getExpoPushToken();
+    if (!pushToken) {
+      return false;
+    }
+
+    // Check if token already registered
+    const storedToken = await AsyncStorage.getItem(PUSH_TOKEN_KEY);
+    if (storedToken === pushToken) {
+      console.log("✅ Push token already registered, skipping");
+      return true;
+    }
+
+    // Get device ID (use expo's unique ID)
+    const deviceId = Device.deviceId || Device.osBuildId || 'unknown';
+
+    // Register with backend
+    await apiService.post('/notification/register-token', {
+      pushToken,
+      platform: Platform.OS,
+      deviceId,
+    });
+
+    // Save token to avoid re-registering
+    await AsyncStorage.setItem(PUSH_TOKEN_KEY, pushToken);
+
+    console.log("✅ Push token registered with backend successfully");
+    return true;
+  } catch (error) {
+    console.error("❌ Failed to register push token:", error);
+    return false;
+  }
+};
+
+/**
+ * Setup push notification handlers for circle notifications
+ */
+export const setupCircleNotificationHandlers = () => {
+  // Handler when notification is received while app is in foreground
+  Notifications.setNotificationHandler({
+    handleNotification: async (notification) => {
+      const data = notification.request.content.data;
+      
+      // Check if it's a circle notification
+      if (data?.type === 'diary_shared') {
+        return {
+          shouldShowAlert: true,
+          shouldPlaySound: true,
+          shouldSetBadge: true,
+        };
+      }
+
+      // Default behavior for other notifications
+      return {
+        shouldShowAlert: true,
+        shouldPlaySound: false,
+        shouldSetBadge: false,
+      };
+    },
+  });
 };

@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer
 from fastapi.openapi.utils import get_openapi
 from datetime import datetime  # 用于健康检查的时间戳
-from .routers import diary, auth, account, circle  # Add circle router (intimate-circle feature)
+from .routers import diary, auth, account, circle, notification
 from .config import get_settings
 
 # 获取配置（延迟初始化，避免启动时失败）
@@ -120,6 +120,13 @@ app.include_router(
     circle.router,
     prefix="",  # Prefix already defined in router as /circle
     tags=["Circle"]
+)
+
+# Notification router (Push notifications)
+app.include_router(
+    notification.router,
+    prefix="",  # Prefix already defined in router as /notification
+    tags=["Notification"]
 )
 
 # 根路径
