@@ -91,9 +91,11 @@ class NotificationService:
         try:
             response = self.push_tokens_table.query(
                 KeyConditionExpression='userId = :uid',
-                ExpressionAttributeValues={':uid': user_id},
                 FilterExpression='active = :active',
-                ExpressionAttributeValues={':active': True},
+                ExpressionAttributeValues={
+                    ':uid': user_id,
+                    ':active': True,
+                },
             )
             
             return response.get('Items', [])

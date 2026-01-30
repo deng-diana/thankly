@@ -84,12 +84,14 @@ export default function CircleShareSelector({
     if (visible) {
       loadCircles();
     } else {
-      // Modal 关闭时重置状态
-      setTimeout(() => {
+      // Modal 关闭时重置状态 (with cleanup to prevent memory leak)
+      const timer = setTimeout(() => {
         setCircles([]);
         setSelectedCircleIds(new Set());
         setInitialSharedIds(new Set());
       }, 300);
+      
+      return () => clearTimeout(timer);
     }
   }, [visible, loadCircles]);
 
