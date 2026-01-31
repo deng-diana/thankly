@@ -123,20 +123,42 @@ class OpenAIService:
     }
     
     def __init__(self):
-        """初始化服务客户端"""
+        """初始化服务客户端 + 连接池优化"""
         settings = get_settings()
         
-        # OpenAI 客户端（用于 Whisper 和同步调用的兼容）
+        # 🔥 配置 HTTP 连接池（解决 Lambda 网络延迟问题）
+        # 配合 EventBridge 每 5 分钟 warmup，连接池可以保持热连接
+        # 预期性能提升：10秒 → 1-2秒
+        http_client = httpx.AsyncClient(
+            limits=httpx.Limits(
+                max_connections=50,           # 最大连接数
+                max_keepalive_connections=20, # 保持活跃连接数
+                keepalive_expiry=60.0         # 连接保持时间（秒）
+            ),
+            timeout=httpx.Timeout(
+                connect=5.0,   # 连接超时
+                read=60.0,     # 读取超时（AI 处理可能较慢）
+                write=10.0,    # 写入超时
+                pool=5.0       # 连接池获取超时
+            )
+        )
+        
+        # OpenAI 客户端（同步，用于 Whisper）
         self.openai_client = OpenAI(api_key=settings.openai_api_key)
-        # ✅ Phase 1.1: 添加 AsyncOpenAI 客户端（用于异步调用，提升性能）
-        self.async_client = AsyncOpenAI(api_key=settings.openai_api_key)
+        
+        # ✅ Phase 1.1 + 连接池优化：AsyncOpenAI 客户端
+        self.async_client = AsyncOpenAI(
+            api_key=settings.openai_api_key,
+            http_client=http_client  # 🔥 注入连接池
+        )
         self.openai_api_key = settings.openai_api_key
         
-        print(f"✅ AI 服务初始化完成（2026-01-27 优化版: gpt-4o-mini + 优化提示词）")
+        print(f"✅ AI 服务初始化完成（2026-01-30 连接池优化版）")
+        print(f"   - 连接池: max=50, keepalive=20, expiry=60s")
         print(f"   - Whisper: 语音转文字")
-        print(f"   - gpt-4o-mini: 润色 + 标题 (polish) - 优化提示词")
-        print(f"   - gpt-4o: 情绪分析 (emotion) - 准确度优先")
-        print(f"   - gpt-4o-mini: AI 反馈 (feedback) - 简短有力")
+        print(f"   - gpt-4o-mini: 润色 + 标题 (polish)")
+        print(f"   - gpt-4o: 情绪分析 (emotion)")
+        print(f"   - gpt-4o-mini: AI 反馈 (feedback)")
 
     def _log_timing(self, label: str, start_time: float) -> None:
         elapsed = time_module.perf_counter() - start_time

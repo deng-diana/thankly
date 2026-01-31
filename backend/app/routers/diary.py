@@ -2602,10 +2602,6 @@ async def delete_diary(
         user_id = user['user_id']
         logger.info(f"Delete diary request: diary_id={diary_id}, user_id={user_id}")
         
-        # Cascade delete: cleanup shares first (before diary deletion)
-        # This ensures orphaned share records are avoided
-        circle_service.cleanup_diary_shares(diary_id)
-        
         # Delete diary entry
         db_service.delete_diary(
             diary_id=diary_id,

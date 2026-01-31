@@ -16,6 +16,7 @@ import { Alert, AppState } from "react-native";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as FileSystem from "expo-file-system/legacy";
+import i18n from "../i18n";
 
 // ============================================================================
 // Global State Management
@@ -546,29 +547,34 @@ export function useVoiceRecording(
       // Step 8: Create recording instance
       console.log("📱 Creating recording instance...");
       
+      // ✅ Phase 1 优化 (2026-01-30): 音频压缩提升上传速度
+      // - 64kbps: 语音识别足够，体积减少 33%
+      // - 22050Hz: iOS 兼容的低采样率（16kHz 不被 iOS AAC 支持）
+      // - 单声道: 语音不需要立体声，体积减少 50%
+      // 参考: https://community.openai.com/t/what-minimum-bitrate-should-i-use-for-whisper/178210
       const recordingOptions: Audio.RecordingOptions = {
         android: {
           extension: ".m4a",
           outputFormat: Audio.AndroidOutputFormat.MPEG_4,
           audioEncoder: Audio.AndroidAudioEncoder.AAC,
-          sampleRate: 44100,
-          numberOfChannels: 2,
-          bitRate: 96000, 
+          sampleRate: 22050,       // 优化: 44100 → 22050 (低采样率，节省空间)
+          numberOfChannels: 1,     // 优化: 2 → 1 (单声道，语音足够)
+          bitRate: 64000,          // 优化: 96000 → 64000 (语音识别足够)
         },
         ios: {
           extension: ".m4a",
           outputFormat: Audio.IOSOutputFormat.MPEG4AAC,
-          audioQuality: Audio.IOSAudioQuality.HIGH,
-          sampleRate: 44100,
-          numberOfChannels: 2,
-          bitRate: 96000, 
+          audioQuality: Audio.IOSAudioQuality.MEDIUM, // 优化: HIGH → MEDIUM (配合低比特率)
+          sampleRate: 22050,       // 优化: 44100 → 22050 (iOS 兼容的低采样率)
+          numberOfChannels: 1,     // 优化: 2 → 1 (单声道，语音足够)
+          bitRate: 64000,          // 优化: 96000 → 64000 (语音识别足够)
           linearPCMBitDepth: 16,
           linearPCMIsBigEndian: false,
           linearPCMIsFloat: false,
         },
         web: {
           mimeType: "audio/webm",
-          bitsPerSecond: 96000, 
+          bitsPerSecond: 64000,    // 优化: 96000 → 64000
         },
       };
 
@@ -747,8 +753,10 @@ export function useVoiceRecording(
       setDuration(0);
       try { await deactivateKeepAwake(KEEP_AWAKE_TAG); } catch (e) {}
       const msg = error instanceof Error ? error.message : String(error);
-      const errorMessage = typeof msg === "string" && msg.includes("Only one Recording") ? "麦克风正被其他应用占用。" : "无法启动录音。";
-      Alert.alert("录音失败", errorMessage);
+      const errorMessage = typeof msg === "string" && msg.includes("Only one Recording")
+        ? i18n.t("errors.microphoneInUse")
+        : i18n.t("errors.unableToStartRecording");
+      Alert.alert(i18n.t("errors.recordingFailed"), errorMessage);
     } finally {
       globalIsPreparingRecording = false;
       setIsStarting(false);

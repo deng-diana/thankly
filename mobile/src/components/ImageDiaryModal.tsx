@@ -1016,14 +1016,14 @@ export default function ImageDiaryModal({
 
       // ✅ 检查录音时长(最短3秒) - 与 RecordingModal 保持一致
       if (recordedDuration < 3) {
-        Alert.alert("提示", "录音时间太短，请重新录制", [
+        Alert.alert(t("common.notice"), t("errors.recordingTooShortAlert"), [
           {
-            text: "重新录制",
+            text: t("common.rerecord"),
             style: "default",
             onPress: () => startRecording(),
           },
           {
-            text: "取消",
+            text: t("common.cancel"),
             style: "cancel",
             onPress: () => handleCancelRecording(),
           },
@@ -1032,7 +1032,7 @@ export default function ImageDiaryModal({
       }
 
       if (!uri) {
-        Alert.alert("错误", "录音文件不存在，请重新录制");
+        Alert.alert(t("common.error"), t("errors.recordingFileNotFound"));
         return;
       }
 
