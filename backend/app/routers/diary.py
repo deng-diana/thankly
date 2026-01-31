@@ -127,9 +127,22 @@ def cleanup_old_tasks():
         task_progress.pop(task_id, None)
 
 
+# 🔥 单例模式：确保连接池在 Lambda 容器生命周期内复用
+_openai_service_instance: Optional[OpenAIService] = None
+
 def get_openai_service():
-    """获取 OpenAI 服务实例（延迟初始化）"""
-    return OpenAIService()
+    """
+    获取 OpenAI 服务单例实例
+    
+    🔥 连接池优化关键：
+    - 使用单例模式，确保 httpx 连接池在整个 Lambda 容器生命周期内复用
+    - 配合 EventBridge 5 分钟 warmup，可以保持热连接
+    - 预期性能提升：10秒 → 1-2秒
+    """
+    global _openai_service_instance
+    if _openai_service_instance is None:
+        _openai_service_instance = OpenAIService()
+    return _openai_service_instance
 
 def update_task_progress(task_id: str, status: str, progress: int = 0, 
                         step: int = 0, step_name: str = "", message: str = "",
