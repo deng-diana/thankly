@@ -263,9 +263,9 @@ class OpenAIService:
             
             print(f"✅ 临时文件准备完成")
             
-            # ✅ Phase 1.1: 使用 httpx.AsyncClient 异步调用 Whisper（提升性能）
-            # ✅ 2026-01-27 修复: 增加重试机制，提高网络稳定性
-            print("📤 正在识别语音（verbose_json 模式 - 异步）...")
+            # 🔥 Phase 2.0: 使用 AsyncOpenAI SDK 调用 Whisper（复用连接池）
+            # ✅ 连接池优化：使用 self.async_client，避免每次创建新连接
+            print("📤 正在识别语音（verbose_json 模式 - SDK + 连接池）...")
             response_json = None
             max_retries = 3
             retry_delay = 2  # 秒
@@ -274,39 +274,34 @@ class OpenAIService:
             
             for attempt in range(max_retries):
                 try:
-                    # ✅ 增加超时时间到120秒，适应慢网络
-                    async with httpx.AsyncClient(timeout=120.0) as client:
-                        file_stream = io.BytesIO(audio_content)
-                        response = await client.post(
-                            "https://api.openai.com/v1/audio/transcriptions",
-                            headers={
-                                "Authorization": f"Bearer {self.openai_api_key}",
-                            },
-                            data={
-                                "model": self.MODEL_CONFIG["transcription"],
-                                "language": "",
-                                "temperature": "0",
-                                "response_format": "verbose_json",
-                            },
-                            files={
-                                "file": (filename or "recording.m4a", file_stream, "audio/m4a"),
-                            },
-                        )
-                        response.raise_for_status()
-                        response_json = response.json()
-                        whisper_elapsed = time_module.time() - whisper_start_time
-                        print(f"⏱️ Whisper 转录完成，耗时: {whisper_elapsed:.2f} 秒")
-                        break  # 成功，退出重试循环
-                        
-                except httpx.HTTPStatusError as http_err:
-                    # HTTP状态码错误（4xx, 5xx）- 有 response 属性
-                    print(f"❌ Whisper HTTP 状态错误 (尝试 {attempt + 1}/{max_retries}): {http_err}")
-                    if http_err.response is not None:
-                        print(f"📄 Whisper 响应状态码: {http_err.response.status_code}")
-                        try:
-                            print(f"📄 Whisper 响应内容: {http_err.response.text[:500]}...")
-                        except:
-                            pass
+                    # 🔥 使用 SDK 方法，复用连接池
+                    file_stream = io.BytesIO(audio_content)
+                    file_stream.name = filename or "recording.m4a"  # SDK 需要 name 属性
+                    
+                    transcription = await self.async_client.audio.transcriptions.create(
+                        model=self.MODEL_CONFIG["transcription"],
+                        file=file_stream,
+                        response_format="verbose_json",
+                        temperature=0,
+                    )
+                    
+                    # SDK 返回的是 TranscriptionVerbose 对象，转换为 dict
+                    response_json = {
+                        "text": transcription.text,
+                        "language": transcription.language,
+                        "segments": [
+                            {"text": seg.text, "start": seg.start, "end": seg.end}
+                            for seg in (transcription.segments or [])
+                        ] if hasattr(transcription, 'segments') and transcription.segments else []
+                    }
+                    
+                    whisper_elapsed = time_module.time() - whisper_start_time
+                    print(f"⏱️ Whisper 转录完成，耗时: {whisper_elapsed:.2f} 秒")
+                    break  # 成功，退出重试循环
+                    
+                except (APIError, RateLimitError, APIConnectionError) as api_err:
+                    # OpenAI API 错误
+                    print(f"❌ Whisper API 错误 (尝试 {attempt + 1}/{max_retries}): {type(api_err).__name__}: {api_err}")
                     if attempt < max_retries - 1:
                         print(f"⏳ 等待 {retry_delay} 秒后重试...")
                         await asyncio.sleep(retry_delay)
@@ -314,8 +309,8 @@ class OpenAIService:
                     else:
                         raise ValueError("TRANSCRIPTION_SERVICE_UNAVAILABLE")
                         
-                except (httpx.ReadError, httpx.ConnectError, httpx.TimeoutException) as transport_err:
-                    # ✅ 修复: 网络传输错误（没有 response 属性）- 单独处理
+                except httpx.RequestError as transport_err:
+                    # 网络传输错误
                     print(f"❌ Whisper 网络传输错误 (尝试 {attempt + 1}/{max_retries}): {type(transport_err).__name__}: {transport_err}")
                     if attempt < max_retries - 1:
                         print(f"⏳ 等待 {retry_delay} 秒后重试...")
@@ -324,16 +319,9 @@ class OpenAIService:
                     else:
                         raise ValueError("TRANSCRIPTION_NETWORK_ERROR")
                         
-                except httpx.HTTPError as http_err:
-                    # 其他 HTTP 错误
-                    print(f"❌ Whisper HTTP 请求失败 (尝试 {attempt + 1}/{max_retries}): {type(http_err).__name__}: {http_err}")
-                    # ✅ 修复: 安全地检查是否有 response 属性
-                    if hasattr(http_err, 'response') and http_err.response is not None:
-                        print(f"📄 Whisper 响应状态码: {http_err.response.status_code}")
-                        try:
-                            print(f"📄 Whisper 响应内容: {http_err.response.text[:500]}...")
-                        except:
-                            pass
+                except Exception as e:
+                    # 其他错误
+                    print(f"❌ Whisper 未知错误 (尝试 {attempt + 1}/{max_retries}): {type(e).__name__}: {e}")
                     if attempt < max_retries - 1:
                         print(f"⏳ 等待 {retry_delay} 秒后重试...")
                         await asyncio.sleep(retry_delay)
